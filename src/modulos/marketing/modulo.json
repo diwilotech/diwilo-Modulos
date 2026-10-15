@@ -1,0 +1,61 @@
+{
+  "id": "marketing",
+  "nombre": "Marketing",
+  "version": "1.1.0",
+  "descripcion": "Marketing Hub de Diwilo por negocio: clientes y leads, oportunidades (embudo), campañas con presupuesto, gasto, costo por lead, ROI y links de rastreo por plataforma con QR, tareas con plantillas y automatizaciones (lead nuevo, sin contacto, presupuesto, factura vencida, semanal), listas con revisión de sitios y feeds, informes del analista de IA y suscripciones/herramientas.",
+  "icono": "bi-megaphone",
+  "menu": {
+    "ruta": "/staff/marketing.html",
+    "orden": 70
+  },
+  "permisos": {
+    "ver": "staff",
+    "configurar": "admin"
+  },
+  "widgets": [
+    {
+      "id": "leads",
+      "api": "/api/marketing/resumen"
+    }
+  ],
+  "ia": [
+    "marketing.resumen",
+    "marketing.buscar_contactos",
+    "marketing.tareas_pendientes",
+    "marketing.ver_listas",
+    "marketing.leer_lista",
+    "marketing.ver_automatizaciones",
+    "marketing.datos_informe",
+    "marketing.ver_informes",
+    "marketing.revisar_lista",
+    "marketing.crear_lista",
+    "marketing.agregar_a_lista",
+    "marketing.crear_contacto",
+    "marketing.cambiar_etapa_contacto",
+    "marketing.crear_tarea",
+    "marketing.marcar_tarea_hecha",
+    "marketing.crear_campana",
+    "marketing.crear_automatizacion",
+    "marketing.guardar_informe"
+  ],
+  "tablas": [
+    "mk_contacts",
+    "mk_deals",
+    "mk_campaigns",
+    "mk_spend",
+    "mk_links",
+    "mk_tasks",
+    "mk_automations",
+    "mk_lists",
+    "mk_list_items",
+    "mk_tools",
+    "mk_reports"
+  ],
+  "rutas_publicas": [
+    "/l/:slug"
+  ],
+  "tarea_diaria": "automatizaciones (leads sin contacto, presupuesto de campañas, facturas vencidas si usa Finanzas, revisión e informe de los lunes)",
+  "depende_de": [],
+  "pagina": "/m/marketing.js",
+  "central": true
+}

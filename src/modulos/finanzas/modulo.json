@@ -1,0 +1,57 @@
+{
+  "id": "finanzas",
+  "nombre": "Finanzas",
+  "version": "1.1.0",
+  "descripcion": "Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), facturas y cuentas de cobro en PDF con QR de validación, cartera, gastos recurrentes, centros de costo, presupuestos, conciliación bancaria y exportación para el contador, informes del analista de IA.",
+  "icono": "bi-cash-coin",
+  "menu": {
+    "ruta": "/staff/finanzas.html",
+    "orden": 80
+  },
+  "permisos": {
+    "ver": "admin",
+    "configurar": "admin"
+  },
+  "widgets": [
+    {
+      "id": "mes",
+      "api": "/api/finanzas/resumen"
+    }
+  ],
+  "ia": [
+    "finanzas.resumen_mes",
+    "finanzas.cartera",
+    "finanzas.ver_centros_y_cuentas",
+    "finanzas.ver_gastos_recurrentes",
+    "finanzas.buscar_movimientos",
+    "finanzas.datos_informe",
+    "finanzas.ver_informes",
+    "finanzas.crear_centro_costo",
+    "finanzas.crear_cuenta",
+    "finanzas.registrar_movimiento",
+    "finanzas.editar_movimiento",
+    "finanzas.crear_gasto_recurrente",
+    "finanzas.editar_gasto_recurrente",
+    "finanzas.crear_cuenta_cobro",
+    "finanzas.guardar_informe"
+  ],
+  "tablas": [
+    "fin_cost_centers",
+    "fin_accounts",
+    "fin_invoices",
+    "fin_movements",
+    "fin_recurring",
+    "fin_budgets",
+    "fin_bank_lines",
+    "fin_billing_profile",
+    "fin_trm",
+    "fin_reports"
+  ],
+  "rutas_publicas": [
+    "/validar/:codigo"
+  ],
+  "tarea_diaria": "gastos recurrentes que vencen",
+  "depende_de": [],
+  "pagina": "/m/finanzas.js",
+  "central": true
+}

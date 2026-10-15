@@ -1,0 +1,20 @@
+# Finanzas — cambios
+
+## 1.1.0 · 2026-10-14
+- Igual al Finance Hub de Diwilo en las herramientas de IA: ver centros de costo y cuentas, ver gastos recurrentes, buscar movimientos (por texto, mes, tipo o sin centro de costo), crear centro de costo y cuenta (sin duplicar), editar movimientos, crear gasto recurrente (con cobros ya hechos y en dólares con TRM) y editarlo (llevando el centro de costo a sus cobros).
+- Registrar movimiento: centro de costo y cuenta por nombre y sin duplicar. Cuenta de cobro: ciudad, correo, detalle por línea y centro de costo.
+- **Informes** del analista de finanzas (Finanzas → Informes): los escribe el asistente de IA del negocio por MCP con los datos del mes.
+- La herramienta `finanzas.movimientos` pasa a llamarse `finanzas.buscar_movimientos` (como en Diwilo).
+- Migración `0002_informes.sql` (solo agrega la tabla `fin_reports`).
+
+## 1.0.0 · 2026-10-14
+- Primera versión publicada: es el **Finance Hub de Diwilo** llevado a las apps, por negocio.
+- Resumen del mes (ingresos, gastos, resultado, presupuesto, cartera por antigüedad, flujo de caja real y proyectado, cuentas).
+- Ingresos y gastos en COP o USD (TRM oficial del Banco de la República de cada día), con centro de costo, cuenta y factura.
+- Facturas por cobrar y por pagar; cuentas de cobro con líneas, consecutivo, valor en letras, firma, llave Bre-B,
+  QR para el comprobante y QR de validación pública (`/validar/:código`); registro de cobros y pagos.
+- Gastos recurrentes (tarea diaria a las 3:00 a. m.), centros de costo y presupuestos por mes.
+- Bancos: cuentas, importación de extractos CSV y conciliación automática y manual.
+- Exportación CSV para el contador.
+- Herramientas de IA (MCP): resumen del mes, cartera, movimientos, registrar movimiento y crear cuenta de cobro.
+- Reemplaza la versión de prueba 0.1.0 (nunca instalada en una app).

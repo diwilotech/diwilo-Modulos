@@ -1,0 +1,25 @@
+{
+  // Diwilo Modulos: Worker central de los módulos horizontales (Finanzas, Marketing…) para todas las apps.
+  // Sin dominio ni workers.dev: solo lo llaman las apps (y Diwilo Web) por service binding con "entrypoint": "Modulos".
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "diwilo-modulos",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  // Workers Builds: en cada push a main aplica las migraciones y despliega.
+  "build": {
+    "command": "sh -c 'if [ -n \"$WORKERS_CI\" ]; then npx wrangler d1 migrations apply diwilo-modulos-db --remote; fi'"
+  },
+  // Código de las páginas de los módulos (public/m/*): lo piden las apps por RPC (asset), no se publica.
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "diwilo-modulos-db", "database_id": "PENDIENTE-crear-con-wrangler-d1-create", "migrations_dir": "migrations" }
+  ],
+  // Informes automáticos de Marketing: sin binding AI, el lunes queda la tarea de pedírselo al asistente del negocio.
+  // Para que los escriba Workers AI agrega "ai": { "binding": "AI" } (gasta la cuota diaria compartida).
+  // 3:00 a. m. Colombia: gastos recurrentes y automatizaciones de todos los negocios.
+  "triggers": { "crons": ["0 8 * * *"] }
+}
