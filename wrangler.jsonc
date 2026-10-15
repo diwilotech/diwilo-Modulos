@@ -16,7 +16,7 @@
   // Código de las páginas de los módulos (public/m/*): lo piden las apps por RPC (asset), no se publica.
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   "d1_databases": [
-    { "binding": "DB", "database_name": "diwilo-modulos-db", "database_id": "PENDIENTE-crear-con-wrangler-d1-create", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "diwilo-modulos-db", "database_id": "d4969edc-4280-438f-a19d-e5a1ac07c33c", "migrations_dir": "migrations" }
   ],
   // Informes automáticos de Marketing: sin binding AI, el lunes queda la tarea de pedírselo al asistente del negocio.
   // Para que los escriba Workers AI agrega "ai": { "binding": "AI" } (gasta la cuota diaria compartida).
