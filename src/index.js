@@ -9,6 +9,7 @@
 //   asset(path)                       código de las páginas (/m/<modulo>.js y .html) -> { status, type, body }
 //   link(app, slug) · click(app, id)  links de rastreo públicos (/l/:slug en el dominio de la app)
 //   validar(app, code, origin)        validación pública de documentos (/validar/:código en el dominio de la app)
+//   tarjeta(app, rest, origin, opts)  tarjetas de presentación públicas (/c/… en el dominio de la app)
 //   uso(app, businessId)              registros por módulo (Diwilo avisa antes de quitar un módulo)
 //   purge(app, businessIds)           borra los datos de negocios que la app ya borró
 // Tareas diarias (cron): gastos recurrentes de Finanzas y automatizaciones de Marketing de todos los negocios.
@@ -18,6 +19,7 @@ import { HttpError } from './lib/http.js';
 import { authorize, checkCtx, syncOrg, orgId } from './lib/contexto.js';
 import { MODULOS } from './modulos/index.js';
 import { linkBySlug, countClick } from './modulos/marketing/api.js';
+import { publicCard } from './modulos/marketing/tarjetas.js';
 import { validatePage } from './modulos/finanzas/api.js';
 
 const router = new Router();
@@ -90,6 +92,11 @@ export class Modulos extends WorkerEntrypoint {
   async validar(app, code, origin) {
     const res = await validatePage(new Request(`${origin}/validar/${encodeURIComponent(code || '')}`), this.env, app);
     return asText(res);
+  }
+
+  tarjeta(app, rest, origin, opts = {}) {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
+    return publicCard(this.env, app, rest, origin, opts);
   }
 
   async uso(app, businessId) {

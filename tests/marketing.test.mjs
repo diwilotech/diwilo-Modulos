@@ -47,6 +47,20 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Marketing: datos para el informe con la instrucción del analista', !!(await A.app(`${M}/reports/datos`)).data.instruccion);
   check('Marketing: guarda un informe', (await A.app(`${M}/reports`, { method: 'POST', body: { title: 'Semana 1', content: 'Todo bien', origen: 'manual' } })).status === 201);
 
+  // Tarjetas: la del negocio se crea sola, se publica en el dominio de la app (/c/<slug>) con vCard
+  const cl = await A.app(`${M}/cards`);
+  const pred = cl.data.rows?.find((x) => x.predeterminada);
+  check('Marketing: la tarjeta del negocio se crea sola', cl.status === 200 && cl.data.rows.length === 1 && !!pred, JSON.stringify(cl.data).slice(0, 200));
+  check('Marketing: no se duplica al volver a abrir', (await A.app(`${M}/cards`)).data.rows.length === 1);
+  check('Marketing: la tarjeta del negocio no se borra', (await A.app(`${M}/cards/${pred.id}`, { method: 'DELETE' })).status === 409);
+  const nc = await A.app(`${M}/cards`, { method: 'POST', body: { name: 'Laura Restrepo', role: 'Directora', whatsapp: '+57 300 111 2233', accent: 'rosa' } });
+  check('Marketing: crea otra tarjeta', nc.status === 201);
+  const pub = await fetch(`${APP}/c/${pred.slug}`);
+  check('Marketing: la tarjeta pública abre en el dominio de la app', pub.status === 200 && (await pub.text()).includes(pred.name));
+  check('Marketing: guarda el contacto (vCard)', (await (await fetch(`${APP}/c/${pred.slug}.vcf`)).text()).startsWith('BEGIN:VCARD'));
+  check('Marketing: foto no válida se rechaza', (await A.app(`${M}/cards/${nc.data.id}/foto`, { method: 'PUT', body: { photo_data: 'x' } })).status === 400);
+  check('Marketing: B no ve las tarjetas de A', !(await B.app(`${M}/cards`)).data.rows?.some((x) => x.id === nc.data.id));
+
   // Aislamiento
   check('Marketing: B no ve los informes de A', (await B.app(`${M}/reports`)).data.rows?.length === 0);
   check('Marketing: B no ve los contactos de A', (await B.app(`${M}/contacts`)).data.rows?.length === 0);

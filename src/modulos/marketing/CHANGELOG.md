@@ -1,5 +1,12 @@
 # Marketing — cambios
 
+## 1.2.0 · 2026-10-15
+- **Tarjetas de presentación digitales** (las mismas de Diwilo): página pública `/c/<slug>` en el dominio de cada app, instalable como
+  app con su propio ícono, vCard para guardar el contacto, foto, colores, WhatsApp, redes, QR y contador de vistas.
+- **Tarjeta del negocio:** se crea sola la primera vez que se abre Marketing → Tarjetas, con el nombre del negocio, el color de su
+  tema y el correo del propietario. No se puede borrar (sí editar).
+- Migración `0004_tarjetas.sql` (tabla `mk_cards`).
+
 ## 1.1.0 · 2026-10-14
 - Igual al Marketing Hub de Diwilo en todo lo que faltaba:
   - **Revisar sitios de una lista** (blogs de competidores, fuentes): lee su feed RSS o la página y guarda sus últimas publicaciones.

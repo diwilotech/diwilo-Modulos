@@ -1,6 +1,6 @@
 // Prueba los módulos centrales de punta a punta: una COPIA de la Plantilla App Diwilo (nunca la original) que los usa
 // por RPC + este Worker, en local. Corre las pruebas de la app y las de tests/*.test.mjs. Debe terminar en «Todo bien».
-//   npm test                       (plantilla en ../Plantilla App Diwilo o PLANTILLA_DIWILO)
+//   npm test                       (base: ../Control de Academia o PLANTILLA_DIWILO)
 import { cpSync, mkdtempSync, symlinkSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { MODULOS_IDS } from './ids.mjs';
 
 const central = resolve('.');
-const plantilla = resolve(process.env.PLANTILLA_DIWILO || '../Plantilla App Diwilo');
+const plantilla = resolve(process.env.PLANTILLA_DIWILO || '../Control de Academia');
 const dir = mkdtempSync(join(tmpdir(), 'diwilo-modulos-'));
 console.log(`Copia de la plantilla en ${dir}`);
 cpSync(plantilla, dir, { recursive: true, filter: (s) => !/\/(node_modules|\.wrangler|\.git)(\/|$)/.test(s) && !s.endsWith('.dev.vars') });

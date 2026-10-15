@@ -243,6 +243,26 @@ Usa solo los datos que te doy; si faltan datos, dilo y sugiere qué registrar. M
 }
 
 export function routes(r) {
+  // Movimientos que llegan de otro sistema (pagos de suscripciones, cuotas de una app…): no se duplican por `ref`.
+  //   POST /api/finanzas/movements/externo { ref, kind, date, amount, category?, description?, counterparty?, centro_costo? (nombre; se crea si no existe) }
+  r.post(`${B}/movements/externo`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);
+    if (!ref) throw new HttpError(400, 'Falta ref');
+    const prev = await one(c.env, 'SELECT id FROM fin_movements WHERE business_id = ? AND ref = ?', c.businessId, ref);
+    if (prev) return json({ id: prev.id, nuevo: false });
+    const kind = b.kind === 'gasto' ? 'gasto' : 'ingreso', amount = cast('valor', 'money!', b.amount), date = cast('fecha', 'date', b.date) || today();
+    let cc = null;
+    if (b.centro_costo) {
+      const name = String(b.centro_costo).slice(0, 120);
+      cc = (await one(c.env, 'SELECT id FROM fin_cost_centers WHERE business_id = ? AND lower(name) = lower(?)', c.businessId, name))?.id;
+      if (!cc) { const t0 = now(); cc = (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'app', 1, ?, ?)").bind(c.businessId, name, t0, t0).run()).meta.last_row_id; }
+    }
+    const t = now();
+    const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(c.businessId, kind, date, amount, b.category ? String(b.category).slice(0, 120) : null, b.description ? String(b.description).slice(0, 300) : null, b.counterparty ? String(b.counterparty).slice(0, 200) : null, cc, ref, t, t).run();
+    if (res.meta.changes) await audit(c, `Registró ${kind === 'ingreso' ? 'el ingreso' : 'el gasto'} «${String(b.description || ref).slice(0, 60)}» por $${amount.toLocaleString('es-CO')}`, { modulo: MOD });
+    return json({ id: res.meta.last_row_id, nuevo: !!res.meta.changes }, res.meta.changes ? 201 : 200);
+  });
   const api = crud(r, { base: B, modulo: MOD, entities: ENTITIES });
   r.get(`${B}/reports/datos`, `tenant:${MOD}`, async (c) => json(await reportData(c, c.url.searchParams.get('month'))));
 

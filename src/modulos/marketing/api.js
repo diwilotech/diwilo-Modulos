@@ -7,6 +7,7 @@
 //   POST   /api/marketing/lists/:id/check               revisa los sitios o feeds de una lista (p. ej. blogs de competidores)
 //   CRUD   /api/marketing/reports                       informes del analista (los escribe el asistente de IA del negocio por MCP)
 //   GET    /api/marketing/reports/datos                 datos del periodo para escribir un informe
+//   CRUD   /api/marketing/cards                         tarjetas de presentación (tarjetas.js; la del negocio se crea sola)
 //   /l/:slug (público, en el dominio de cada app): link() y click() de src/index.js
 // Automatizaciones: «llega un lead nuevo» corre al instante; «sin contacto», «presupuesto de campaña», «factura vencida»
 // (si el negocio usa Finanzas) y «semanal» (lunes), cada día (daily). «informe_ia» deja la tarea de pedir el informe al
@@ -16,6 +17,7 @@ import { crud, today, now, addDays, all, one, DATE } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { readFeed } from './web.js';
 import { orgUsa } from '../../lib/contexto.js';
+import { CARD_ENTITY, cardRoutes } from './tarjetas.js';
 
 const MOD = 'marketing';
 const B = '/api/marketing';
@@ -248,7 +250,33 @@ export async function marketingSummary(c, fromP, toP) {
 }
 
 export function routes(r) {
-  const api = crud(r, { base: B, modulo: MOD, entities: ENTITIES });
+  cardRoutes(r); // antes del CRUD: la lista de tarjetas crea la predeterminada
+  // Contactos que llegan de otro sistema (formulario del sitio, otro módulo de la app…): no se duplican por `ref`.
+  //   POST /api/marketing/contacts/externo  { ref, name, email?, phone?, source?, utm_campaign?, notes?, stage?, fecha? } -> { id, nuevo }
+  //   PATCH /api/marketing/contacts/externo { ref, stage }
+  r.post(`${B}/contacts/externo`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);
+    if (!ref) throw new HttpError(400, 'Falta ref');
+    const prev = await one(c.env, 'SELECT id FROM mk_contacts WHERE business_id = ? AND ref = ?', c.businessId, ref);
+    if (prev) return json({ id: prev.id, nuevo: false });
+    const camp = b.utm_campaign ? await one(c.env, 'SELECT id FROM mk_campaigns WHERE business_id = ? AND utm_campaign = ?', c.businessId, String(b.utm_campaign)) : null;
+    const stage = STAGES_CONTACT.includes(b.stage) ? b.stage : 'lead', t = now(), created = Number(b.fecha) > 0 ? Number(b.fecha) : t;
+    const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO mk_contacts (business_id, name, email, phone, stage, source, campaign_id, notes, ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(c.businessId, String(b.name || b.email || 'Lead').slice(0, 300), b.email ? String(b.email).slice(0, 254) : null, b.phone ? String(b.phone).slice(0, 60) : null, stage,
+        b.source ? String(b.source).slice(0, 300) : null, camp?.id || null, b.notes ? String(b.notes).slice(0, 2000) : null, ref, created, t).run();
+    if (!res.meta.changes) return json({ id: (await one(c.env, 'SELECT id FROM mk_contacts WHERE business_id = ? AND ref = ?', c.businessId, ref))?.id, nuevo: false });
+    const id = res.meta.last_row_id;
+    if (stage === 'lead') await onNewContact(c.env, c.businessId, { id, name: b.name, campaign_id: camp?.id || null });
+    await audit(c, `Llegó el lead «${String(b.name || b.email || 'Lead').slice(0, 60)}»${b.source ? ` (${String(b.source).slice(0, 40)})` : ''}`, { modulo: MOD });
+    return json({ id, nuevo: true }, 201);
+  });
+  r.patch(`${B}/contacts/externo`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req);
+    if (!STAGES_CONTACT.includes(b.stage)) throw new HttpError(400, 'Etapa no válida');
+    await c.env.DB.prepare('UPDATE mk_contacts SET stage = ?, updated_at = ? WHERE business_id = ? AND ref = ?').bind(b.stage, now(), c.businessId, String(b.ref || '')).run();
+    return json({ ok: true });
+  });
+  const api = crud(r, { base: B, modulo: MOD, entities: { ...ENTITIES, cards: CARD_ENTITY } });
 
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => json(await marketingSummary(c, c.url.searchParams.get('from'), c.url.searchParams.get('to'))));
   r.get(`${B}/resumen`, `tenant:${MOD}`, async (c) => {

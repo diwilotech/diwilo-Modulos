@@ -1,5 +1,5 @@
 // Página del módulo Marketing (Marketing Hub de Diwilo): resumen, clientes y leads, oportunidades, campañas con links
-// de rastreo, tareas y automatizaciones, listas y suscripciones/herramientas.
+// de rastreo, tareas y automatizaciones, listas, informes, tarjetas de presentación y suscripciones/herramientas.
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
   const { api, esc, toast, confirm, modal } = window.App;
@@ -64,14 +64,14 @@ DW.ready.then((me) => {
   };
 
   const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['contactos', 'Clientes y leads', 'bi-person-lines-fill'], ['oportunidades', 'Oportunidades', 'bi-funnel'],
-    ['campanas', 'Campañas', 'bi-megaphone'], ['tareas', 'Tareas y automatizaciones', 'bi-check2-square'], ['listas', 'Listas', 'bi-list-ul'], ['informes', 'Informes', 'bi-journal-text'], ['herramientas', 'Suscripciones y herramientas', 'bi-plug']];
+    ['campanas', 'Campañas', 'bi-megaphone'], ['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['tareas', 'Tareas y automatizaciones', 'bi-check2-square'], ['listas', 'Listas', 'bi-list-ul'], ['informes', 'Informes', 'bi-journal-text'], ['herramientas', 'Suscripciones y herramientas', 'bi-plug']];
   let view = (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   function render() {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false);
     old.replaceWith(el);
-    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, campanas: campaigns, tareas: tasks, listas: lists, informes: reports, herramientas: tools })[view](el);
+    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, campanas: campaigns, tarjetas: cards, tareas: tasks, listas: lists, informes: reports, herramientas: tools })[view](el);
   }
 
   async function summary(el) {
@@ -402,6 +402,132 @@ DW.ready.then((me) => {
           { label: 'Notas', html: (r) => `<span class="small text-body-secondary">${esc((r.notes || '').slice(0, 80))}</span>${r.ultimas?.length ? `<details class="small mt-1"><summary>Últimas publicaciones (${r.ultimas.length})</summary>${r.ultimas.map((u) => `<div><a href="${esc(u.url)}" target="_blank" rel="noopener">${esc(u.titulo)}</a>${u.fecha ? ` <span class="text-body-secondary">· ${esc(u.fecha)}</span>` : ''}</div>`).join('')}</details>` : ''}` }] }).load();
     }
     items();
+  }
+
+  /* ---------- Tarjetas de presentación (las mismas de Diwilo) ---------- */
+  const ACC = { violeta: ['#8f45f2', '#c99bfa', 'Violeta'], azul: ['#2f6fed', '#93c5fd', 'Azul'], verde: ['#0f9f6e', '#6ee7b7', 'Verde'], ambar: ['#d97706', '#fcd34d', 'Ámbar'], rosa: ['#db2777', '#f9a8d4', 'Rosa'] };
+  const CONTACTOS = [['whatsapp', 'bi-whatsapp', 'WhatsApp', '+57 300 000 0000', 'tel'], ['phone', 'bi-telephone', 'Teléfono', '+57 300 000 0000', 'tel'], ['email', 'bi-envelope', 'Correo', 'nombre@negocio.com', 'email'],
+    ['website', 'bi-globe', 'Sitio web', 'https://…', 'url'], ['instagram', 'bi-instagram', 'Instagram', 'usuario', 'text'], ['linkedin', 'bi-linkedin', 'LinkedIn', 'https://www.linkedin.com/in/…', 'url']];
+  const cardUrl = (c) => `${location.origin}/c/${c.slug}`;
+  const iniciales = (n) => esc((n || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase());
+  const fotoDe = (c) => (c.has_photo ? `/c/${encodeURIComponent(c.slug)}/foto?v=${c.updated_at}` : '');
+  let qrLib;
+  const qr = async (text) => {
+    qrLib ||= new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    await qrLib; const q = window.qrcode(0, 'M'); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+  };
+  async function cards(el) {
+    el.innerHTML = `<div class="alert alert-light border small">Tarjetas de presentación digitales: cada una tiene su enlace y su QR, se instala como app en el celular y guarda el contacto con un toque. La del negocio se crea sola con sus datos.</div><div class="dw-grid" data-cards><div class="text-body-secondary">Cargando…</div></div>`;
+    const box = $('[data-cards]', el);
+    let rows = [];
+    const load = async () => {
+      try { rows = (await api(`${B}/cards`)).rows; } catch (x) { box.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+      box.innerHTML = rows.map((c) => {
+        const [ac] = ACC[c.accent] || ACC.violeta, ph = fotoDe(c);
+        return `<div class="dw-card p-0 overflow-hidden" data-id="${c.id}"><div style="height:56px;background:linear-gradient(135deg,${ac},#150B2B)"></div>
+          <div class="px-3 pb-3" style="margin-top:-28px"><div class="d-flex align-items-end gap-2">${ph ? `<img src="${esc(ph)}" alt="" width="56" height="56" style="border-radius:50%;object-fit:cover;border:3px solid var(--bs-body-bg)">`
+            : `<span style="width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:#150B2B;color:#fff;font-weight:600;border:3px solid var(--bs-body-bg)">${iniciales(c.name)}</span>`}
+            ${c.predeterminada ? '<span class="badge text-bg-light mb-1">Del negocio</span>' : ''}</div>
+          <div class="fw-semibold mt-2">${esc(c.name)}</div>${sub([c.role, c.company].filter(Boolean).join(' · '))}
+          <div class="small text-body-secondary mt-2"><i class="bi bi-eye me-1"></i>${num(c.views)} vistas · /c/${esc(c.slug)}</div>
+          <div class="d-flex flex-wrap gap-1 mt-2">${RO ? '' : '<button class="btn btn-sm btn-primary" data-act="edit"><i class="bi bi-pencil me-1"></i>Editar</button>'}
+            <a class="btn btn-sm btn-outline-primary" href="/c/${esc(c.slug)}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i></a>
+            <button class="btn btn-sm btn-outline-primary" data-act="copy" title="Copiar enlace"><i class="bi bi-link-45deg"></i></button>
+            <button class="btn btn-sm btn-outline-primary" data-act="qr" title="QR"><i class="bi bi-qr-code"></i></button></div></div></div>`;
+      }).join('') + (RO ? '' : '<button class="dw-card d-grid text-body-secondary" data-new style="place-items:center;border:1px dashed var(--bs-border-color);min-height:180px"><span><i class="bi bi-person-plus fs-3 d-block"></i>Nueva tarjeta</span></button>');
+    };
+    box.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-new]')) return editar(null);
+      const b = e.target.closest('[data-act]'); if (!b) return;
+      const c = rows.find((x) => String(x.id) === b.closest('[data-id]').dataset.id);
+      if (b.dataset.act === 'edit') editar(c);
+      if (b.dataset.act === 'copy') { try { await navigator.clipboard.writeText(cardUrl(c)); toast('Enlace copiado'); } catch { prompt('Copia el enlace:', cardUrl(c)); } }
+      if (b.dataset.act === 'qr') modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${esc(c.name)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body text-center"><div style="max-width:240px;margin:auto">${await qr(cardUrl(c))}</div><p class="small text-body-secondary mt-2 mb-0">${esc(cardUrl(c))}</p></div>`);
+    });
+
+    async function editar(card) {
+      const d = card ? { ...card } : { name: '', accent: Object.keys(ACC)[0], company: me.business.name };
+      let foto = card ? fotoDe(card) : '', fotoNueva; // undefined = sin cambio · '' = quitar · data URL = nueva
+      const { el: m, m: mm } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${card ? 'Editar tarjeta' : 'Nueva tarjeta'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body"><div class="row g-3"><div class="col-md-8"><div class="row g-2">
+          <div class="col-sm-6"><label class="form-label small mb-1">Nombre</label><input class="form-control" name="name" value="${esc(d.name || '')}" required></div>
+          <div class="col-sm-6"><label class="form-label small mb-1">Cargo</label><input class="form-control" name="role" value="${esc(d.role || '')}" placeholder="Directora, asesor…"></div>
+          <div class="col-12"><label class="form-label small mb-1">Empresa</label><input class="form-control" name="company" value="${esc(d.company || '')}"></div>
+          <div class="col-12"><label class="form-label small mb-1">Presentación</label><textarea class="form-control" name="bio" rows="2" maxlength="600">${esc(d.bio || '')}</textarea></div>
+          ${CONTACTOS.map(([k, ic, l, ph, t]) => `<div class="col-sm-6"><label class="form-label small mb-1"><i class="bi ${ic} me-1"></i>${l}</label><input class="form-control" name="${k}" type="${t}" value="${esc(d[k] || '')}" placeholder="${esc(ph)}"></div>`).join('')}
+          <div class="col-12"><label class="form-label small mb-1">Dirección</label><div class="input-group"><span class="input-group-text small">${esc(location.host)}/c/</span><input class="form-control" name="slug" value="${esc(d.slug || '')}" placeholder="se arma con el nombre"></div></div>
+        </div></div>
+        <div class="col-md-4 text-center"><div class="small text-body-secondary mb-1">Foto</div><div data-foto></div>
+          <div class="d-flex justify-content-center gap-1 mt-2"><button type="button" class="btn btn-sm btn-outline-primary" data-subir><i class="bi bi-camera me-1"></i>Subir</button><button type="button" class="btn btn-sm btn-light" data-quitar>Quitar</button></div>
+          <input type="file" accept="image/*" hidden data-file>
+          <div class="small text-body-secondary mt-3 mb-1">Color</div><div class="d-flex justify-content-center gap-2" data-colores>${Object.entries(ACC).map(([k, a]) => `<button type="button" class="btn p-0 rounded-circle" data-acc="${k}" title="${a[2]}" aria-label="${a[2]}" style="width:28px;height:28px;background:${a[0]};outline-offset:2px"></button>`).join('')}</div>
+          ${card ? `<div class="mt-3" data-qr style="max-width:150px;margin:auto"></div><div class="small text-body-secondary">${num(card.views)} vistas</div>` : ''}</div></div>
+          <div class="small text-danger mt-2" data-err></div></div>
+        <div class="modal-footer border-0 pt-0 justify-content-between"><span>${card && !card.predeterminada ? '<button type="button" class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash me-1"></i>Borrar</button>' : ''}</span>
+          <span><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button> <button class="btn btn-primary">Guardar</button></span></div></form>`, { size: 'modal-lg' });
+      const f = $('form', m);
+      let accent = d.accent || 'violeta';
+      const pintar = () => {
+        $('[data-foto]', m).innerHTML = foto ? `<img src="${esc(foto)}" alt="" width="120" height="120" style="border-radius:50%;object-fit:cover">`
+          : `<span style="width:120px;height:120px;border-radius:50%;display:inline-grid;place-items:center;background:${ACC[accent][0]};color:#fff;font-size:2.2rem;font-weight:600">${iniciales(f.name.value)}</span>`;
+        $$('[data-acc]', m).forEach((b) => (b.style.outline = b.dataset.acc === accent ? `3px solid ${ACC[accent][1]}` : 'none'));
+      };
+      pintar();
+      if (card) qr(cardUrl(card)).then((svg) => { const q = $('[data-qr]', m); if (q) q.innerHTML = svg; }).catch(() => {});
+      f.name.addEventListener('input', () => { if (!foto) pintar(); });
+      $('[data-colores]', m).addEventListener('click', (e) => { const b = e.target.closest('[data-acc]'); if (b) { accent = b.dataset.acc; pintar(); } });
+      $('[data-subir]', m).onclick = () => $('[data-file]', m).click();
+      $('[data-quitar]', m).onclick = () => { foto = ''; fotoNueva = ''; pintar(); };
+      // La foto se recorta cuadrada y se reduce a 400 px antes de subirla
+      $('[data-file]', m).addEventListener('change', async (e) => {
+        const file = e.target.files[0]; e.target.value = '';
+        if (!file || !file.type.startsWith('image/')) return;
+        const img = new Image(); img.src = URL.createObjectURL(file);
+        try { await img.decode(); } catch { toast('No se pudo leer esa imagen. Prueba con JPG o PNG.', false); return; }
+        const k = Math.min(img.naturalWidth, img.naturalHeight), S = 400, cv = document.createElement('canvas'); cv.width = cv.height = S;
+        cv.getContext('2d').drawImage(img, (img.naturalWidth - k) / 2, (img.naturalHeight - k) / 2, k, k, 0, 0, S, S);
+        URL.revokeObjectURL(img.src);
+        foto = fotoNueva = cv.toDataURL('image/jpeg', 0.85); pintar();
+      });
+      // Ícono de la app instalable: la foto (o las iniciales) sobre el color de la tarjeta
+      const iconos = async () => {
+        const [ac, acl] = ACC[accent];
+        let img = null;
+        if (foto) { img = new Image(); img.src = foto; try { await img.decode(); } catch { img = null; } }
+        const draw = (S) => {
+          const cv = document.createElement('canvas'); cv.width = cv.height = S; const g = cv.getContext('2d');
+          const bg = g.createLinearGradient(0, 0, S, S); bg.addColorStop(0, ac); bg.addColorStop(1, '#150B2B'); g.fillStyle = bg; g.fillRect(0, 0, S, S);
+          const cx = S / 2, r = S * 0.3;
+          g.beginPath(); g.arc(cx, cx, r + S * 0.022, 0, Math.PI * 2); g.fillStyle = acl; g.fill();
+          g.save(); g.beginPath(); g.arc(cx, cx, r, 0, Math.PI * 2); g.clip();
+          if (img) { const k = Math.min(img.naturalWidth, img.naturalHeight); g.drawImage(img, (img.naturalWidth - k) / 2, (img.naturalHeight - k) / 2, k, k, cx - r, cx - r, r * 2, r * 2); }
+          else { g.fillStyle = '#150B2B'; g.fillRect(cx - r, cx - r, r * 2, r * 2); g.fillStyle = '#fff'; g.font = `600 ${Math.round(S * 0.2)}px Inter, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+            g.fillText((f.name.value || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase(), cx, cx + S * 0.01); }
+          g.restore(); return cv.toDataURL('image/png');
+        };
+        try { return { icon_192: draw(192), icon_512: draw(512) }; } catch { return {}; }
+      };
+      $('[data-del]', m)?.addEventListener('click', async () => {
+        if (!(await confirm({ title: `¿Borrar la tarjeta de ${card.name}?`, text: 'Su enlace y su QR dejan de funcionar.' }))) return;
+        try { await api(`${B}/cards/${card.id}`, { method: 'DELETE' }); mm.hide(); toast('Tarjeta borrada'); load(); } catch (x) { $('[data-err]', m).textContent = x.message; }
+      });
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const body = Object.fromEntries(['name', 'role', 'company', 'bio', ...CONTACTOS.map((x) => x[0]), 'slug'].map((k) => [k, f[k].value.trim()]));
+        body.accent = accent;
+        if (!body.name) { $('[data-err]', m).textContent = 'Escribe el nombre'; return; }
+        if (!body.slug) delete body.slug;
+        const btn = f.querySelector('.btn-primary'); btn.disabled = true;
+        try {
+          const id = card ? card.id : (await api(`${B}/cards`, { method: 'POST', body })).id;
+          if (card) await api(`${B}/cards/${id}`, { method: 'PATCH', body });
+          await api(`${B}/cards/${id}/foto`, { method: 'PUT', body: { ...(fotoNueva !== undefined ? { photo_data: fotoNueva } : {}), ...(await iconos()) } });
+          mm.hide(); toast(card ? 'Tarjeta guardada' : 'Tarjeta creada'); load();
+        } catch (x) { $('[data-err]', m).textContent = x.message; btn.disabled = false; }
+      };
+    }
+    await load();
   }
 
   // Informes del analista: los escribe el asistente de IA del negocio (conexión MCP) o la automatización semanal.
