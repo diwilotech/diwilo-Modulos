@@ -71,6 +71,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
 
   // Permisos: el personal usa Marketing pero no borra contactos ni crea automatizaciones
   const staff = await newMember(A.id, 'staff');
+  check('Marketing: el personal sin el módulo asignado no entra (403)', (await staff.app(`${M}/contacts`)).status === 403);
+  await A.app(`/api/team/${staff.id}`, { method: 'PATCH', body: { modulos: ['marketing'] } });   // el titular le da Marketing
   check('Marketing: el personal ve los contactos', (await staff.app(`${M}/contacts`)).status === 200);
   check('Marketing: el personal no borra contactos (403)', (await staff.app(`${M}/contacts/${ct.data.id}`, { method: 'DELETE' })).status === 403);
   check('Marketing: el personal no crea automatizaciones (403)', (await staff.app(`${M}/automations`, { method: 'POST', body: { name: 'x', trigger: 'lead_nuevo', action: 'crear_tarea' } })).status === 403);
