@@ -89,16 +89,21 @@ DW.ready.then((me) => {
   }
 
   function centros(el) {
-    el.innerHTML = '<div data-cc></div><h2 class="h5 mt-4 mb-2">Presupuestos por mes</h2><div data-b></div>';
+    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div data-cc></div><h2 class="h5 mt-4 mb-2">Presupuestos por mes</h2><div data-b></div>';
+    const totales = () => api(`${B}/cost_centers/totales`).then((t) => C.kpis($('[data-tot]', el), [['Ingresos de los centros', money(t.ingresos), 'todo el tiempo', 'bi-arrow-down-circle'], ['Gastos de los centros', money(t.gastos), 'todo el tiempo', 'bi-arrow-up-circle'],
+      ['Resultado', `<span class="${t.resultado < 0 ? 'text-danger' : 'text-success'}">${money(t.resultado)}</span>`, 'ingresos menos gastos', 'bi-graph-up'], ['Sin centro de costo', money(t.sin_centro.ingresos - t.sin_centro.gastos), `${t.sin_centro.movimientos} movimientos sin asignar`, 'bi-question-circle']])).catch(() => {});
+    totales();
     const bud = C.table({ el: $('[data-b]', el), base: B, entity: 'budgets', title: 'presupuesto', newText: 'Nuevo presupuesto', refs: ['cost_centers'], fields: F.budgets,
       defaults: () => ({ month: C.todayCo().slice(0, 7) }), empty: 'Define cuánto puede gastar cada centro de costo al mes; el resumen lo compara con el gasto real.', emptyIcon: 'bi-bullseye',
       columns: [{ label: 'Mes', html: (r) => monthName(r.month) }, { label: 'Centro de costo', main: true, html: (r, R) => (r.cost_center_id ? C.refName(R, 'cost_centers', r.cost_center_id) : 'General') },
         { label: 'Categoría', html: (r) => esc(r.category || '—') }, { label: 'Presupuesto', cls: 'text-end', html: (r) => money(r.amount) }] });
     C.table({ el: $('[data-cc]', el), base: B, entity: 'cost_centers', title: 'centro de costo', newText: 'Nuevo centro de costo', fields: F.cost_centers,
-      filters: [{ k: 'kind', options: [['', 'Todos'], ...Object.entries(CC_KIND)] }], onChanged: () => bud.load(),
+      filters: [{ k: 'kind', options: [['', 'Todos'], ...Object.entries(CC_KIND)] }], onChanged: () => { bud.load(); totales(); },
       empty: 'Crea centros por sede, servicio, proyecto o área para saber cuánto cuesta y cuánto deja cada uno.', emptyIcon: 'bi-diagram-3',
       columns: [{ label: 'Centro de costo', main: true, html: (r) => `${esc(r.name)}${sub(r.code)}` },
-        { label: 'Tipo', html: (r) => `<span class="badge text-bg-light">${esc(CC_KIND[r.kind] || r.kind)}</span>` }, { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Inactivo')) }] }).load();
+        { label: 'Tipo', html: (r) => `<span class="badge text-bg-light">${esc(CC_KIND[r.kind] || r.kind)}</span>` },
+        { label: 'Ingresos', cls: 'text-end', html: (r) => money(r.ingresos) }, { label: 'Gastos', cls: 'text-end', html: (r) => money(r.gastos) },
+        { label: 'Total (resultado)', cls: 'text-end', html: (r) => `<b class="${r.resultado < 0 ? 'text-danger' : r.resultado > 0 ? 'text-success' : ''}">${money(r.resultado)}</b>${sub(`${r.movimientos} movimientos`)}` }, { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Inactivo')) }] }).load();
     bud.load();
   }
 

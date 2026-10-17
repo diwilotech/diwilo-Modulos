@@ -59,6 +59,12 @@ async function recomputeInvoice(env, biz, invoiceId) {
   const status = inv.status === 'anulada' ? 'anulada' : s.n >= inv.total && inv.total > 0 ? 'pagada' : 'pendiente';
   await env.DB.prepare('UPDATE fin_invoices SET paid = ?, status = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(s.n, status, now(), invoiceId, biz).run();
 }
+// Ingresos, gastos y número de movimientos por centro de costo (todo el tiempo). La clave null = movimientos sin centro.
+async function totalesPorCentro(env, biz) {
+  const rows = await all(env, "SELECT cost_center_id id, SUM(CASE WHEN kind = 'ingreso' THEN amount ELSE 0 END) ingresos, SUM(CASE WHEN kind = 'gasto' THEN amount ELSE 0 END) gastos, COUNT(*) movimientos FROM fin_movements WHERE business_id = ? GROUP BY cost_center_id", biz);
+  return new Map(rows.map((r) => [r.id, { ingresos: r.ingresos, gastos: r.gastos, movimientos: r.movimientos }]));
+}
+
 // Recibos de caja: cada pago recibido de una cuenta por cobrar. Crean su ingreso ligado a la cuenta y llevan su propio consecutivo (RC-0001…).
 async function nextReceiptNumber(env, biz) {
   const m = (await one(env, "SELECT COALESCE(MAX(CAST(substr(number, 4) AS INTEGER)), 0) m FROM fin_receipts WHERE business_id = ?", biz)).m;
@@ -127,7 +133,12 @@ export const ENTITIES = {
   reports: { table: 'fin_reports', label: 'el informe', title: 'title', search: ['title', 'content'], order: 'created_at DESC', crear: 'manager',
     fields: { title: 'text!', content: 'long!', origen: ['manual', 'ia'] } },
   cost_centers: { table: 'fin_cost_centers', label: 'el centro de costo', title: 'name', search: ['name', 'code'], order: 'active DESC, kind, name',
-    fields: { name: 'text!', kind: ['proyecto', 'app', 'cliente', 'departamento'], code: 'text', active: 'bool+', notes: 'long' } },
+    fields: { name: 'text!', kind: ['proyecto', 'app', 'cliente', 'departamento'], code: 'text', active: 'bool+', notes: 'long' },
+    // Total acumulado de cada centro: lo que ha entrado, lo que ha salido y lo que deja.
+    async decorate(c, rows) {
+      const t = await totalesPorCentro(c.env, c.businessId);
+      return rows.map((r) => { const x = t.get(r.id) || { ingresos: 0, gastos: 0, movimientos: 0 }; return { ...r, ...x, resultado: x.ingresos - x.gastos }; });
+    } },
   accounts: { table: 'fin_accounts', label: 'la cuenta', title: 'name', search: ['name', 'bank'], order: 'name',
     fields: { name: 'text!', kind: ['banco', 'efectivo', 'tarjeta', 'billetera'], bank: 'text', last4: 'text', opening_balance: 'money' } },
   budgets: { table: 'fin_budgets', label: 'el presupuesto', title: 'month', search: ['category'], order: 'month DESC, id DESC',
@@ -331,6 +342,13 @@ export function routes(r) {
       VALUES (?, 'emitida', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, 'pendiente', ?, ?, ?, ?, ?)`).bind(c.businessId, number, counterparty, taxId, email, issue, due, concept, items, total, total, cc, category, ref, t, t).run();
     await audit(c, `Creó la cuenta de cobro ${number} para ${counterparty} por $${total.toLocaleString('es-CO')}`, { modulo: MOD });
     return json({ id: res.meta.last_row_id, number, nuevo: true }, 201);
+  });
+
+  // Totales de todos los centros de costo (y de lo que no tiene centro) para el resumen de la vista.
+  r.get(`${B}/cost_centers/totales`, `tenant:${MOD}`, async (c) => {
+    const t = await totalesPorCentro(c.env, c.businessId), sin = t.get(null) || { ingresos: 0, gastos: 0, movimientos: 0 };
+    let ingresos = 0, gastos = 0; for (const x of t.values()) { ingresos += x.ingresos; gastos += x.gastos; }
+    return json({ ingresos, gastos, resultado: ingresos - gastos, sin_centro: { ...sin, resultado: sin.ingresos - sin.gastos } });
   });
 
   // ---- Recibos de caja ----

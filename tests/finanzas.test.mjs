@@ -39,6 +39,9 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Recibos de caja: anular uno devuelve su valor a la cuenta', (await A.app(`${F}/receipts/${rc2.data.receipt.id}/void`, { method: 'POST' })).status === 200 && (await A.app(`${F}/invoices`)).data.rows.find((r) => r.id === cx.data.id)?.paid === 400000);
   const suelto = await A.app(`${F}/receipts`, { method: 'POST', body: { counterparty: 'Cliente Cuatro', concept: 'Venta de contado', amount: 80000, date: hoy, method: 'Efectivo' } });
   check('Recibos de caja: se puede hacer uno sin cuenta de cobro, y es un ingreso', suelto.status === 201 && ((await A.app(`${F}/movements?limit=200`)).data.rows || []).some((x) => x.kind === 'ingreso' && x.amount === 80000 && !x.invoice_id));
+  const tot = await A.app(`${F}/cost_centers/totales`);
+  const ccs = (await A.app(`${F}/cost_centers`)).data.rows;
+  check('Centros de costo: traen su total (ingresos, gastos y resultado)', tot.status === 200 && tot.data.ingresos >= 0 && tot.data.resultado === tot.data.ingresos - tot.data.gastos && ccs.every((x) => typeof x.ingresos === 'number' && x.resultado === x.ingresos - x.gastos), JSON.stringify([tot.data, ccs[0]]));
   check('Recibos de caja: B no ve los de A', ((await B.app(`${F}/receipts`)).data.rows || []).length === 0);
   const ex = await A.app(`${F}/invoices/externo`, { method: 'POST', body: { ref: 'app:cuenta:1', counterparty: 'Cliente Tres', total: 500000, concept: 'Matrícula' } });
   const er = await A.app(`${F}/receipts/externo`, { method: 'POST', body: { ref: 'app:pago:1', invoice_ref: 'app:cuenta:1', amount: 200000, method: 'Bre-B' } });
