@@ -146,6 +146,38 @@ export function enLetras(value) {
 
 /* ---------------- documento ---------------- */
 
+// Recibo de caja (un pago recibido de una cuenta por cobrar), listo para imprimir o guardar como PDF.
+export async function receiptDocument(env, org, rc, inv, { autoprint = false, abonado = null } = {}) {
+  const p = await getProfile(env, org);
+  const total = inv?.total || 0, saldo = inv ? Math.max(0, total - (abonado ?? inv.paid ?? 0)) : null;
+  const issuer = p.issuer_name || p.brand || '';
+  const fileName = `Recibo de caja ${rc.number} - ${rc.counterparty || ''}`.replace(/[\\/:*?"<>|]/g, '');
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(fileName)}</title>
+<style>@page{size:A5 landscape;margin:0}*{box-sizing:border-box}:root{--ink:#14112b;--ink2:#4a4766;--ink3:#8a87a3;--line:#e7e4f2;--brand:#7c3aed;--brand2:#5b21b6}
+html{background:#e9e7f1}body{margin:0;font:12.5px/1.45 system-ui,sans-serif;color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.bar{position:sticky;top:0;display:flex;gap:10px;justify-content:center;align-items:center;padding:12px 16px;background:#14112b;color:#fff}.bar button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18px;cursor:pointer;background:#a66cf5;color:#fff}
+.page{width:210mm;min-height:148mm;margin:24px auto;background:#fff;box-shadow:0 10px 40px rgba(20,17,43,.15);padding:12mm 14mm;position:relative;overflow:hidden}
+.page::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,#a66cf5,#7c3aed 45%,#5b21b6)}
+header{display:flex;justify-content:space-between;gap:16px}header b{font-size:17px}header small{display:block;color:var(--ink3)}
+.doc{text-align:right}.doc h1{margin:0;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand)}.doc .num{font-size:22px;font-weight:700;margin-top:4px}.doc small{display:block;color:var(--ink2)}
+.amount{margin-top:12px;border-radius:12px;padding:11px 16px;background:#f6f0ff;display:flex;justify-content:space-between;align-items:center;gap:16px}.amount .v{font-size:25px;font-weight:700;color:var(--brand2);white-space:nowrap}.amount .w{color:var(--ink2);font-style:italic;text-align:right;max-width:58%}
+dl{display:grid;grid-template-columns:150px 1fr;gap:5px 12px;margin:12px 0 0}dt{color:var(--ink3)}dd{margin:0;font-weight:500}
+.sign{display:flex;justify-content:space-between;gap:30px;margin-top:34px}.sign div{flex:1;border-top:1px solid var(--ink);padding-top:5px;color:var(--ink2);font-size:11px}
+.void{position:absolute;top:34%;left:28%;transform:rotate(-12deg);font-size:56px;font-weight:800;color:rgba(200,30,30,.28);border:6px solid rgba(200,30,30,.28);padding:2px 18px;border-radius:10px}
+@media print{html{background:#fff}.bar{display:none}.page{margin:0;box-shadow:none;width:auto}}</style></head><body>
+<div class="bar"><button onclick="print()">Imprimir o guardar PDF</button></div>
+<div class="page">${rc.voided ? '<div class="void">ANULADO</div>' : ''}
+<header><div><b>${esc(issuer)}</b>${p.issuer_doc ? `<small>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}</small>` : ''}<small>${[p.city, p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</small></div>
+<div class="doc"><h1>Recibo de caja</h1><div class="num">${esc(rc.number)}</div><small>${esc(fecha(rc.date))}</small></div></header>
+<div class="amount"><div class="v">${pesos(rc.amount)}</div><div class="w">${esc(enLetras(rc.amount))}</div></div>
+<dl><dt>Recibimos de</dt><dd>${esc(rc.counterparty || '')}${inv?.tax_id ? ` · ${esc(inv.tax_id)}` : ''}</dd>
+<dt>Por concepto de</dt><dd>${esc(rc.concept || (inv ? `Abono a la cuenta de cobro ${inv.number || '#' + inv.id}` : 'Pago'))}</dd>
+${inv ? `<dt>Cuenta por cobrar</dt><dd>${esc(inv.number || '#' + inv.id)} · total ${pesos(total)} · saldo después de este pago ${pesos(saldo)}</dd>` : ''}
+<dt>Medio de pago</dt><dd>${esc(rc.method || 'Efectivo')}</dd>${rc.notes ? `<dt>Notas</dt><dd>${esc(rc.notes)}</dd>` : ''}</dl>
+<div class="sign"><div>Recibí (firma)</div><div>Pagó (firma)</div></div></div>
+${autoprint ? '<script>addEventListener("load",()=>setTimeout(print,300))</script>' : ''}</body></html>`;
+}
+
 export async function invoiceDocument(env, org, inv, { autoprint = false, origin = '', logo = null } = {}) {
   const p = await getProfile(env, org);
   let items = []; try { items = JSON.parse(inv.items || '[]'); } catch {}

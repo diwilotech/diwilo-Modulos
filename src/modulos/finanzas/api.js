@@ -14,7 +14,7 @@
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, cast, today, now, addDays, addMonths, all, one, DATE, MONTH } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
-import { getProfile, saveProfile, nextNumber, priceItems, invoiceDocument } from './documento.js';
+import { getProfile, saveProfile, nextNumber, priceItems, invoiceDocument, receiptDocument } from './documento.js';
 export { validatePage } from './documento.js';
 
 const MOD = 'finanzas';
@@ -59,6 +59,34 @@ async function recomputeInvoice(env, biz, invoiceId) {
   const status = inv.status === 'anulada' ? 'anulada' : s.n >= inv.total && inv.total > 0 ? 'pagada' : 'pendiente';
   await env.DB.prepare('UPDATE fin_invoices SET paid = ?, status = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(s.n, status, now(), invoiceId, biz).run();
 }
+// Recibos de caja: cada pago recibido de una cuenta por cobrar. Crean su ingreso ligado a la cuenta y llevan su propio consecutivo (RC-0001…).
+async function nextReceiptNumber(env, biz) {
+  const m = (await one(env, "SELECT COALESCE(MAX(CAST(substr(number, 4) AS INTEGER)), 0) m FROM fin_receipts WHERE business_id = ?", biz)).m;
+  return `RC-${String(m + 1).padStart(4, '0')}`;
+}
+async function createReceipt(c, { inv = null, date, amount, method = null, accountId = null, counterparty = null, concept = null, notes = null, ref = null, costCenterId = null }) {
+  const t = now(), number = await nextReceiptNumber(c.env, c.businessId);
+  const desc = `Recibo de caja ${number}${inv ? ` · cuenta ${inv.number || '#' + inv.id}` : ''}${counterparty ? ` · ${counterparty}` : ''}`.slice(0, 300);
+  const mov = await c.env.DB.prepare(`INSERT INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, account_id, invoice_id, ref, created_at, updated_at)
+    VALUES (?, 'ingreso', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, date, amount, inv?.category || concept || 'Recibos de caja', desc, counterparty, costCenterId ?? inv?.cost_center_id ?? null, accountId, inv?.id || null, `recibo:${number}`, t, t).run();
+  const rc = await c.env.DB.prepare(`INSERT INTO fin_receipts (business_id, number, invoice_id, movement_id, date, amount, method, account_id, counterparty, concept, notes, ref, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, number, inv?.id || null, mov.meta.last_row_id, date, amount, method, accountId, counterparty, concept, notes, ref, t, t).run();
+  if (inv) await recomputeInvoice(c.env, c.businessId, inv.id);
+  await audit(c, `Recibo de caja ${number} por $${amount.toLocaleString('es-CO')}${counterparty ? ` de ${counterparty}` : ''}`, { modulo: MOD });
+  return { id: rc.meta.last_row_id, number };
+}
+async function voidReceipt(c, rc) {
+  if (rc.voided) return;
+  const t = now();
+  await c.env.DB.prepare('UPDATE fin_receipts SET voided = 1, updated_at = ? WHERE id = ? AND business_id = ?').bind(t, rc.id, c.businessId).run();
+  if (rc.movement_id) {
+    await c.env.DB.prepare('UPDATE fin_bank_lines SET movement_id = NULL WHERE movement_id = ? AND business_id = ?').bind(rc.movement_id, c.businessId).run();
+    await c.env.DB.prepare('DELETE FROM fin_movements WHERE id = ? AND business_id = ?').bind(rc.movement_id, c.businessId).run();
+  }
+  if (rc.invoice_id) await recomputeInvoice(c.env, c.businessId, rc.invoice_id);
+  await audit(c, `Anuló el recibo de caja ${rc.number}`, { modulo: MOD });
+}
+
 // Cuentas de cobro con líneas: el total sale de las líneas (las de dólares, con la TRM de la fecha) y las emitidas reciben consecutivo
 async function priceInvoice(c, row, before, creating) {
   if (Array.isArray(row.items)) {
@@ -305,6 +333,78 @@ export function routes(r) {
     return json({ id: res.meta.last_row_id, number, nuevo: true }, 201);
   });
 
+  // ---- Recibos de caja ----
+  //   GET  /api/finanzas/invoices/:id/receipts         los recibos de una cuenta por cobrar
+  //   POST /api/finanzas/invoices/:id/receipts         { date, amount, method?, account_id?, notes? }  (igual a /pay)
+  //   GET  /api/finanzas/receipts?q=&limit=            lista de recibos
+  //   POST /api/finanzas/receipts/:id/void             anula el recibo (el ingreso desaparece y la cuenta vuelve a deber)
+  //   GET  /api/finanzas/receipts/:id/pdf              recibo de caja para imprimir
+  //   POST /api/finanzas/receipts/externo              { ref, invoice_ref?, date?, amount, method?, concept?, counterparty?, centro_costo?, notes? }  de otras apps (no duplica por ref)
+  //   POST /api/finanzas/receipts/externo/void         { ref }
+  r.get(`${B}/invoices/:id/receipts`, `tenant:${MOD}`, async (c) => {
+    if (!(await one(c.env, 'SELECT id FROM fin_invoices WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId))) throw new HttpError(404, 'No encontrada');
+    return json({ rows: await all(c.env, 'SELECT * FROM fin_receipts WHERE business_id = ? AND invoice_id = ? ORDER BY id DESC', c.businessId, Number(c.params.id)) });
+  });
+  r.post(`${B}/invoices/:id/receipts`, `tenant:${MOD}`, async (c) => {
+    const inv = await one(c.env, 'SELECT * FROM fin_invoices WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
+    if (!inv) throw new HttpError(404, 'No encontrada');
+    if (inv.kind !== 'emitida') throw new HttpError(400, 'Los recibos de caja son de las cuentas por cobrar');
+    if (inv.status === 'anulada') throw new HttpError(409, 'La cuenta de cobro está anulada');
+    const b = await readJson(c.req), amount = cast('monto', 'money!', b.amount ?? inv.total - inv.paid);
+    if (amount <= 0) throw new HttpError(400, 'El monto debe ser mayor que cero');
+    if (amount > inv.total - inv.paid) throw new HttpError(400, `El recibo supera el saldo (${'$' + Math.max(0, inv.total - inv.paid).toLocaleString('es-CO')})`);
+    const accountId = cast('cuenta', 'int', b.account_id);
+    if (accountId) await api.get(c, 'accounts', accountId);
+    const rc = await createReceipt(c, { inv, date: cast('fecha', 'date', b.date) || today(), amount, method: b.method ? String(b.method).slice(0, 40) : null, accountId, counterparty: inv.counterparty,
+      concept: `Abono a la cuenta de cobro ${inv.number || '#' + inv.id}`, notes: b.notes ? String(b.notes).slice(0, 300) : null });
+    return json({ ok: true, receipt: rc }, 201);
+  });
+  r.get(`${B}/receipts`, `tenant:${MOD}`, async (c) => {
+    const q = (c.url.searchParams.get('q') || '').trim(), limit = Math.min(1000, Math.max(1, Number(c.url.searchParams.get('limit')) || 200));
+    const rows = q
+      ? await all(c.env, `SELECT * FROM fin_receipts WHERE business_id = ? AND (counterparty LIKE ? OR number LIKE ? OR concept LIKE ?) ORDER BY id DESC LIMIT ${limit}`, c.businessId, `%${q}%`, `%${q}%`, `%${q}%`)
+      : await all(c.env, `SELECT * FROM fin_receipts WHERE business_id = ? ORDER BY id DESC LIMIT ${limit}`, c.businessId);
+    return json({ rows });
+  });
+  r.post(`${B}/receipts/externo/void`, `manager:${MOD}`, async (c) => {
+    const ref = String((await readJson(c.req)).ref || '').slice(0, 120);
+    const rc = ref && await one(c.env, 'SELECT * FROM fin_receipts WHERE business_id = ? AND ref = ?', c.businessId, ref);
+    if (!rc) throw new HttpError(404, 'No encontrado');
+    await voidReceipt(c, rc);
+    return json({ ok: true, number: rc.number });
+  });
+  r.post(`${B}/receipts/:id/void`, `manager:${MOD}`, async (c) => {
+    const rc = await one(c.env, 'SELECT * FROM fin_receipts WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
+    if (!rc) throw new HttpError(404, 'No encontrado');
+    await voidReceipt(c, rc);
+    return json({ ok: true });
+  });
+  r.get(`${B}/receipts/:id/pdf`, `tenant:${MOD}`, async (c) => {
+    const rc = await one(c.env, 'SELECT * FROM fin_receipts WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
+    if (!rc) throw new HttpError(404, 'No encontrado');
+    const inv = rc.invoice_id ? await one(c.env, 'SELECT * FROM fin_invoices WHERE id = ? AND business_id = ?', rc.invoice_id, c.businessId) : null;
+    const antes = inv ? (await one(c.env, 'SELECT COALESCE(SUM(amount), 0) s FROM fin_receipts WHERE business_id = ? AND invoice_id = ? AND voided = 0 AND id <= ?', c.businessId, inv.id, rc.id)).s : null;
+    return new Response(await receiptDocument(c.env, c.businessId, rc, inv, { autoprint: c.url.searchParams.has('imprimir'), abonado: antes }), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+  });
+  r.post(`${B}/receipts/externo`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);
+    if (!ref) throw new HttpError(400, 'Falta ref');
+    const prev = await one(c.env, 'SELECT id, number FROM fin_receipts WHERE business_id = ? AND ref = ?', c.businessId, ref);
+    if (prev) return json({ id: prev.id, number: prev.number, nuevo: false });
+    const amount = cast('valor', 'money!', b.amount);
+    if (amount <= 0) throw new HttpError(400, 'El valor debe ser mayor que cero');
+    const inv = b.invoice_ref ? await one(c.env, 'SELECT * FROM fin_invoices WHERE business_id = ? AND ref = ?', c.businessId, String(b.invoice_ref).slice(0, 120)) : null;
+    let cc = null;
+    if (b.centro_costo && !inv) {
+      const name = String(b.centro_costo).slice(0, 120);
+      cc = (await one(c.env, 'SELECT id FROM fin_cost_centers WHERE business_id = ? AND lower(name) = lower(?)', c.businessId, name))?.id;
+      if (!cc) { const t0 = now(); cc = (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'app', 1, ?, ?)").bind(c.businessId, name, t0, t0).run()).meta.last_row_id; }
+    }
+    const rc = await createReceipt(c, { inv, date: cast('fecha', 'date', b.date) || today(), amount, method: b.method ? String(b.method).slice(0, 40) : null,
+      counterparty: b.counterparty ? String(b.counterparty).slice(0, 200) : inv?.counterparty || null, concept: b.concept ? String(b.concept).slice(0, 300) : null, notes: b.notes ? String(b.notes).slice(0, 300) : null, ref, costCenterId: cc });
+    return json({ ...rc, nuevo: true }, 201);
+  });
+
   const api = crud(r, { base: B, modulo: MOD, entities: ENTITIES });
   r.get(`${B}/reports/datos`, `tenant:${MOD}`, async (c) => json(await reportData(c, c.url.searchParams.get('month'))));
 
@@ -324,6 +424,11 @@ export function routes(r) {
     const date = cast('fecha', 'date', body.date) || today(), t = now();
     const accountId = cast('cuenta', 'int', body.account_id);
     if (accountId) await api.get(c, 'accounts', accountId);
+    if (inv.kind === 'emitida') {   // por cobrar: cada cobro es un recibo de caja
+      if (amount > inv.total - inv.paid) throw new HttpError(400, `El recibo supera el saldo (${'$' + Math.max(0, inv.total - inv.paid).toLocaleString('es-CO')})`);
+      const rc = await createReceipt(c, { inv, date, amount, method: body.method ? String(body.method).slice(0, 40) : null, accountId, counterparty: inv.counterparty, concept: `Abono a la cuenta de cobro ${inv.number || '#' + inv.id}`, notes: body.notes ? String(body.notes).slice(0, 300) : null });
+      return json({ ok: true, receipt: rc }, 201);
+    }
     await c.env.DB.prepare(`INSERT INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, account_id, invoice_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, inv.kind === 'emitida' ? 'ingreso' : 'gasto', date, amount, inv.category || 'Facturas',
       `Pago factura ${inv.number || '#' + inv.id}`, inv.counterparty, inv.cost_center_id, accountId, inv.id, t, t).run();

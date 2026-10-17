@@ -16,7 +16,7 @@ DW.ready.then((me) => {
   const usdLine = (r) => (r.currency === 'USD' && r.amount_usd ? `<div class="small text-body-secondary fw-normal">${usd(r.amount_usd)}${r.fx_rate ? ` · TRM ${Number(r.fx_rate).toLocaleString('es-CO', { maximumFractionDigits: 2 })}` : ''}</div>` : '');
   const sub = (t) => (t ? `<div class="small text-body-secondary fw-normal">${esc(t)}</div>` : '');
 
-  const VIEWS = [['resumen', 'Resumen', 'bi-pie-chart'], ['movimientos', 'Ingresos y gastos', 'bi-arrow-down-up'], ['facturas', 'Facturas y cartera', 'bi-receipt'],
+  const VIEWS = [['resumen', 'Resumen', 'bi-pie-chart'], ['movimientos', 'Ingresos y gastos', 'bi-arrow-down-up'], ['facturas', 'Cuentas por cobrar y pagar', 'bi-receipt'], ['recibos', 'Recibos de caja', 'bi-cash-coin'],
     ['recurrentes', 'Gastos recurrentes', 'bi-arrow-repeat'], ['centros', 'Centros de costo y presupuestos', 'bi-diagram-3'], ['bancos', 'Bancos y conciliación', 'bi-bank'], ['informes', 'Informes', 'bi-journal-text'], ['exportar', 'Exportar', 'bi-download']];
   const F = {
     movements: [
@@ -57,7 +57,7 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false);
     old.replaceWith(el);
-    ({ resumen: summary, movimientos, facturas: invoices, recurrentes, centros, bancos: banks, informes: reports, exportar: exportView })[view](el);
+    ({ resumen: summary, movimientos, facturas: invoices, recibos: receiptsView, recurrentes, centros, bancos: banks, informes: reports, exportar: exportView })[view](el);
   }
 
   function movimientos(el) {
@@ -142,6 +142,29 @@ DW.ready.then((me) => {
     load();
   }
 
+  /* ---------- recibos de caja ---------- */
+  async function receiptsView(el) {
+    el.innerHTML = `<div class="alert alert-light border small">Cada pago que recibes de una cuenta por cobrar genera un <b>recibo de caja</b> con su número (RC-0001…). Puede haber varios por cuenta. Se crean desde la cuenta por cobrar, o los crea tu app solos.</div>
+      <div class="d-flex gap-2 mb-2"><input class="form-control" style="max-width:280px" data-q placeholder="Buscar por cliente, número o concepto" aria-label="Buscar"></div><div class="dw-card p-0 p-md-2" data-lista><div class="p-3 text-body-secondary">Cargando…</div></div>`;
+    const load = async () => {
+      const { rows } = await api(`${B}/receipts?limit=500&q=${encodeURIComponent($('[data-q]', el).value.trim())}`);
+      $('[data-lista]', el).innerHTML = rows.length ? `<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Recibo</th><th>Fecha</th><th>Cliente</th><th>Medio</th><th class="text-end">Valor</th><th></th></tr></thead><tbody>${rows.map((x) => `<tr>
+          <td>${esc(x.number)}${x.voided ? ' ' + chip('free', 'Anulado') : ''}</td><td>${day(x.date)}</td><td>${esc(x.counterparty || '—')}${sub(x.concept)}</td><td>${esc(x.method || '—')}</td>
+          <td class="text-end ${x.voided ? 'text-decoration-line-through text-body-secondary' : ''}">${money(x.amount)}</td>
+          <td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-secondary" data-pdf="${x.id}"><i class="bi bi-printer me-1"></i>Recibo</button>${me.canManage && !x.voided && !RO ? ` <button class="btn btn-sm btn-outline-danger" data-void="${x.id}" data-n="${esc(x.number)}" aria-label="Anular"><i class="bi bi-x-circle"></i></button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="p-4 text-center text-body-secondary">Aún no hay recibos de caja.</div>';
+    };
+    let tq; $('[data-q]', el).addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(load, 250); });
+    el.addEventListener('click', async (e) => {
+      const p = e.target.closest('[data-pdf]'), v = e.target.closest('[data-void]');
+      if (p) window.open(`${B}/receipts/${p.dataset.pdf}/pdf`, '_blank', 'noopener');
+      if (v && (await confirm({ title: `¿Anular el recibo ${v.dataset.n}?`, text: 'El ingreso se quita y la cuenta de cobro vuelve a deber ese valor.', ok: 'Anular', danger: true }))) {
+        try { await api(`${B}/receipts/${v.dataset.void}/void`, { method: 'POST' }); toast('Recibo anulado'); load(); } catch (x) { toast(x.message, false); }
+      }
+    });
+    load().catch((x) => toast(x.message, false));
+  }
+
   /* ---------- facturas y cuentas de cobro ---------- */
   function invoices(el) {
     el.innerHTML = `<div class="alert alert-light border d-flex flex-wrap gap-2 align-items-center small"><span class="flex-grow-1">Crea tus cuentas de cobro con sus líneas (en pesos o en dólares con la TRM del día) y descárgalas en PDF con tus datos, consecutivo, QR de validación y datos de pago. Registra también las facturas que te llegan (por pagar).</span>
@@ -163,7 +186,8 @@ DW.ready.then((me) => {
       onAction: async (a, r) => {
         if (a === 'pdf') return openPdf(r.id);
         if (a !== 'pay') return;
-        const out = await C.form({ title: `${r.kind === 'emitida' ? 'Cobro' : 'Pago'} de ${r.number || '#' + r.id}`, base: B,
+        if (r.kind === 'emitida') return payReceipt(r, () => t.load());
+        const out = await C.form({ title: `Pago de ${r.number || '#' + r.id}`, base: B,
           fields: [{ k: 'date', label: 'Fecha', type: 'date', required: true }, { k: 'amount', label: 'Monto (COP)', type: 'money', required: true }, { k: 'account_id', label: 'Cuenta', ref: 'accounts' }],
           values: { date: C.todayCo(), amount: r.total - r.paid } });
         if (!out) return;
@@ -179,6 +203,23 @@ DW.ready.then((me) => {
       if (out === 'deleted') { toast('Borrada'); return changed(); }
       if (!out) return;
       try { await api(row ? `${B}/invoices/${row.id}` : `${B}/invoices`, { method: row ? 'PATCH' : 'POST', body: out }); toast('Guardada'); changed(); } catch (x) { toast(x.message, false); }
+    }
+
+    // Ventana para pagar una cuenta por cobrar: genera un recibo de caja (se pueden hacer varios hasta cubrir el saldo).
+    async function payReceipt(inv, after) {
+      const saldo = Math.max(0, inv.total - inv.paid);
+      const out = await C.form({ title: `Pago de ${inv.number || '#' + inv.id} · ${inv.counterparty}`, base: B, okText: 'Generar recibo de caja',
+        fields: [{ k: 'date', label: 'Fecha', type: 'date', required: true }, { k: 'amount', label: `Monto (saldo ${money(saldo)})`, type: 'money', required: true },
+          { k: 'method', label: 'Medio de pago', type: 'select', options: ['Efectivo', 'Transferencia', 'Nequi', 'Daviplata', 'Tarjeta', 'Bre-B', 'Otro'].map((x) => [x, x]) },
+          { k: 'account_id', label: 'Cuenta donde entra', ref: 'accounts' }, { k: 'notes', label: 'Notas', type: 'long' }],
+        values: { date: C.todayCo(), amount: saldo, method: 'Transferencia' } });
+      if (!out) return;
+      try {
+        const r = await api(`${B}/invoices/${inv.id}/receipts`, { method: 'POST', body: out });
+        toast(`Recibo de caja ${r.receipt.number} generado`);
+        window.open(`${B}/receipts/${r.receipt.id}/pdf`, '_blank', 'noopener');
+        await after?.();
+      } catch (x) { toast(x.message, false); }
     }
 
     // Editor de cuenta de cobro con líneas (COP o USD con TRM)
@@ -214,6 +255,10 @@ DW.ready.then((me) => {
             ${row ? `<div class="col-sm-6"><label class="form-label small mb-1">Estado</label><select class="form-select" name="status">${[['pendiente', 'Pendiente'], ['pagada', 'Pagada'], ['anulada', 'Anulada']].map(([k, l]) => `<option value="${k}" ${v.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>` : ''}
             <div class="col-12"><label class="form-label small mb-1">Notas internas <span class="text-body-secondary">· no salen en el PDF</span></label><textarea class="form-control" name="notes" rows="1">${esc(v.notes || '')}</textarea></div>
           </div>
+          ${row && row.kind === 'emitida' ? `<div class="mt-3 p-3 rounded-3 border" data-recibos>
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-2"><h3 class="h6 mb-0 me-auto"><i class="bi bi-cash-coin me-1"></i>Recibos de caja</h3><span class="small text-body-secondary" data-saldo></span>
+              ${RO ? '' : '<button type="button" class="btn btn-sm btn-primary" data-nuevo-rc><i class="bi bi-plus-lg me-1"></i>Registrar pago</button>'}</div>
+            <div data-rcs><span class="small text-body-secondary">Cargando…</span></div></div>` : '<p class="small text-body-secondary mt-3 mb-0">Cuando la guardes podrás registrar los pagos: cada pago genera su recibo de caja (pueden ser varios).</p>'}
           <div class="small text-danger mt-2" data-err></div></div>
         <div class="modal-footer border-0 pt-0 justify-content-between"><span>${row && me.canManage ? '<button type="button" class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash me-1"></i>Borrar</button>' : ''}</span>
           <span><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button> <button class="btn btn-outline-primary" value="save">Guardar</button> <button class="btn btn-primary" value="pdf"><i class="bi bi-filetype-pdf me-1"></i>Guardar y ver PDF</button></span></div></form>`, { size: 'modal-xl' });
@@ -247,6 +292,29 @@ DW.ready.then((me) => {
         rateDate = date; rate = null; $('[data-trm]', d).textContent = 'Buscando la TRM…';
         try { rate = (await api(`${B}/billing/fx?date=${date}`)).rate; } catch { rate = null; }
         calc();
+      }
+      // Recibos de caja de esta cuenta: se ven aquí y se crean pagando un monto desde una ventana.
+      if (row?.kind === 'emitida') {
+        const rcBox = $('[data-rcs]', d);
+        const loadRc = async () => {
+          const [{ rows }, inv] = await Promise.all([api(`${B}/invoices/${row.id}/receipts`), api(`${B}/invoices/${row.id}`).catch(() => row)]);
+          const saldo = Math.max(0, inv.total - inv.paid);
+          $('[data-saldo]', d).innerHTML = `Pagado <b>${money(inv.paid)}</b> de ${money(inv.total)} · saldo <b class="${saldo ? '' : 'text-success'}">${money(saldo)}</b>`;
+          const btn = $('[data-nuevo-rc]', d); if (btn) btn.hidden = saldo <= 0 || inv.status === 'anulada';
+          rcBox.innerHTML = rows.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Recibo</th><th>Fecha</th><th>Medio</th><th class="text-end">Valor</th><th></th></tr></thead><tbody>${rows.map((x) => `<tr class="${x.voided ? 'text-body-secondary' : ''}">
+              <td>${esc(x.number)}${x.voided ? ' ' + chip('free', 'Anulado') : ''}</td><td>${day(x.date)}</td><td>${esc(x.method || '—')}</td><td class="text-end ${x.voided ? 'text-decoration-line-through' : ''}">${money(x.amount)}</td>
+              <td class="text-end text-nowrap"><button type="button" class="btn btn-sm btn-outline-secondary" data-rcpdf="${x.id}"><i class="bi bi-printer me-1"></i>Recibo</button>${me.canManage && !x.voided && !RO ? ` <button type="button" class="btn btn-sm btn-outline-danger" data-rcvoid="${x.id}" data-n="${esc(x.number)}" aria-label="Anular"><i class="bi bi-x-circle"></i></button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+            : '<span class="small text-body-secondary">Aún no hay pagos. Cada pago que registres genera un recibo de caja.</span>';
+        };
+        loadRc();
+        $('[data-nuevo-rc]', d)?.addEventListener('click', async () => { const inv = await api(`${B}/invoices/${row.id}`).catch(() => row); await payReceipt(inv, async () => { await loadRc(); changed(); }); });
+        rcBox.addEventListener('click', async (e) => {
+          const pdf = e.target.closest('[data-rcpdf]'), vd = e.target.closest('[data-rcvoid]');
+          if (pdf) window.open(`${B}/receipts/${pdf.dataset.rcpdf}/pdf`, '_blank', 'noopener');
+          if (vd && (await confirm({ title: `¿Anular el recibo ${vd.dataset.n}?`, text: 'El ingreso se quita y la cuenta de cobro vuelve a deber ese valor.', ok: 'Anular', danger: true }))) {
+            try { await api(`${B}/receipts/${vd.dataset.rcvoid}/void`, { method: 'POST' }); toast('Recibo anulado'); await loadRc(); changed(); } catch (x) { toast(x.message, false); }
+          }
+        });
       }
       draw(); ensureRate();
       box.addEventListener('input', calc);

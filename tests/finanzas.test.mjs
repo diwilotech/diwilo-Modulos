@@ -24,8 +24,25 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const invRow = (await A.app(`${F}/invoices`)).data.rows.find((r) => r.id === inv.data.id);
   check('Finanzas: total desde las líneas y consecutivo', invRow?.total === 300000 && /0001$/.test(invRow.number), JSON.stringify(invRow));
   check('Finanzas: el PDF responde', (await A.app(`${F}/invoices/${inv.data.id}/pdf`)).status === 200);
-  check('Finanzas: registra el cobro de la cuenta', (await A.app(`${F}/invoices/${inv.data.id}/pay`, { method: 'POST', body: { amount: 300000, date: hoy } })).status === 200);
+  check('Finanzas: registra el cobro de la cuenta (con su recibo de caja)', (await A.app(`${F}/invoices/${inv.data.id}/pay`, { method: 'POST', body: { amount: 300000, date: hoy } })).status === 201);
   check('Finanzas: la cuenta queda pagada', (await A.app(`${F}/invoices`)).data.rows.find((r) => r.id === inv.data.id)?.state === 'pagada');
+
+  // Cuentas por cobrar y recibos de caja: varios recibos por cuenta, con consecutivo, que se pueden anular
+  const cx = await A.app(`${F}/invoices`, { method: 'POST', body: { kind: 'emitida', counterparty: 'Cliente Dos', issue_date: hoy, items: [{ concepto: 'Curso', cantidad: 1, moneda: 'COP', valor: 1000000 }] } });
+  const rc1 = await A.app(`${F}/invoices/${cx.data.id}/receipts`, { method: 'POST', body: { amount: 400000, date: hoy, method: 'Nequi' } });
+  const rc2 = await A.app(`${F}/invoices/${cx.data.id}/receipts`, { method: 'POST', body: { amount: 300000, date: hoy, method: 'Efectivo' } });
+  check('Recibos de caja: varios por cuenta, con consecutivo', rc1.status === 201 && rc2.status === 201 && rc1.data.receipt.number === 'RC-0002' && rc2.data.receipt.number === 'RC-0003', JSON.stringify([rc1.data, rc2.data]));
+  const lst = await A.app(`${F}/invoices/${cx.data.id}/receipts`);
+  check('Recibos de caja: se ven desde la cuenta y la cuenta lleva lo pagado', lst.data.rows.length === 2 && (await A.app(`${F}/invoices`)).data.rows.find((r) => r.id === cx.data.id)?.paid === 700000);
+  check('Recibos de caja: un recibo no puede pasar el saldo (400)', (await A.app(`${F}/invoices/${cx.data.id}/receipts`, { method: 'POST', body: { amount: 400000 } })).status === 400);
+  check('Recibos de caja: el recibo se imprime', (await A.app(`${F}/receipts/${rc1.data.receipt.id}/pdf`)).status === 200);
+  check('Recibos de caja: anular uno devuelve su valor a la cuenta', (await A.app(`${F}/receipts/${rc2.data.receipt.id}/void`, { method: 'POST' })).status === 200 && (await A.app(`${F}/invoices`)).data.rows.find((r) => r.id === cx.data.id)?.paid === 400000);
+  check('Recibos de caja: B no ve los de A', ((await B.app(`${F}/receipts`)).data.rows || []).length === 0);
+  const ex = await A.app(`${F}/invoices/externo`, { method: 'POST', body: { ref: 'app:cuenta:1', counterparty: 'Cliente Tres', total: 500000, concept: 'Matrícula' } });
+  const er = await A.app(`${F}/receipts/externo`, { method: 'POST', body: { ref: 'app:pago:1', invoice_ref: 'app:cuenta:1', amount: 200000, method: 'Bre-B' } });
+  const er2 = await A.app(`${F}/receipts/externo`, { method: 'POST', body: { ref: 'app:pago:1', invoice_ref: 'app:cuenta:1', amount: 200000 } });
+  check('Recibos de caja: una app los crea por ref, sin duplicar, ligados a su cuenta', ex.status === 201 && er.status === 201 && er2.data.nuevo === false && (await A.app(`${F}/invoices/${ex.data.id}/receipts`)).data.rows.length === 1);
+  check('Recibos de caja: una app los anula por ref', (await A.app(`${F}/receipts/externo/void`, { method: 'POST', body: { ref: 'app:pago:1' } })).status === 200 && (await A.app(`${F}/invoices`)).data.rows.find((r) => r.id === ex.data.id)?.paid === 0);
   const pdf = (await A.app(`${F}/invoices/${inv.data.id}/pdf`)).data.text || '';
   const code = (/\/validar\/([A-Z0-9]+)/.exec(pdf) || [])[1];
   check('Finanzas: el QR de validación abre la página pública', !!code && (await (await fetch(`${APP}/validar/${code}`)).text()).includes('Documento válido'));
