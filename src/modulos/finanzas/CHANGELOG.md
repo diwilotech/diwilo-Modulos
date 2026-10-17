@@ -1,5 +1,9 @@
 # Finanzas — cambios
 
+## 1.2.0 · 2026-10-16
+- Cuentas de cobro desde otras apps: `POST /api/finanzas/invoices/externo` (por `ref`, sin duplicar; se actualiza mientras no esté anulada). Migración 0005 (`fin_invoices.ref`).
+- Movimientos externos pueden ligarse a esa cuenta de cobro (`invoice_ref`): al pagarse completa pasa a «pagada». Si se anula el pago (`anula_ref`) deja de contar en la cuenta de cobro.
+
 ## 1.1.0 · 2026-10-14
 - Igual al Finance Hub de Diwilo en las herramientas de IA: ver centros de costo y cuentas, ver gastos recurrentes, buscar movimientos (por texto, mes, tipo o sin centro de costo), crear centro de costo y cuenta (sin duplicar), editar movimientos, crear gasto recurrente (con cobros ya hechos y en dólares con TRM) y editarlo (llevando el centro de costo a sus cobros).
 - Registrar movimiento: centro de costo y cuenta por nombre y sin duplicar. Cuenta de cobro: ciudad, correo, detalle por línea y centro de costo.

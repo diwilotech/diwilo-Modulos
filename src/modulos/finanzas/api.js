@@ -250,6 +250,12 @@ export function routes(r) {
     if (!ref) throw new HttpError(400, 'Falta ref');
     const prev = await one(c.env, 'SELECT id FROM fin_movements WHERE business_id = ? AND ref = ?', c.businessId, ref);
     if (prev) return json({ id: prev.id, nuevo: false });
+    // Anulación: el cobro original deja de contar en su cuenta de cobro (el movimiento de reverso queda en libros).
+    if (b.anula_ref) {
+      const orig = await one(c.env, 'SELECT id, invoice_id FROM fin_movements WHERE business_id = ? AND ref = ?', c.businessId, String(b.anula_ref).slice(0, 120));
+      if (orig?.invoice_id) { await c.env.DB.prepare('UPDATE fin_movements SET invoice_id = NULL, updated_at = ? WHERE id = ? AND business_id = ?').bind(now(), orig.id, c.businessId).run(); await recomputeInvoice(c.env, c.businessId, orig.invoice_id); }
+    }
+    const inv = b.invoice_ref ? await one(c.env, 'SELECT id FROM fin_invoices WHERE business_id = ? AND ref = ?', c.businessId, String(b.invoice_ref).slice(0, 120)) : null;
     const kind = b.kind === 'gasto' ? 'gasto' : 'ingreso', amount = cast('valor', 'money!', b.amount), date = cast('fecha', 'date', b.date) || today();
     let cc = null;
     if (b.centro_costo) {
@@ -258,11 +264,47 @@ export function routes(r) {
       if (!cc) { const t0 = now(); cc = (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'app', 1, ?, ?)").bind(c.businessId, name, t0, t0).run()).meta.last_row_id; }
     }
     const t = now();
-    const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(c.businessId, kind, date, amount, b.category ? String(b.category).slice(0, 120) : null, b.description ? String(b.description).slice(0, 300) : null, b.counterparty ? String(b.counterparty).slice(0, 200) : null, cc, ref, t, t).run();
+    const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, ref, invoice_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(c.businessId, kind, date, amount, b.category ? String(b.category).slice(0, 120) : null, b.description ? String(b.description).slice(0, 300) : null, b.counterparty ? String(b.counterparty).slice(0, 200) : null, cc, ref, inv?.id || null, t, t).run();
+    if (res.meta.changes && inv) await recomputeInvoice(c.env, c.businessId, inv.id);
     if (res.meta.changes) await audit(c, `Registró ${kind === 'ingreso' ? 'el ingreso' : 'el gasto'} «${String(b.description || ref).slice(0, 60)}» por $${amount.toLocaleString('es-CO')}`, { modulo: MOD });
     return json({ id: res.meta.last_row_id, nuevo: !!res.meta.changes }, res.meta.changes ? 201 : 200);
   });
+  // Cuenta de cobro que crea otra app (una por matrícula, por ejemplo). Se identifica por `ref`: si ya existe se actualiza (mientras no esté anulada).
+  //   POST /api/finanzas/invoices/externo { ref, counterparty, tax_id?, client_email?, issue_date?, due_date?, concept, detail?, total, category?, centro_costo? }
+  r.post(`${B}/invoices/externo`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);
+    if (!ref) throw new HttpError(400, 'Falta ref');
+    const total = cast('total', 'money!', b.total);
+    if (total <= 0) throw new HttpError(400, 'El total debe ser mayor que cero');
+    const counterparty = String(b.counterparty || '').trim().slice(0, 200);
+    if (!counterparty) throw new HttpError(400, 'Falta quién paga');
+    const concept = String(b.concept || 'Servicio').slice(0, 300), issue = cast('fecha', 'date', b.issue_date) || today(), due = cast('vence', 'date', b.due_date) || null;
+    const items = JSON.stringify([{ concepto: concept, detalle: b.detail ? String(b.detail).slice(0, 300) : undefined, cantidad: 1, moneda: 'COP', valor: total, total }]);
+    let cc = null;
+    if (b.centro_costo) {
+      const name = String(b.centro_costo).slice(0, 120);
+      cc = (await one(c.env, 'SELECT id FROM fin_cost_centers WHERE business_id = ? AND lower(name) = lower(?)', c.businessId, name))?.id;
+      if (!cc) { const t0 = now(); cc = (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'app', 1, ?, ?)").bind(c.businessId, name, t0, t0).run()).meta.last_row_id; }
+    }
+    const taxId = b.tax_id ? String(b.tax_id).slice(0, 60) : null, email = b.client_email ? String(b.client_email).slice(0, 200) : null, category = b.category ? String(b.category).slice(0, 120) : 'Matrículas';
+    const prev = await one(c.env, 'SELECT id, number, status FROM fin_invoices WHERE business_id = ? AND ref = ?', c.businessId, ref);
+    const t = now();
+    if (prev) {
+      if (prev.status !== 'anulada') {
+        await c.env.DB.prepare('UPDATE fin_invoices SET counterparty = ?, tax_id = ?, client_email = ?, due_date = ?, concept = ?, items = ?, subtotal = ?, total = ?, cost_center_id = ?, category = ?, updated_at = ? WHERE id = ? AND business_id = ?')
+          .bind(counterparty, taxId, email, due, concept, items, total, total, cc, category, t, prev.id, c.businessId).run();
+        await recomputeInvoice(c.env, c.businessId, prev.id);
+      }
+      return json({ id: prev.id, number: prev.number, nuevo: false });
+    }
+    const number = await nextNumber(c.env, c.businessId);
+    const res = await c.env.DB.prepare(`INSERT INTO fin_invoices (business_id, kind, number, counterparty, tax_id, client_email, issue_date, due_date, concept, items, subtotal, tax, total, paid, status, cost_center_id, category, ref, created_at, updated_at)
+      VALUES (?, 'emitida', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, 'pendiente', ?, ?, ?, ?, ?)`).bind(c.businessId, number, counterparty, taxId, email, issue, due, concept, items, total, total, cc, category, ref, t, t).run();
+    await audit(c, `Creó la cuenta de cobro ${number} para ${counterparty} por $${total.toLocaleString('es-CO')}`, { modulo: MOD });
+    return json({ id: res.meta.last_row_id, number, nuevo: true }, 201);
+  });
+
   const api = crud(r, { base: B, modulo: MOD, entities: ENTITIES });
   r.get(`${B}/reports/datos`, `tenant:${MOD}`, async (c) => json(await reportData(c, c.url.searchParams.get('month'))));
 
