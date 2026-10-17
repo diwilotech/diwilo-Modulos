@@ -359,6 +359,19 @@ export function routes(r) {
       concept: `Abono a la cuenta de cobro ${inv.number || '#' + inv.id}`, notes: b.notes ? String(b.notes).slice(0, 300) : null });
     return json({ ok: true, receipt: rc }, 201);
   });
+  // Recibo de caja suelto: sin cuenta por cobrar (para quien no cobra con cuentas de cobro).
+  r.post(`${B}/receipts`, `tenant:${MOD}`, async (c) => {
+    const b = await readJson(c.req), amount = cast('valor', 'money!', b.amount);
+    if (amount <= 0) throw new HttpError(400, 'El valor debe ser mayor que cero');
+    const accountId = cast('cuenta', 'int', b.account_id), ccId = cast('centro de costo', 'int', b.cost_center_id);
+    if (accountId) await api.get(c, 'accounts', accountId);
+    if (ccId) await api.get(c, 'cost_centers', ccId);
+    const counterparty = String(b.counterparty || '').trim().slice(0, 200);
+    if (!counterparty) throw new HttpError(400, 'Escribe de quién se recibe el pago');
+    const rc = await createReceipt(c, { date: cast('fecha', 'date', b.date) || today(), amount, method: b.method ? String(b.method).slice(0, 40) : null, accountId, counterparty,
+      concept: String(b.concept || 'Pago recibido').slice(0, 300), notes: b.notes ? String(b.notes).slice(0, 300) : null, costCenterId: ccId });
+    return json({ ok: true, receipt: rc }, 201);
+  });
   r.get(`${B}/receipts`, `tenant:${MOD}`, async (c) => {
     const q = (c.url.searchParams.get('q') || '').trim(), limit = Math.min(1000, Math.max(1, Number(c.url.searchParams.get('limit')) || 200));
     const rows = q

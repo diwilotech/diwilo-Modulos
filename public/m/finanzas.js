@@ -144,8 +144,9 @@ DW.ready.then((me) => {
 
   /* ---------- recibos de caja ---------- */
   async function receiptsView(el) {
-    el.innerHTML = `<div class="alert alert-light border small">Cada pago que recibes de una cuenta por cobrar genera un <b>recibo de caja</b> con su número (RC-0001…). Puede haber varios por cuenta. Se crean desde la cuenta por cobrar, o los crea tu app solos.</div>
-      <div class="d-flex gap-2 mb-2"><input class="form-control" style="max-width:280px" data-q placeholder="Buscar por cliente, número o concepto" aria-label="Buscar"></div><div class="dw-card p-0 p-md-2" data-lista><div class="p-3 text-body-secondary">Cargando…</div></div>`;
+    el.innerHTML = `<div class="alert alert-light border small">Cada pago que recibes de una cuenta por cobrar genera un <b>recibo de caja</b> con su número (RC-0001…). Puede haber varios por cuenta. También puedes hacer un recibo <b>sin cuenta de cobro</b> (botón «Nuevo recibo de caja»), si así trabajas.</div>
+      <div class="d-flex flex-wrap gap-2 mb-2"><input class="form-control" style="max-width:280px" data-q placeholder="Buscar por cliente, número o concepto" aria-label="Buscar">
+        ${RO ? '' : '<button class="btn btn-primary ms-auto" data-nuevo><i class="bi bi-plus-lg me-1"></i>Nuevo recibo de caja</button>'}</div><div class="dw-card p-0 p-md-2" data-lista><div class="p-3 text-body-secondary">Cargando…</div></div>`;
     const load = async () => {
       const { rows } = await api(`${B}/receipts?limit=500&q=${encodeURIComponent($('[data-q]', el).value.trim())}`);
       $('[data-lista]', el).innerHTML = rows.length ? `<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Recibo</th><th>Fecha</th><th>Cliente</th><th>Medio</th><th class="text-end">Valor</th><th></th></tr></thead><tbody>${rows.map((x) => `<tr>
@@ -154,6 +155,15 @@ DW.ready.then((me) => {
           <td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-secondary" data-pdf="${x.id}"><i class="bi bi-printer me-1"></i>Recibo</button>${me.canManage && !x.voided && !RO ? ` <button class="btn btn-sm btn-outline-danger" data-void="${x.id}" data-n="${esc(x.number)}" aria-label="Anular"><i class="bi bi-x-circle"></i></button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
         : '<div class="p-4 text-center text-body-secondary">Aún no hay recibos de caja.</div>';
     };
+    $('[data-nuevo]', el)?.addEventListener('click', async () => {
+      const out = await C.form({ title: 'Nuevo recibo de caja', base: B, okText: 'Generar recibo',
+        fields: [{ k: 'counterparty', label: 'Recibimos de', required: true }, { k: 'concept', label: 'Por concepto de', required: true }, { k: 'amount', label: 'Valor', type: 'money', required: true },
+          { k: 'date', label: 'Fecha', type: 'date', required: true }, { k: 'method', label: 'Medio de pago', type: 'select', options: ['Efectivo', 'Transferencia', 'Nequi', 'Daviplata', 'Tarjeta', 'Bre-B', 'Otro'].map((x) => [x, x]) },
+          { k: 'account_id', label: 'Cuenta donde entra', ref: 'accounts' }, { k: 'cost_center_id', label: 'Centro de costo', ref: 'cost_centers' }, { k: 'notes', label: 'Notas', type: 'long' }],
+        values: { date: C.todayCo(), method: 'Efectivo' } });
+      if (!out) return;
+      try { const r = await api(`${B}/receipts`, { method: 'POST', body: out }); toast(`Recibo de caja ${r.receipt.number} generado`); window.open(`${B}/receipts/${r.receipt.id}/pdf`, '_blank', 'noopener'); load(); } catch (x) { toast(x.message, false); }
+    });
     let tq; $('[data-q]', el).addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(load, 250); });
     el.addEventListener('click', async (e) => {
       const p = e.target.closest('[data-pdf]'), v = e.target.closest('[data-void]');
