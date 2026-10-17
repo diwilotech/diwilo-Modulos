@@ -19,7 +19,7 @@ Worker central de los **módulos horizontales** de Diwilo (Finanzas, Marketing y
 |---|---|---|
 | Finanzas (`finanzas`) | 1.1.0 | El Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), cuentas de cobro en PDF con QR de validación, cartera, recurrentes, centros de costo, presupuestos, conciliación, exportación, informes y 15 herramientas de IA. |
 | Marketing (`marketing`) | 1.3.0 | El Marketing Hub de Diwilo por negocio: clientes y leads, embudo, campañas con links de rastreo y QR, tareas y automatizaciones, listas con revisión de sitios, informes y 18 herramientas de IA. |
-| Marca e IA (`marca`) | 1.1.0 | La marca del negocio (color —por defecto el de su app— con su paleta de tonalidades y fondos, tipografía y tono de conversación) y las plantillas de su IA (chat y MCP). Las tarjetas de Marketing leen de aquí. plantillas para chat, MCP y agentes, y un kit de marca para webs, apps y agentes. 4 herramientas de IA. |
+| Marca e IA (`marca`) | 1.3.0 | **Módulo base** que reemplaza a «Configuración»: color de la app y modo, logo, fondo, tipografía y tono; plantillas de IA, conexiones MCP y bitácora. La marca del negocio (color de su app con su paleta de tonalidades, fondo negro/blanco/igual que la app, tipografía y tono de conversación) y las plantillas de su IA (chat y MCP). Las tarjetas de Marketing leen de aquí. plantillas para chat, MCP y agentes, y un kit de marca para webs, apps y agentes. 4 herramientas de IA. |
 
 Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 
@@ -45,7 +45,7 @@ Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 | `uso(app, businessId)` | Registros por módulo (Diwilo avisa antes de quitar un módulo). |
 | `purge(app, businessIds)` | Borra los datos de los negocios que la app borró (lo llama Diwilo Web). |
 
-`ctx` = `{ app, business: { id, name, logo }, user: { id, email, name }, role, readOnly, origin, via: 'app'|'mcp', modulos }`.
+`ctx` = `{ app, business: { id, name, logo, tema, modo }, user: { id, email, name }, role, readOnly, origin, via: 'app'|'mcp', modulos }`.
 
 ## Crear un módulo nuevo
 

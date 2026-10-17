@@ -92,7 +92,8 @@ export async function publicCard(env, app, rest, origin, { bot = false } = {}) {
   const brand = await brandOf(env, card.business_id);
   card.accent_efectivo = card.accent === 'app' ? brand.color_efectivo : card.accent;
   card.tipografia = brand.tipografia;
-  card.fondo = paleta(TEMAS[card.accent_efectivo]?.ui || TEMAS.violeta.ui).fondo_oscuro; // fondo de la paleta de la marca
+  card.paleta = paleta(TEMAS[card.accent_efectivo]?.ui || TEMAS.violeta.ui);
+  card.fondo_modo = brand.fondo_efectivo; // 'oscuro' | 'claro' (negro, blanco o igual que la app)
   const img = (dataUrl, cache) => {
     const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl || '');
     return m ? { status: 200, headers: { 'content-type': m[1], 'cache-control': cache }, body: m[2], base64: true, business_id } : null;

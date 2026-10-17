@@ -1,8 +1,8 @@
 {
   "id": "marca",
   "nombre": "Marca e IA",
-  "version": "1.1.0",
-  "descripcion": "La marca del negocio en un solo lugar: color (por defecto el de su app), tipografía y tono de conversación, que usan las tarjetas y los mensajes; las plantillas de la IA (chat, asistentes externos MCP y agentes); y un kit de marca listo para copiar o consumir (CSS, tipografía y prompts) al crear webs, apps, chats o automatizaciones.",
+  "version": "1.3.0",
+  "descripcion": "Todo lo de la identidad y la IA del negocio en un solo lugar: color de la app y modo claro/oscuro, logo, fondo, tipografía y tono de conversación; plantillas de la IA (chat, asistentes externos y agentes); conexiones de IA (MCP); kit de marca para webs y apps; y la bitácora. Reemplaza a Configuración.",
   "icono": "bi-palette",
   "menu": {
     "ruta": "/staff/marca.html",
@@ -26,5 +26,6 @@
   "rutas_publicas": [],
   "depende_de": [],
   "pagina": "/m/marca.js",
-  "central": true
+  "central": true,
+  "base": true
 }

@@ -106,7 +106,7 @@ export class Modulos extends WorkerEntrypoint {
     if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '') || !/^[A-Za-z0-9_-]{1,64}$/.test(businessId || '')) throw new HttpError(400, 'App o negocio no válido');
     const org = orgId(app, businessId);
     const o = await this.env.DB.prepare('SELECT name FROM orgs WHERE id = ?').bind(org).first();
-    return kitOf(this.env, org, o?.name || null);
+    return kitOf(this.env, org, o?.name || null, { logo: true });
   }
 
   async uso(app, businessId) {

@@ -1,5 +1,20 @@
 # Marca e IA — cambios
 
+## 1.3.0 · 2026-10-17
+- **Reemplaza a «Configuración» de las apps:** la pantalla trae Marca (color de la app, modo claro/oscuro, logo, fondo, tipografía y tono), Asistente IA
+  (plantillas), Conexiones (tokens MCP) y Bitácora. Usa las rutas estándar de la app (`/api/settings/apariencia`, `/api/settings/logo`, `/api/ia/tokens`,
+  `/api/settings/bitacora`), así que sirve igual en cualquier app de la Plantilla.
+- **Módulo base** (`"base": true`): la app lo mantiene siempre activo, sin depender del plan.
+- El color de la marca es siempre el de la app (se elige aquí y la app lo guarda); se quitó el «color propio».
+- **Logo:** se sube aquí; la app lo guarda para su menú y el módulo guarda una copia para el kit (`GET|PUT|DELETE /api/marca/logo`, `logo` en el kit con `?logo=1`, y en el RPC `marca()`).
+- Migración `0008_marca_fondo.sql` incluye `mc_marca.logo`.
+
+## 1.2.0 · 2026-10-17
+- **Fondo de la marca:** negro, blanco o «igual que mi app» (sigue el modo claro/oscuro que el negocio tiene en Apariencia). Por defecto negro, como siempre.
+- La tarjeta pública se pinta con ese fondo (versión clara con textos, botones y hoja de instalación adaptados) y el kit de marca trae
+  `fondo` y `--marca-fondo-actual` / `--marca-tinta-actual`, que el CSS ya usa en `body`.
+- Migración `0008_marca_fondo.sql`: `mc_marca.fondo` y `orgs.modo` (la app envía `business.modo` en cada llamada).
+
 ## 1.1.0 · 2026-10-17
 - **Paleta de la marca:** varias tonalidades del color (50 a 900, con el 500 como principal), un fondo claro y un fondo oscuro, y colores de texto.
   Se calculan del color principal —el que la app guarda en Apariencia— y no se guardan en el módulo: si la app cambia de color, la paleta cambia sola.

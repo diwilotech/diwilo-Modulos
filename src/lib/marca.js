@@ -57,17 +57,21 @@ export const STARTERS = {
 // chat = asistente de la app · mcp = asistente externo · agente = automatizaciones y agentes de IA
 export const CANALES = ['chat', 'mcp', 'agente'];
 export const COLORES = ['app', ...Object.keys(TEMAS)];
+// Fondo de la marca: negro, blanco o igual que el modo (claro/oscuro) que la app tiene en Apariencia
+export const FONDOS = { oscuro: 'Negro', claro: 'Blanco', app: 'Igual que mi app' };
 
 // La marca efectiva de un negocio (org = «<app>:<id>»). Sin registro propio: color de la app, Inter y tono cercano.
 export async function brandOf(env, org) {
-  const row = await one(env, 'SELECT color, tipografia, tono, tono_notas FROM mc_marca WHERE business_id = ?', org);
-  const o = await one(env, 'SELECT tema FROM orgs WHERE id = ?', org);
+  const row = await one(env, 'SELECT color, tipografia, tono, tono_notas, fondo, logo IS NOT NULL AS tiene_logo FROM mc_marca WHERE business_id = ?', org);
+  const o = await one(env, 'SELECT tema, modo FROM orgs WHERE id = ?', org);
   const tema_app = TEMAS[o?.tema] ? o.tema : 'violeta';
   const color = COLORES.includes(row?.color) ? row.color : 'app';
+  const fondo = FONDOS[row?.fondo] ? row.fondo : 'oscuro', modo_app = o?.modo === 'dark' ? 'oscuro' : 'claro';
   return {
     color, tema_app, color_efectivo: color === 'app' ? tema_app : color,
+    fondo, modo_app, fondo_efectivo: fondo === 'app' ? modo_app : fondo,
     tipografia: FUENTES[row?.tipografia] ? row.tipografia : 'inter',
-    tono: TONOS[row?.tono] ? row.tono : 'cercano', tono_notas: row?.tono_notas || '',
+    tono: TONOS[row?.tono] ? row.tono : 'cercano', tono_notas: row?.tono_notas || '', tiene_logo: !!row?.tiene_logo,
   };
 }
 
@@ -87,18 +91,21 @@ const rgbDe = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).j
 
 // El «kit de marca»: todo lo que otra pieza necesita para verse y hablar como el negocio (una web, otra app, un chat, un agente).
 // Lo entregan la pantalla Marca e IA (copiar/descargar), GET /api/marca/kit, la herramienta MCP marca.kit_de_marca y el RPC marca().
-export async function kitOf(env, org, nombre = null) {
+export async function kitOf(env, org, nombre = null, { logo = false } = {}) {
   const b = await brandOf(env, org);
   const t = TEMAS[b.color_efectivo], f = FUENTES[b.tipografia], pal = paleta(t.ui);
   const { results } = await env.DB.prepare('SELECT canal, nombre, instrucciones FROM mc_plantillas WHERE business_id = ? AND activa = 1 ORDER BY created_at').bind(org).all();
+  const lg = await one(env, 'SELECT logo FROM mc_marca WHERE business_id = ?', org);
   const googleUrl = `https://fonts.googleapis.com/css2?family=${f.google}&display=swap`;
   const prompts = Object.fromEntries(CANALES.map((k) => [k, [tonoPrompt(b), ...results.filter((r) => r.canal === k).map((r) => `## ${r.nombre}\n${r.instrucciones}`)].join('\n\n')]));
   return {
     version: 1, negocio: nombre,
     color: { id: b.color_efectivo, nombre: t.nombre, sigue_a_la_app: b.color === 'app', principal: t.ui, principal_rgb: rgbDe(t.ui), claro: t.card[1], brillo_rgb: t.card[2], texto_sobre_principal: '#ffffff', paleta: pal },
+    fondo: { elegido: b.fondo, efectivo: b.fondo_efectivo, color: b.fondo_efectivo === 'claro' ? pal.fondo : pal.fondo_oscuro, tinta: b.fondo_efectivo === 'claro' ? pal.texto : pal.texto_oscuro },
     tipografia: { id: b.tipografia, nombre: f.nombre, familia: f.familia, google_url: googleUrl, html: `<link href="${googleUrl}" rel="stylesheet">` },
-    css: `:root{--marca:${t.ui};--marca-rgb:${rgbDe(t.ui)};--marca-claro:${t.card[1]};--marca-texto:#ffffff;${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => `--marca-${n}:${pal[n]}`).join(';')};--marca-fondo:${pal.fondo};--marca-fondo-oscuro:${pal.fondo_oscuro};--marca-tinta:${pal.texto};--marca-tinta-oscura:${pal.texto_oscuro};--marca-fuente:${f.familia}}\nbody{font-family:var(--marca-fuente);background:var(--marca-fondo);color:var(--marca-tinta)}`,
+    css: `:root{--marca:${t.ui};--marca-rgb:${rgbDe(t.ui)};--marca-claro:${t.card[1]};--marca-texto:#ffffff;${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => `--marca-${n}:${pal[n]}`).join(';')};--marca-fondo:${pal.fondo};--marca-fondo-oscuro:${pal.fondo_oscuro};--marca-tinta:${pal.texto};--marca-tinta-oscura:${pal.texto_oscuro};--marca-fondo-actual:${b.fondo_efectivo === 'claro' ? pal.fondo : pal.fondo_oscuro};--marca-tinta-actual:${b.fondo_efectivo === 'claro' ? pal.texto : pal.texto_oscuro};--marca-fuente:${f.familia}}\nbody{font-family:var(--marca-fuente);background:var(--marca-fondo-actual);color:var(--marca-tinta-actual)}`,
     tono: { id: b.tono, nombre: TONOS[b.tono].nombre, regla: TONOS[b.tono].regla, notas: b.tono_notas || null },
+    logo: lg?.logo ? { disponible: true, formato: /^data:image\/([a-z+]+);/.exec(lg.logo)?.[1] || null, ...(logo ? { data_url: lg.logo } : { nota: 'Pídelo con ?logo=1 (API), en la pestaña «Usar en otros lados» o con el RPC marca()' }) } : null,
     prompts, plantillas: results,
   };
 }

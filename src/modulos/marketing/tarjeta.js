@@ -76,6 +76,8 @@ self.addEventListener('fetch', (e) => {
 export function renderCard(c, origin) {
   const [ac, acLight, acRgb] = ACCENT[c.accent_efectivo || c.accent] || ACCENT.violeta;
   // Tipografía de la marca (Inter es la de siempre: la tarjeta queda como estaba)
+  const claro = c.fondo_modo === 'claro', P = c.paleta || null;
+  const fondoPag = P ? (claro ? P.fondo : P.fondo_oscuro) : '#05060f';
   const fuente = c.tipografia && c.tipografia !== 'inter' ? FUENTES[c.tipografia] : null;
   const url = `${origin}/c/${encodeURIComponent(c.slug)}`;
   const wa = digits(c.whatsapp || c.phone).replace('+', '');
@@ -98,7 +100,7 @@ export function renderCard(c, origin) {
 <meta name="description" content="${esc([c.role, c.company].filter(Boolean).join(' · '))}">
 <meta property="og:title" content="${esc(c.name)}"><meta property="og:description" content="${esc(c.bio || c.role || '')}">
 ${safeUrl(c.photo_url) ? `<meta property="og:image" content="${esc(c.photo_url)}">` : ''}
-<meta name="theme-color" content="${c.fondo || '#05060f'}">
+<meta name="theme-color" content="${fondoPag}">
 <link rel="manifest" href="/c/${encodeURIComponent(c.slug)}/manifest.webmanifest">
 <link rel="icon" type="image/png" href="/c/${encodeURIComponent(c.slug)}/icon-192.png?v=${c.updated_at || c.created_at}">
 <link rel="apple-touch-icon" href="/c/${encodeURIComponent(c.slug)}/icon-192.png?v=${c.updated_at || c.created_at}">
@@ -112,7 +114,7 @@ ${fuente ? `<link href="https://fonts.googleapis.com/css2?family=${fuente.google
 <style>
 :root{--ink:#d1e4fa;--ink2:#c7d3ea;--ink3:#9da7ba;--hi:#d8ecf8;--edge:rgba(186,215,247,.12);--violet:${ac};--lilac:${acLight};--glow:${acRgb}}
 ${fuente ? `body,h1,.sheet h2,.photo{font-family:${fuente.familia}!important}` : ''}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:${c.fondo || '#05060f'};color:var(--ink);font-family:Inter,system-ui,sans-serif;display:grid;place-items:center;padding:32px 16px;overflow-x:hidden}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:${fondoPag};color:var(--ink);font-family:Inter,system-ui,sans-serif;display:grid;place-items:center;padding:32px 16px;overflow-x:hidden}
 body::before{content:"";position:fixed;inset:0 0 auto;height:620px;pointer-events:none;background:conic-gradient(at 50% -5%,transparent 45%,rgba(var(--glow),.3) 48.5%,rgba(124,145,182,.5) 50%,rgba(var(--glow),.3) 51.5%,transparent 55%);-webkit-mask-image:linear-gradient(#000 50%,transparent);mask-image:linear-gradient(#000 50%,transparent)}
 .card{position:relative;width:100%;max-width:400px;border-radius:20px;background:rgba(5,6,15,.92);padding:32px 24px 24px;text-align:center;box-shadow:inset 0 1px 1px rgba(216,236,248,.2),inset 0 24px 48px rgba(168,216,245,.06),0 24px 48px rgba(0,0,0,.5);animation:in .9s cubic-bezier(.22,1,.36,1) both}
 @keyframes in{from{opacity:0;transform:translateY(24px) scale(.97);filter:blur(6px)}}
@@ -141,6 +143,15 @@ h1{margin:0;font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:26p
 .sheet button{margin-top:18px;width:100%;padding:12px;border:0;border-radius:999px;background:rgba(var(--glow),.2);color:#fff;font:500 14px Inter,sans-serif;cursor:pointer}
 @media (display-mode: standalone){body{padding-top:max(32px,env(safe-area-inset-top))}}
 .foot{display:flex;justify-content:center;gap:16px;margin-top:18px;font-size:12px;color:var(--ink3)}.foot button,.foot a{background:none;border:0;color:var(--ink3);font:inherit;cursor:pointer;text-decoration:none}.foot button:hover,.foot a:hover{color:#fff}
+${claro ? `:root{--ink:#334155;--ink2:#475569;--ink3:#64748b;--hi:#0f172a;--edge:rgba(15,23,42,.14);--lilac:${P[600]}}
+body::before{opacity:.35}
+.card{background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.1)}
+h1{background:linear-gradient(0deg,${P[900]},${P[700]});-webkit-background-clip:text;background-clip:text}
+.act:hover,.install:hover{background:rgba(var(--glow),.1);color:#0f172a}
+.save{background:${P[600]};color:#fff;box-shadow:none}.save:hover{background:${P[700]}}
+.sheet>div{background:#fff}.sheet li strong,.sheet li b,.sheet button{color:#0f172a}
+.foot button:hover,.foot a:hover{color:#0f172a}
+.qr{border:1px solid rgba(15,23,42,.14)}` : ''}
 </style></head>
 <body><main class="card">
   ${photo}
