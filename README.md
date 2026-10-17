@@ -19,7 +19,7 @@ Worker central de los **módulos horizontales** de Diwilo (Finanzas, Marketing y
 |---|---|---|
 | Finanzas (`finanzas`) | 1.1.0 | El Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), cuentas de cobro en PDF con QR de validación, cartera, recurrentes, centros de costo, presupuestos, conciliación, exportación, informes y 15 herramientas de IA. |
 | Marketing (`marketing`) | 1.3.0 | El Marketing Hub de Diwilo por negocio: clientes y leads, embudo, campañas con links de rastreo y QR, tareas y automatizaciones, listas con revisión de sitios, informes y 18 herramientas de IA. |
-| Marca e IA (`marca`) | 1.0.0 | La marca del negocio (color —por defecto el de su app—, tipografía y tono de conversación) y las plantillas de su IA (chat y MCP). Las tarjetas de Marketing leen de aquí. plantillas para chat, MCP y agentes, y un kit de marca para webs, apps y agentes. 4 herramientas de IA. |
+| Marca e IA (`marca`) | 1.1.0 | La marca del negocio (color —por defecto el de su app— con su paleta de tonalidades y fondos, tipografía y tono de conversación) y las plantillas de su IA (chat y MCP). Las tarjetas de Marketing leen de aquí. plantillas para chat, MCP y agentes, y un kit de marca para webs, apps y agentes. 4 herramientas de IA. |
 
 Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 

@@ -9,7 +9,7 @@
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
-import { TEMAS, FUENTES, TONOS, STARTERS, CANALES, COLORES, brandOf, tonoPrompt, kitOf } from '../../lib/marca.js';
+import { TEMAS, FUENTES, TONOS, STARTERS, CANALES, COLORES, brandOf, tonoPrompt, kitOf, paleta } from '../../lib/marca.js';
 
 const MOD = 'marca', B = '/api/marca';
 const MAX_POR_CANAL = 20;
@@ -81,7 +81,7 @@ export function routes(r) {
       marca: { ...marca, tema_nombre: TEMAS[marca.tema_app].nombre },
       negocio: { nombre: c.ctx?.business?.name || null, logo: c.ctx?.business?.logo || null },
       opciones: {
-        temas: Object.entries(TEMAS).map(([id, t]) => ({ id, nombre: t.nombre, color: t.ui, card: t.card[0] })),
+        temas: Object.entries(TEMAS).map(([id, t]) => ({ id, nombre: t.nombre, color: t.ui, card: t.card[0], paleta: paleta(t.ui) })),
         fuentes: Object.entries(FUENTES).map(([id, f]) => ({ id, nombre: f.nombre, familia: f.familia, google: f.google })),
         tonos: Object.entries(TONOS).map(([id, t]) => ({ id, nombre: t.nombre, ejemplo: t.ejemplo })),
       },

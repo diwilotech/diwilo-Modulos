@@ -8,7 +8,7 @@ import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { Router } from '../../router.js';
 import { renderCard, renderVcf, cardManifest, CARD_SW } from './tarjeta.js';
-import { TEMAS, brandOf } from '../../lib/marca.js';
+import { TEMAS, brandOf, paleta } from '../../lib/marca.js';
 
 const MOD = 'marketing', B = '/api/marketing';
 // 'app' = el color de la marca del negocio (por defecto el de su app: cambia solo cuando cambia Apariencia); luego los 9 temas y «ámbar» (tarjetas viejas)
@@ -92,6 +92,7 @@ export async function publicCard(env, app, rest, origin, { bot = false } = {}) {
   const brand = await brandOf(env, card.business_id);
   card.accent_efectivo = card.accent === 'app' ? brand.color_efectivo : card.accent;
   card.tipografia = brand.tipografia;
+  card.fondo = paleta(TEMAS[card.accent_efectivo]?.ui || TEMAS.violeta.ui).fondo_oscuro; // fondo de la paleta de la marca
   const img = (dataUrl, cache) => {
     const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl || '');
     return m ? { status: 200, headers: { 'content-type': m[1], 'cache-control': cache }, body: m[2], base64: true, business_id } : null;

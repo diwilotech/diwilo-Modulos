@@ -71,21 +71,33 @@ export async function brandOf(env, org) {
   };
 }
 
+// Paleta de la marca: se CALCULA del color principal (el que guarda la app en Apariencia); aquí no se guarda nada.
+//   50…900 = tonalidades del principal (500 es el principal) · fondo = fondo claro teñido · fondo_oscuro = fondo oscuro teñido
+const mezcla = (a, b, t) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, '0')).join('');
+export function paleta(hex) {
+  const claro = (t) => mezcla(hex, '#ffffff', t), oscuro = (t) => mezcla(hex, '#000000', t);
+  return {
+    50: claro(0.92), 100: claro(0.84), 200: claro(0.68), 300: claro(0.5), 400: claro(0.25), 500: hex,
+    600: oscuro(0.12), 700: oscuro(0.28), 800: oscuro(0.45), 900: oscuro(0.62),
+    fondo: claro(0.96), fondo_oscuro: mezcla('#0b0d14', hex, 0.14), texto: '#1f2937', texto_oscuro: '#e6e9f2',
+  };
+}
+
 const rgbDe = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(',');
 
 // El «kit de marca»: todo lo que otra pieza necesita para verse y hablar como el negocio (una web, otra app, un chat, un agente).
 // Lo entregan la pantalla Marca e IA (copiar/descargar), GET /api/marca/kit, la herramienta MCP marca.kit_de_marca y el RPC marca().
 export async function kitOf(env, org, nombre = null) {
   const b = await brandOf(env, org);
-  const t = TEMAS[b.color_efectivo], f = FUENTES[b.tipografia];
+  const t = TEMAS[b.color_efectivo], f = FUENTES[b.tipografia], pal = paleta(t.ui);
   const { results } = await env.DB.prepare('SELECT canal, nombre, instrucciones FROM mc_plantillas WHERE business_id = ? AND activa = 1 ORDER BY created_at').bind(org).all();
   const googleUrl = `https://fonts.googleapis.com/css2?family=${f.google}&display=swap`;
   const prompts = Object.fromEntries(CANALES.map((k) => [k, [tonoPrompt(b), ...results.filter((r) => r.canal === k).map((r) => `## ${r.nombre}\n${r.instrucciones}`)].join('\n\n')]));
   return {
     version: 1, negocio: nombre,
-    color: { id: b.color_efectivo, nombre: t.nombre, sigue_a_la_app: b.color === 'app', principal: t.ui, principal_rgb: rgbDe(t.ui), claro: t.card[1], brillo_rgb: t.card[2], texto_sobre_principal: '#ffffff' },
+    color: { id: b.color_efectivo, nombre: t.nombre, sigue_a_la_app: b.color === 'app', principal: t.ui, principal_rgb: rgbDe(t.ui), claro: t.card[1], brillo_rgb: t.card[2], texto_sobre_principal: '#ffffff', paleta: pal },
     tipografia: { id: b.tipografia, nombre: f.nombre, familia: f.familia, google_url: googleUrl, html: `<link href="${googleUrl}" rel="stylesheet">` },
-    css: `:root{--marca:${t.ui};--marca-rgb:${rgbDe(t.ui)};--marca-claro:${t.card[1]};--marca-texto:#ffffff;--marca-fuente:${f.familia}}\nbody{font-family:var(--marca-fuente)}`,
+    css: `:root{--marca:${t.ui};--marca-rgb:${rgbDe(t.ui)};--marca-claro:${t.card[1]};--marca-texto:#ffffff;${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => `--marca-${n}:${pal[n]}`).join(';')};--marca-fondo:${pal.fondo};--marca-fondo-oscuro:${pal.fondo_oscuro};--marca-tinta:${pal.texto};--marca-tinta-oscura:${pal.texto_oscuro};--marca-fuente:${f.familia}}\nbody{font-family:var(--marca-fuente);background:var(--marca-fondo);color:var(--marca-tinta)}`,
     tono: { id: b.tono, nombre: TONOS[b.tono].nombre, regla: TONOS[b.tono].regla, notas: b.tono_notas || null },
     prompts, plantillas: results,
   };

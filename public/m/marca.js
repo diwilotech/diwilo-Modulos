@@ -28,6 +28,9 @@ DW.ready.then((me) => {
     document.head.appendChild(l);
   };
 
+  const tira = (P) => `<div class="d-flex rounded-3 overflow-hidden border">${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => `<span style="flex:1;height:34px;background:${P[n]}" title="${n} · ${P[n]}"></span>`).join('')}</div>
+    <div class="d-flex flex-wrap gap-2 mt-2 small"><span class="rounded-pill px-3 py-1 border" style="background:${P.fondo};color:${P.texto}">Fondo claro · ${P.fondo}</span><span class="rounded-pill px-3 py-1" style="background:${P.fondo_oscuro};color:${P.texto_oscuro}">Fondo oscuro · ${P.fondo_oscuro}</span></div>`;
+  
   function marca(el) {
     loadFonts();
     const O = D.opciones, m = D.marca;
@@ -57,7 +60,8 @@ DW.ready.then((me) => {
           <span><span class="fw-semibold d-block">Usar el color de mi app</span><span class="small text-body-secondary">Hoy: ${esc(temaApp.nombre)}. Si lo cambias en Configuración → Apariencia, cambia aquí también.</span></span></button>
         <div class="small text-body-secondary mb-2">O elige un color propio para tu marca</div>
         <div class="d-flex flex-wrap gap-3">${O.temas.map((x) => `<button type="button" class="btn p-0 text-center border-0" data-c="${x.id}" ${CAN ? '' : 'disabled'} title="${esc(x.nombre)}" aria-label="${esc(x.nombre)}" aria-pressed="${st.color === x.id}">
-          <span class="rounded-circle d-grid mx-auto" style="width:40px;height:40px;background:${x.color};place-items:center;${st.color === x.id ? `outline:3px solid ${x.color};outline-offset:2px` : ''}">${st.color === x.id ? '<i class="bi bi-check-lg text-white"></i>' : ''}</span><span class="small d-block mt-1">${esc(x.nombre)}</span></button>`).join('')}</div>`;
+          <span class="rounded-circle d-grid mx-auto" style="width:40px;height:40px;background:${x.color};place-items:center;${st.color === x.id ? `outline:3px solid ${x.color};outline-offset:2px` : ''}">${st.color === x.id ? '<i class="bi bi-check-lg text-white"></i>' : ''}</span><span class="small d-block mt-1">${esc(x.nombre)}</span></button>`).join('')}</div>
+        <div class="mt-4"><div class="small fw-semibold mb-1">Paleta de tu marca</div><div class="small text-body-secondary mb-2">Varias tonalidades del color y un fondo. Se calcula del color de arriba: tu app solo guarda el principal.</div>${tira(t.paleta)}</div>`;
       // Tipografía
       $('[data-fuentes]', el).innerHTML = O.fuentes.map((x) => `<div class="col-6 col-md-4"><button type="button" class="btn w-100 text-start p-3 border ${st.tipografia === x.id ? 'border-primary' : ''}" data-f="${x.id}" ${CAN ? '' : 'disabled'}
         style="${st.tipografia === x.id ? `outline:2px solid ${t.color};outline-offset:1px;` : ''}font-family:${x.familia}"><span class="d-block" style="font-size:1.6rem;line-height:1.1">Aa</span><span class="small">${esc(x.nombre)}</span></button></div>`).join('');
@@ -67,11 +71,11 @@ DW.ready.then((me) => {
       // Vista previa
       const nombre = D.negocio.nombre || me.business.name || 'Tu negocio';
       $('[data-prev]', el).innerHTML = `<div class="dw-card p-0 overflow-hidden" style="font-family:${f.familia}">
-        <div style="height:72px;background:linear-gradient(135deg,${t.color},#150B2B)"></div>
+        <div style="height:72px;background:linear-gradient(135deg,${t.paleta[500]},${t.paleta[900]})"></div>
         <div class="p-3" style="margin-top:-30px"><span class="d-grid text-white fw-semibold" style="width:60px;height:60px;border-radius:50%;place-items:center;background:#150B2B;border:3px solid var(--bs-body-bg);font-size:1.2rem">${esc(nombre.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase())}</span>
           <div class="fw-semibold fs-5 mt-2">${esc(nombre)}</div><div class="small text-body-secondary">Tarjeta de presentación</div>
-          <div class="d-grid gap-2 mt-3"><span class="btn text-white" style="background:${t.color};pointer-events:none"><i class="bi bi-whatsapp me-1"></i>Escríbenos</span><span class="btn border" style="pointer-events:none"><i class="bi bi-telephone me-1"></i>Llamar</span></div>
-          <div class="mt-3 p-3 rounded-3" style="background:rgba(var(--bs-body-color-rgb),.06)"><div class="small text-body-secondary mb-1"><i class="bi bi-chat-dots me-1"></i>Así responde tu chat · ${esc(tono.nombre)}</div><div>${esc(tono.ejemplo)}</div></div></div></div>`;
+          <div class="d-grid gap-2 mt-3"><span class="btn text-white" style="background:${t.paleta[500]};pointer-events:none"><i class="bi bi-whatsapp me-1"></i>Escríbenos</span><span class="btn" style="pointer-events:none;border:1px solid ${t.paleta[300]};color:${t.paleta[700]}">Llamar</span></div>
+          <div class="mt-3 p-3 rounded-3" style="background:${t.paleta[50]};color:${t.paleta.texto}"><div class="small mb-1" style="color:${t.paleta[700]}"><i class="bi bi-chat-dots me-1"></i>Así responde tu chat · ${esc(tono.nombre)}</div><div>${esc(tono.ejemplo)}</div></div></div></div>`;
       const b = $('[data-save]', el); if (b) b.disabled = !dirty();
     };
     pintar();
@@ -146,7 +150,7 @@ DW.ready.then((me) => {
         <span class="rounded-circle d-grid" style="width:44px;height:44px;background:${esc(K.color.principal)};place-items:center"><i class="bi bi-palette text-white"></i></span>
         <div class="flex-grow-1"><div class="fw-semibold">${esc(K.color.nombre)} <span class="small text-body-secondary font-monospace">${esc(K.color.principal)}</span>${K.color.sigue_a_la_app ? ' <span class="badge text-bg-light">sigue a tu app</span>' : ''}</div>
           <div class="small text-body-secondary">${esc(K.tipografia.nombre)} · tono ${esc(K.tono.nombre.toLowerCase())}</div></div>
-        <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" data-json><i class="bi bi-clipboard me-1"></i>Copiar kit completo (JSON)</button><button class="btn btn-outline-primary btn-sm" data-down><i class="bi bi-download me-1"></i>Descargar</button></div></div></div>
+        <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" data-json><i class="bi bi-clipboard me-1"></i>Copiar kit completo (JSON)</button><button class="btn btn-outline-primary btn-sm" data-down><i class="bi bi-download me-1"></i>Descargar</button></div></div><div class="mt-3">${tira(K.color.paleta)}</div></div>
       <div class="row g-3">${piezas.map(([t, a], i) => `<div class="col-lg-6"><div class="dw-card h-100"><div class="d-flex align-items-start gap-2"><div class="flex-grow-1"><h2 class="h6 mb-0">${esc(t)}</h2><div class="small text-body-secondary">${esc(a)}</div></div>
           <button class="btn btn-sm btn-outline-primary" data-cp="${i}"><i class="bi bi-clipboard me-1"></i>Copiar</button></div>
           <pre class="small mt-2 mb-0 p-2 rounded-3" style="white-space:pre-wrap;max-height:220px;overflow:auto;background:rgba(var(--bs-body-color-rgb),.06)">${esc(piezas[i][2])}</pre></div></div>`).join('')}

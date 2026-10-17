@@ -1,5 +1,11 @@
 # Marca e IA — cambios
 
+## 1.1.0 · 2026-10-17
+- **Paleta de la marca:** varias tonalidades del color (50 a 900, con el 500 como principal), un fondo claro y un fondo oscuro, y colores de texto.
+  Se calculan del color principal —el que la app guarda en Apariencia— y no se guardan en el módulo: si la app cambia de color, la paleta cambia sola.
+- El kit de marca (`color.paleta` y el CSS con `--marca-50` … `--marca-900`, `--marca-fondo`, `--marca-fondo-oscuro`) y la pestaña Marca muestran la paleta.
+- La tarjeta pública usa el fondo oscuro de la paleta (antes un negro fijo).
+
 ## 1.0.0 · 2026-10-17
 - **Marca del negocio:** color (por defecto «el color de mi app», que sigue a Apariencia; o uno de los 9 temas), tipografía (6 de lista
   cerrada) y tono de conversación (cercano, formal, amable, directo o divertido, con indicaciones propias).

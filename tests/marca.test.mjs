@@ -56,6 +56,13 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Marca: el prompt de cada canal solo lleva sus plantillas', /Revisa los leads nuevos/.test(kt.prompts.agente) && !/Revisa los leads nuevos/.test(kt.prompts.chat) && /Resume la semana/.test(kt.prompts.mcp));
   check('Marca: el kit de B no trae nada de A', (await B.app(`${M}/kit`)).data.plantillas.length === 0 && (await B.app(`${M}/kit`)).data.color.sigue_a_la_app === true);
 
+  // Paleta: varias tonalidades del color y fondos, calculadas del color principal (no se guardan)
+  const pal = kt.color.paleta;
+  check('Marca: la paleta trae 10 tonalidades, fondo claro y fondo oscuro del color de la marca', [50, 100, 200, 300, 400, 500, 600, 700, 800, 900].every((n) => /^#[0-9a-f]{6}$/.test(pal[n])) && pal[500] === '#1d4ed8' && /^#[0-9a-f]{6}$/.test(pal.fondo) && /^#[0-9a-f]{6}$/.test(pal.fondo_oscuro), JSON.stringify(pal));
+  check('Marca: el CSS del kit lleva la paleta y el fondo', /--marca-900:/.test(kt.css) && /--marca-50:/.test(kt.css) && kt.css.includes(`--marca-fondo:${pal.fondo}`) && kt.css.includes(`--marca-fondo-oscuro:${pal.fondo_oscuro}`));
+  check('Marca: la tarjeta pública usa el fondo de la paleta', (await pubTxt()).includes(`background:${pal.fondo_oscuro}`));
+  check('Marca: las opciones traen la paleta de cada tema', (await A.app(M)).data.opciones.temas.every((x) => x.paleta?.[500] === x.color));
+
   // Permisos: el personal ve pero no cambia
   const staff = await newMember(A.id, 'staff');
   // Cada app decide qué módulos ve el personal por defecto; Marca no es sensible: el personal la ve pero no la cambia
