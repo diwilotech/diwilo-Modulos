@@ -10,6 +10,7 @@
 //   link(app, slug) · click(app, id)  links de rastreo públicos (/l/:slug en el dominio de la app)
 //   validar(app, code, origin)        validación pública de documentos (/validar/:código en el dominio de la app)
 //   tarjeta(app, rest, origin, opts)  tarjetas de presentación públicas (/c/… en el dominio de la app)
+//   marca(app, businessId)            kit de marca de un negocio (color, CSS, tipografía, tono y prompts de IA) para otro Worker
 //   uso(app, businessId)              registros por módulo (Diwilo avisa antes de quitar un módulo)
 //   purge(app, businessIds)           borra los datos de negocios que la app ya borró
 // Tareas diarias (cron): gastos recurrentes de Finanzas y automatizaciones de Marketing de todos los negocios.
@@ -21,6 +22,7 @@ import { MODULOS } from './modulos/index.js';
 import { linkBySlug, countClick } from './modulos/marketing/api.js';
 import { publicCard } from './modulos/marketing/tarjetas.js';
 import { validatePage } from './modulos/finanzas/api.js';
+import { kitOf } from './lib/marca.js';
 
 const router = new Router();
 for (const m of MODULOS) m.api.routes(router);
@@ -97,6 +99,14 @@ export class Modulos extends WorkerEntrypoint {
   tarjeta(app, rest, origin, opts = {}) {
     if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
     return publicCard(this.env, app, rest, origin, opts);
+  }
+
+  // Kit de marca de un negocio para otra pieza de Diwilo (un generador de webs o apps, un agente…): se llama por service binding.
+  async marca(app, businessId) {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '') || !/^[A-Za-z0-9_-]{1,64}$/.test(businessId || '')) throw new HttpError(400, 'App o negocio no válido');
+    const org = orgId(app, businessId);
+    const o = await this.env.DB.prepare('SELECT name FROM orgs WHERE id = ?').bind(org).first();
+    return kitOf(this.env, org, o?.name || null);
   }
 
   async uso(app, businessId) {

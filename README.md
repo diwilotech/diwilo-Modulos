@@ -18,7 +18,8 @@ Worker central de los **módulos horizontales** de Diwilo (Finanzas, Marketing y
 | Módulo | Versión | Qué hace |
 |---|---|---|
 | Finanzas (`finanzas`) | 1.1.0 | El Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), cuentas de cobro en PDF con QR de validación, cartera, recurrentes, centros de costo, presupuestos, conciliación, exportación, informes y 15 herramientas de IA. |
-| Marketing (`marketing`) | 1.1.0 | El Marketing Hub de Diwilo por negocio: clientes y leads, embudo, campañas con links de rastreo y QR, tareas y automatizaciones, listas con revisión de sitios, informes y 18 herramientas de IA. |
+| Marketing (`marketing`) | 1.3.0 | El Marketing Hub de Diwilo por negocio: clientes y leads, embudo, campañas con links de rastreo y QR, tareas y automatizaciones, listas con revisión de sitios, informes y 18 herramientas de IA. |
+| Marca e IA (`marca`) | 1.0.0 | La marca del negocio (color —por defecto el de su app—, tipografía y tono de conversación) y las plantillas de su IA (chat y MCP). Las tarjetas de Marketing leen de aquí. plantillas para chat, MCP y agentes, y un kit de marca para webs, apps y agentes. 4 herramientas de IA. |
 
 Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 
@@ -40,6 +41,7 @@ Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 | `asset(path)` | Código de las páginas (`/m/<id>.html`, `/m/<id>.js`). |
 | `link(app, slug)` · `click(app, id)` | Links de rastreo públicos (`/l/:slug` en el dominio de la app). |
 | `validar(app, code, origin)` | Validación pública de cuentas de cobro (`/validar/:código` en el dominio de la app). |
+| `marca(app, businessId)` | Kit de marca del negocio (color, CSS, tipografía, tono y prompts de IA por canal) para otro Worker: un generador de webs o apps, agentes… |
 | `uso(app, businessId)` | Registros por módulo (Diwilo avisa antes de quitar un módulo). |
 | `purge(app, businessIds)` | Borra los datos de los negocios que la app borró (lo llama Diwilo Web). |
 

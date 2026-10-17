@@ -1,3 +1,4 @@
+import { TEMAS, FUENTES } from '../../lib/marca.js';
 /* Tarjeta de presentación digital (la misma de Diwilo): página pública, archivo vCard, manifest y service worker.
    Se publica en el dominio de cada app (/c/<slug>); la app pide aquí el contenido por RPC (tarjeta() en src/index.js). */
 
@@ -23,13 +24,11 @@ export function renderVcf(c) {
   ].filter(Boolean).join('\r\n');
 }
 
-// Colores de tarjeta: [principal, claro, brillo rgba]
+// Colores de tarjeta: [principal, claro, brillo rgba]. Los 9 temas de las apps (src/lib/marca.js) + «ámbar» de las tarjetas viejas.
+// El color «app» no está aquí: se resuelve antes (accent_efectivo) con la marca del negocio.
 export const ACCENT = {
-  violeta: ['#8f45f2', '#c99bfa', '168,85,247'],
-  azul: ['#2f6fed', '#93c5fd', '59,130,246'],
-  verde: ['#0f9f6e', '#6ee7b7', '16,185,129'],
-  ambar: ['#d97706', '#fcd34d', '245,158,11'],
-  rosa: ['#db2777', '#f9a8d4', '236,72,153']
+  ...Object.fromEntries(Object.entries(TEMAS).map(([k, v]) => [k, v.card])),
+  ambar: ['#d97706', '#fcd34d', '245,158,11']
 };
 
 /* Manifest para instalar la tarjeta como app propia (un ícono por persona) */
@@ -75,7 +74,9 @@ self.addEventListener('fetch', (e) => {
 `;
 
 export function renderCard(c, origin) {
-  const [ac, acLight, acRgb] = ACCENT[c.accent] || ACCENT.violeta;
+  const [ac, acLight, acRgb] = ACCENT[c.accent_efectivo || c.accent] || ACCENT.violeta;
+  // Tipografía de la marca (Inter es la de siempre: la tarjeta queda como estaba)
+  const fuente = c.tipografia && c.tipografia !== 'inter' ? FUENTES[c.tipografia] : null;
   const url = `${origin}/c/${encodeURIComponent(c.slug)}`;
   const wa = digits(c.whatsapp || c.phone).replace('+', '');
   const ig = (c.instagram || '').replace(/^@/, '');
@@ -106,9 +107,11 @@ ${safeUrl(c.photo_url) ? `<meta property="og:image" content="${esc(c.photo_url)}
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="${esc((c.name || '').trim().split(/\s+/)[0])}">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Space+Grotesk:wght@500&family=JetBrains+Mono&display=swap" rel="stylesheet">
+${fuente ? `<link href="https://fonts.googleapis.com/css2?family=${fuente.google}&display=swap" rel="stylesheet">` : ''}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/light/style.css">
 <style>
 :root{--ink:#d1e4fa;--ink2:#c7d3ea;--ink3:#9da7ba;--hi:#d8ecf8;--edge:rgba(186,215,247,.12);--violet:${ac};--lilac:${acLight};--glow:${acRgb}}
+${fuente ? `body,h1,.sheet h2,.photo{font-family:${fuente.familia}!important}` : ''}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#05060f;color:var(--ink);font-family:Inter,system-ui,sans-serif;display:grid;place-items:center;padding:32px 16px;overflow-x:hidden}
 body::before{content:"";position:fixed;inset:0 0 auto;height:620px;pointer-events:none;background:conic-gradient(at 50% -5%,transparent 45%,rgba(var(--glow),.3) 48.5%,rgba(124,145,182,.5) 50%,rgba(var(--glow),.3) 51.5%,transparent 55%);-webkit-mask-image:linear-gradient(#000 50%,transparent);mask-image:linear-gradient(#000 50%,transparent)}
 .card{position:relative;width:100%;max-width:400px;border-radius:20px;background:rgba(5,6,15,.92);padding:32px 24px 24px;text-align:center;box-shadow:inset 0 1px 1px rgba(216,236,248,.2),inset 0 24px 48px rgba(168,216,245,.06),0 24px 48px rgba(0,0,0,.5);animation:in .9s cubic-bezier(.22,1,.36,1) both}

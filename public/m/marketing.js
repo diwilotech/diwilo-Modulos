@@ -405,7 +405,11 @@ DW.ready.then((me) => {
   }
 
   /* ---------- Tarjetas de presentación (las mismas de Diwilo) ---------- */
-  const ACC = { violeta: ['#8f45f2', '#c99bfa', 'Violeta'], azul: ['#2f6fed', '#93c5fd', 'Azul'], verde: ['#0f9f6e', '#6ee7b7', 'Verde'], ambar: ['#d97706', '#fcd34d', 'Ámbar'], rosa: ['#db2777', '#f9a8d4', 'Rosa'] };
+  // Colores de tarjeta: «app» sigue el color de la marca del negocio (por defecto el de su app, que se elige en Apariencia); luego los 9 temas
+  const TEMAS_C = { violeta: ['#8f45f2', '#c99bfa', 'Violeta'], azul: ['#2f6fed', '#93c5fd', 'Azul'], indigo: ['#6366f1', '#a5b4fc', 'Índigo'], rosa: ['#db2777', '#f9a8d4', 'Rosa'], rojo: ['#dc2626', '#fca5a5', 'Rojo'],
+    naranja: ['#ea580c', '#fdba74', 'Naranja'], verde: ['#0f9f6e', '#6ee7b7', 'Verde'], turquesa: ['#0d9488', '#5eead4', 'Turquesa'], grafito: ['#64748b', '#cbd5e1', 'Grafito'], ambar: ['#d97706', '#fcd34d', 'Ámbar'] };
+  const APP_T = TEMAS_C[me.settings?.tema] || TEMAS_C.violeta;
+  const ACC = { app: [APP_T[0], APP_T[1], `Color de mi app (${APP_T[2]})`], ...TEMAS_C };
   const CONTACTOS = [['whatsapp', 'bi-whatsapp', 'WhatsApp', '+57 300 000 0000', 'tel'], ['phone', 'bi-telephone', 'Teléfono', '+57 300 000 0000', 'tel'], ['email', 'bi-envelope', 'Correo', 'nombre@negocio.com', 'email'],
     ['website', 'bi-globe', 'Sitio web', 'https://…', 'url'], ['instagram', 'bi-instagram', 'Instagram', 'usuario', 'text'], ['linkedin', 'bi-linkedin', 'LinkedIn', 'https://www.linkedin.com/in/…', 'url']];
   const cardUrl = (c) => `${location.origin}/c/${c.slug}`;
@@ -461,7 +465,7 @@ DW.ready.then((me) => {
         <div class="col-md-4 text-center"><div class="small text-body-secondary mb-1">Foto</div><div data-foto></div>
           <div class="d-flex justify-content-center gap-1 mt-2"><button type="button" class="btn btn-sm btn-outline-primary" data-subir><i class="bi bi-camera me-1"></i>Subir</button><button type="button" class="btn btn-sm btn-light" data-quitar>Quitar</button></div>
           <input type="file" accept="image/*" hidden data-file>
-          <div class="small text-body-secondary mt-3 mb-1">Color</div><div class="d-flex justify-content-center gap-2" data-colores>${Object.entries(ACC).map(([k, a]) => `<button type="button" class="btn p-0 rounded-circle" data-acc="${k}" title="${a[2]}" aria-label="${a[2]}" style="width:28px;height:28px;background:${a[0]};outline-offset:2px"></button>`).join('')}</div>
+          <div class="small text-body-secondary mt-3 mb-1">Color</div><div class="d-flex justify-content-center flex-wrap gap-2" data-colores>${Object.entries(ACC).filter(([k]) => k !== 'ambar' || d.accent === 'ambar').map(([k, a]) => `<button type="button" class="btn p-0 rounded-circle d-grid" data-acc="${k}" title="${a[2]}" aria-label="${a[2]}" style="width:28px;height:28px;background:${a[0]};outline-offset:2px;place-items:center">${k === 'app' ? '<i class="bi bi-phone text-white" style="font-size:.8rem"></i>' : ''}</button>`).join('')}</div><div class="small text-body-secondary mt-1">El primero sigue el color de tu app</div>
           ${card ? `<div class="mt-3" data-qr style="max-width:150px;margin:auto"></div><div class="small text-body-secondary">${num(card.views)} vistas</div>` : ''}</div></div>
           <div class="small text-danger mt-2" data-err></div></div>
         <div class="modal-footer border-0 pt-0 justify-content-between"><span>${card && !card.predeterminada ? '<button type="button" class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash me-1"></i>Borrar</button>' : ''}</span>

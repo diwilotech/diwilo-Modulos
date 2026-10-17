@@ -6,8 +6,12 @@ import finanzasManifest from './finanzas/modulo.json';
 import * as marketing from './marketing/api.js';
 import marketingIa from './marketing/ia.js';
 import marketingManifest from './marketing/modulo.json';
+import * as marca from './marca/api.js';
+import marcaIa from './marca/ia.js';
+import marcaManifest from './marca/modulo.json';
 
 export const MODULOS = [
   { manifest: finanzasManifest, api: finanzas, tools: finanzasIa },
   { manifest: marketingManifest, api: marketing, tools: marketingIa },
+  { manifest: marcaManifest, api: marca, tools: marcaIa },
 ];

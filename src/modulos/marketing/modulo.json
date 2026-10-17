@@ -1,7 +1,7 @@
 {
   "id": "marketing",
   "nombre": "Marketing",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "descripcion": "Marketing Hub de Diwilo por negocio: clientes y leads, oportunidades (embudo), campañas con presupuesto, gasto, costo por lead, ROI y links de rastreo por plataforma con QR, tareas con plantillas y automatizaciones (lead nuevo, sin contacto, presupuesto, factura vencida, semanal), listas con revisión de sitios y feeds, informes del analista de IA y suscripciones/herramientas, tarjetas de presentación digitales (la del negocio se crea sola).",
   "icono": "bi-megaphone",
   "menu": {

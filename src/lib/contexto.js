@@ -16,11 +16,11 @@ export function checkCtx(ctx) {
 const seen = new Map();
 export async function syncOrg(env, ctx) {
   const id = orgId(ctx.app, ctx.business.id);
-  const sig = JSON.stringify([ctx.business.name || null, ctx.modulos || null]);
+  const sig = JSON.stringify([ctx.business.name || null, ctx.modulos || null, ctx.business.tema || null]);
   if (seen.get(id) === sig) return;
-  await env.DB.prepare(`INSERT INTO orgs (id, app, business_id, name, modulos, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET name = COALESCE(excluded.name, orgs.name), modulos = COALESCE(excluded.modulos, orgs.modulos), updated_at = excluded.updated_at`)
-    .bind(id, ctx.app, ctx.business.id, ctx.business.name ? String(ctx.business.name).slice(0, 120) : null, ctx.modulos ? JSON.stringify(ctx.modulos) : null, Date.now()).run();
+  await env.DB.prepare(`INSERT INTO orgs (id, app, business_id, name, modulos, tema, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = COALESCE(excluded.name, orgs.name), modulos = COALESCE(excluded.modulos, orgs.modulos), tema = COALESCE(excluded.tema, orgs.tema), updated_at = excluded.updated_at`)
+    .bind(id, ctx.app, ctx.business.id, ctx.business.name ? String(ctx.business.name).slice(0, 120) : null, ctx.modulos ? JSON.stringify(ctx.modulos) : null, /^[a-z]{3,12}$/.test(ctx.business.tema || '') ? ctx.business.tema : null, Date.now()).run();
   seen.set(id, sig);
 }
 

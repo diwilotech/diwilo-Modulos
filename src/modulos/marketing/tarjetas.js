@@ -8,11 +8,11 @@ import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { Router } from '../../router.js';
 import { renderCard, renderVcf, cardManifest, CARD_SW } from './tarjeta.js';
+import { TEMAS, brandOf } from '../../lib/marca.js';
 
 const MOD = 'marketing', B = '/api/marketing';
-export const ACCENTS = ['violeta', 'azul', 'verde', 'ambar', 'rosa'];
-// Tema de la app → color de la tarjeta predeterminada
-const TEMA_ACCENT = { violeta: 'violeta', indigo: 'violeta', grafito: 'violeta', azul: 'azul', turquesa: 'verde', verde: 'verde', naranja: 'ambar', rojo: 'rosa', rosa: 'rosa' };
+// 'app' = el color de la marca del negocio (por defecto el de su app: cambia solo cuando cambia Apariencia); luego los 9 temas y «ámbar» (tarjetas viejas)
+export const ACCENTS = ['app', ...Object.keys(TEMAS), 'ambar'];
 const slugify = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 const COLS = 'id, business_id, slug, name, role, company, bio, phone, whatsapp, email, website, instagram, linkedin, accent, predeterminada, views, created_at, updated_at, photo_data IS NOT NULL AS has_photo, icon_512 IS NOT NULL AS has_icon';
 
@@ -35,12 +35,12 @@ export const CARD_ENTITY = {
   decorate(c, rows) { return rows.map(({ photo_data, icon_192, icon_512, ...r }) => ({ ...r, has_photo: !!photo_data, has_icon: !!icon_512 })); },
 };
 
-// Tarjeta predeterminada: nombre del negocio, su color y el correo de quien la crea si es el propietario.
+// Tarjeta predeterminada: nombre del negocio, el color de su app (sigue a Apariencia) y el correo de quien la crea si es el propietario.
 export async function ensureDefaultCard(c) {
   if (await one(c.env, 'SELECT 1 FROM mk_cards WHERE business_id = ? AND predeterminada = 1', c.businessId)) return false;
   const b = c.ctx?.business || {}, name = b.name || 'Mi negocio', t = now();
   await c.env.DB.prepare(`INSERT INTO mk_cards (business_id, slug, name, company, email, accent, predeterminada, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`)
-    .bind(c.businessId, await uniqueSlug(c.env, name), name, name, c.role === 'owner' ? c.session?.email || null : null, TEMA_ACCENT[b.tema] || 'violeta', t, t).run();
+    .bind(c.businessId, await uniqueSlug(c.env, name), name, name, c.role === 'owner' ? c.session?.email || null : null, 'app', t, t).run();
   await audit(c, `Creó la tarjeta del negocio «${name}»`, { modulo: MOD });
   return true;
 }
@@ -88,6 +88,10 @@ export async function publicCard(env, app, rest, origin, { bot = false } = {}) {
   const card = await one(env, `SELECT ${COLS}, photo_data, icon_192, icon_512 FROM mk_cards WHERE slug = ? AND business_id LIKE ?`, slug, `${app}:%`);
   if (!card) return text(404, 'Tarjeta no encontrada');
   const business_id = card.business_id.slice(app.length + 1);
+  // Marca del negocio: el color «app» sigue al tema de su app; la tipografía viene de Marca e IA
+  const brand = await brandOf(env, card.business_id);
+  card.accent_efectivo = card.accent === 'app' ? brand.color_efectivo : card.accent;
+  card.tipografia = brand.tipografia;
   const img = (dataUrl, cache) => {
     const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl || '');
     return m ? { status: 200, headers: { 'content-type': m[1], 'cache-control': cache }, body: m[2], base64: true, business_id } : null;

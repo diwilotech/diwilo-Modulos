@@ -1,5 +1,11 @@
 # Marketing — cambios
 
+## 1.3.0 · 2026-10-17
+- **Tarjetas con el color de la app:** el color «app» (el predeterminado) sigue al color que el negocio elige en Apariencia y cambia solo
+  cuando él cambia; también se pueden elegir los 9 temas completos (antes había 5 colores y el tema se copiaba una sola vez al crear la tarjeta).
+- La tarjeta pública usa la tipografía de la marca (módulo Marca e IA). Con Inter queda igual que antes.
+- Las tarjetas predeterminadas existentes pasan a «color de la app» (migración `0007_marca.sql`).
+
 ## 1.2.0 · 2026-10-15
 - **Tarjetas de presentación digitales** (las mismas de Diwilo): página pública `/c/<slug>` en el dominio de cada app, instalable como
   app con su propio ícono, vCard para guardar el contacto, foto, colores, WhatsApp, redes, QR y contador de vistas.

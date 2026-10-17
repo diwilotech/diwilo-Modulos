@@ -3,7 +3,7 @@
 Responde en español. Modo económico: sin capturas salvo que se pidan; de las pruebas mostrar solo el resumen.
 
 ## Qué es
-Worker central `diwilo-modulos` con los módulos horizontales (Finanzas, Marketing + Tarjetas) para todas las apps Diwilo.
+Worker central `diwilo-modulos` con los módulos horizontales (Finanzas, Marketing + Tarjetas, Marca e IA) para todas las apps Diwilo.
 - Sin dominio público (`workers_dev: false`). Las apps lo usan por service binding `MODULOS` → entrypoint `Modulos` (RPC).
 - D1 `diwilo-modulos-db` (id d4969edc-4280-438f-a19d-e5a1ac07c33c). Assets en `public/` (páginas `/m/<modulo>.{html,js}`).
 - Datos por `business_id = "<app>:<negocio>"`. Diwilo propio = `diwilo:diwilo`; Academia = `cdacademia:<id>`.
