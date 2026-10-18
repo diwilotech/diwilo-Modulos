@@ -1,5 +1,11 @@
 # Marketing — cambios
 
+## 1.5.0 · 2026-10-17
+- **Tarjetas en vivo, sin modal:** editar una tarjeta abre el editor en la misma página, con el formulario y la **tarjeta real** a un lado que cambia mientras escribes
+  (con el color, el fondo y la letra de la marca). Las tarjetas de la lista también se ven así.
+- **Marca muestra la tarjeta del negocio** (la real, no un ejemplo) y los cambios de color, modo, fondo, tipografía y tono se ven en ella al instante; desde ahí se salta a editar sus datos.
+- **Nueva tarjeta:** un modal propone como **sugeridos** a los profesionales del equipo que aún no tienen tarjeta (se rellena con sus datos) o una tarjeta en blanco.
+
 ## 1.4.0 · 2026-10-17
 - **Marca dentro de Tarjetas:** la vista «Tarjetas» pasa a «Tarjetas y marca», con tres partes: Tarjetas, **Marca** (color de la app, modo claro/oscuro, logo, fondo, tipografía y tono)
   y **Usar en otros lados** (kit de marca para webs, apps, chats y agentes). Antes vivía en la pantalla «Marca e IA».

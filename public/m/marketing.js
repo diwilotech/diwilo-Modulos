@@ -434,45 +434,91 @@ DW.ready.then((me) => {
       try { await marcaCargada; await DW.ready; await new Promise((r) => setTimeout(r, 0)); await window.DwMarca.mount(body, k); } catch (x) { body.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; }
     };
     C.seg($('[data-sub]', el), SUB, show, subTar);
+    // «Editar la tarjeta» desde Marca lleva a la edición en vivo
+    window.onDwTarjetaEditar = (id) => { editarPendiente = id; $$('[data-sub] .nav-link', el).forEach((b) => b.classList.toggle('active', b.dataset.k === 'tarjetas')); show('tarjetas'); };
     show(subTar);
   }
 
+  /* ---------- La tarjeta del negocio: la misma vista en la lista, en el editor y en Marca (con los colores, fondo y letra de la marca) ---------- */
+  // ctx = { P (paleta del color), claro (fondo blanco), familia (tipografía) }
+  const tarjetaHtml = (c, { P, claro, familia, logo }) => {
+    const bg = claro ? P.fondo : P.fondo_oscuro, tx = claro ? P.texto : P.texto_oscuro, nombre = c.name || 'Tu nombre';
+    const wa = String(c.whatsapp || c.phone || '').replace(/[^\d]/g, ''), ig = String(c.instagram || '').replace(/^@/, '');
+    const acts = [wa && ['bi-whatsapp', 'WhatsApp'], c.phone && ['bi-telephone', 'Llamar'], c.email && ['bi-envelope', 'Correo'], c.website && ['bi-globe', 'Sitio web'], ig && ['bi-instagram', 'Instagram'], c.linkedin && ['bi-linkedin', 'LinkedIn']].filter(Boolean);
+    const ph = c.photo_url || (c.has_photo ? fotoDe(c) : '');
+    const avatar = ph ? `<img src="${esc(ph)}" alt="" style="width:88px;height:88px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 3px ${P[400]}">`
+      : `<span class="d-inline-grid text-white fw-semibold" style="width:88px;height:88px;border-radius:50%;place-items:center;font-size:1.9rem;background:linear-gradient(135deg,${P[500]},${P[800]})">${logo ? `<img src="${esc(logo)}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : iniciales(nombre)}</span>`;
+    return `<div class="rounded-4 p-3" style="background:${bg};color:${tx};font-family:${familia}"><div class="mx-auto text-center" style="max-width:360px;border-radius:20px;padding:26px 20px 18px;background:${claro ? '#fff' : 'rgba(255,255,255,.06)'};box-shadow:${claro ? '0 1px 2px rgba(15,23,42,.06),0 14px 30px rgba(15,23,42,.1)' : '0 14px 30px rgba(0,0,0,.35)'}">
+      ${avatar}<div class="fw-semibold fs-4 mt-2" style="line-height:1.15;color:${claro ? P[800] : P[200]}">${esc(nombre)}</div>
+      ${c.role ? `<div style="opacity:.85">${esc(c.role)}</div>` : ''}${c.company ? `<div class="font-monospace text-uppercase" style="font-size:.7rem;letter-spacing:.1em;opacity:.6">${esc(c.company)}</div>` : ''}
+      ${c.bio ? `<div class="small mt-2" style="opacity:.75">${esc(c.bio)}</div>` : ''}
+      ${acts.length ? `<div class="d-grid gap-2 mt-3" style="grid-template-columns:1fr 1fr">${acts.map(([i, t]) => `<span class="rounded-pill py-2 small" style="border:1px solid ${claro ? 'rgba(15,23,42,.14)' : 'rgba(255,255,255,.16)'}"><i class="bi ${i} me-1" style="color:${claro ? P[600] : P[300]}"></i>${t}</span>`).join('')}</div>` : ''}
+      <div class="rounded-pill py-2 mt-3 text-white fw-semibold" style="background:${claro ? P[600] : P[500]}"><i class="bi bi-person-lines-fill me-1"></i>Guardar contacto</div>
+      <div class="d-flex justify-content-center gap-3 mt-3 small" style="opacity:.6"><span><i class="bi bi-qr-code me-1"></i>Código QR</span><span><i class="bi bi-share me-1"></i>Compartir</span></div></div>
+      ${c.chat_slug ? `<div class="d-flex justify-content-end mt-3"><span class="d-grid text-white rounded-circle" style="width:46px;height:46px;place-items:center;background:${P[600]}" title="Chat de IA"><i class="bi bi-chat-dots-fill"></i></span></div>` : ''}</div>`;
+  };
+  // Lo que hace falta para pintar una tarjeta con la marca del negocio: se lee de /api/marca (paletas, fondo, tipografía)
+  const marcaDe = async () => {
+    const d = await api('/api/marca');
+    const fuente = d.opciones.fuentes.find((f) => f.id === d.marca.tipografia) || d.opciones.fuentes[0];
+    if (!document.getElementById('dwFontsMarca')) { const l = document.createElement('link'); l.id = 'dwFontsMarca'; l.rel = 'stylesheet'; l.href = `https://fonts.googleapis.com/css2?${d.opciones.fuentes.map((f) => `family=${f.google}`).join('&')}&display=swap`; document.head.appendChild(l); }
+    return { d, claro: d.marca.fondo_efectivo === 'claro', familia: fuente.familia, logo: me.settings?.logo || null,
+      paletaDe: (accent) => (d.opciones.temas.find((t) => t.id === (!accent || accent === 'app' ? d.marca.color_efectivo : accent)) || d.opciones.temas[0]).paleta };
+  };
+  window.DwCard = { html: tarjetaHtml, marcaDe };
+
+  let editarPendiente = null;
   async function cards(el) {
-    el.innerHTML = `<div class="alert alert-light border small">Tarjetas de presentación digitales: cada una tiene su enlace y su QR, se instala como app en el celular y guarda el contacto con un toque. La del negocio se crea sola con sus datos.</div><div class="dw-grid" data-cards><div class="text-body-secondary">Cargando…</div></div>`;
-    const box = $('[data-cards]', el);
-    let rows = [];
-    const load = async () => {
-      try { rows = (await api(`${B}/cards`)).rows; } catch (x) { box.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-      box.innerHTML = rows.map((c) => {
-        const [ac] = ACC[c.accent] || ACC.violeta, ph = fotoDe(c);
-        return `<div class="dw-card p-0 overflow-hidden" data-id="${c.id}"><div style="height:56px;background:linear-gradient(135deg,${ac},#150B2B)"></div>
-          <div class="px-3 pb-3" style="margin-top:-28px"><div class="d-flex align-items-end gap-2">${ph ? `<img src="${esc(ph)}" alt="" width="56" height="56" style="border-radius:50%;object-fit:cover;border:3px solid var(--bs-body-bg)">`
-            : `<span style="width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:#150B2B;color:#fff;font-weight:600;border:3px solid var(--bs-body-bg)">${iniciales(c.name)}</span>`}
-            ${c.predeterminada ? '<span class="badge text-bg-light mb-1">Del negocio</span>' : ''}</div>
-          <div class="fw-semibold mt-2">${esc(c.name)}</div>${sub([c.role, c.company].filter(Boolean).join(' · '))}
-          <div class="small text-body-secondary mt-2"><i class="bi bi-eye me-1"></i>${num(c.views)} vistas · /c/${esc(c.slug)}</div>
-          <div class="d-flex flex-wrap gap-1 mt-2">${RO ? '' : '<button class="btn btn-sm btn-primary" data-act="edit"><i class="bi bi-pencil me-1"></i>Editar</button>'}
+    el.innerHTML = '<div class="text-body-secondary">Cargando…</div>';
+    let rows = [], M;
+    try { [rows, M] = await Promise.all([api(`${B}/cards`).then((r) => r.rows), marcaDe()]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const ctxDe = (c) => ({ P: M.paletaDe(c.accent), claro: M.claro, familia: M.familia, logo: c.predeterminada ? M.logo : null });
+    el.innerHTML = `<div class="alert alert-light border small">Tarjetas de presentación digitales: cada una tiene su enlace y su QR, se instala como app en el celular y guarda el contacto con un toque. Se ven con el color, el fondo y la letra de tu marca (pestaña <b>Marca</b>). La del negocio se crea sola con sus datos.</div>
+      <div class="row g-3">${rows.map((c) => `<div class="col-md-6 col-xl-4" data-id="${c.id}"><div class="dw-card p-2 h-100 d-flex flex-column">
+          <div class="d-flex align-items-center gap-2 px-2 pt-1 pb-2">${c.predeterminada ? '<span class="badge text-bg-light">Del negocio</span>' : ''}<span class="small text-body-secondary ms-auto"><i class="bi bi-eye me-1"></i>${num(c.views)} · /c/${esc(c.slug)}</span></div>
+          ${tarjetaHtml(c, ctxDe(c))}
+          <div class="d-flex flex-wrap gap-1 p-2">${RO ? '' : '<button class="btn btn-sm btn-primary" data-act="edit"><i class="bi bi-pencil me-1"></i>Editar</button>'}
             <a class="btn btn-sm btn-outline-primary" href="/c/${esc(c.slug)}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i></a>
             <button class="btn btn-sm btn-outline-primary" data-act="copy" title="Copiar enlace"><i class="bi bi-link-45deg"></i></button>
-            <button class="btn btn-sm btn-outline-primary" data-act="qr" title="QR"><i class="bi bi-qr-code"></i></button></div></div></div>`;
-      }).join('') + (RO ? '' : '<button class="dw-card d-grid text-body-secondary" data-new style="place-items:center;border:1px dashed var(--bs-border-color);min-height:180px"><span><i class="bi bi-person-plus fs-3 d-block"></i>Nueva tarjeta</span></button>');
-    };
-    box.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-new]')) return editar(null);
+            <button class="btn btn-sm btn-outline-primary" data-act="qr" title="QR"><i class="bi bi-qr-code"></i></button></div></div></div>`).join('')}
+        ${RO ? '' : '<div class="col-md-6 col-xl-4"><button class="dw-card d-grid text-body-secondary w-100 h-100" data-new style="place-items:center;border:1px dashed var(--bs-border-color);min-height:220px"><span><i class="bi bi-person-plus fs-3 d-block"></i>Nueva tarjeta</span></button></div>'}</div>`;
+    el.onclick = async (e) => {
+      if (e.target.closest('[data-new]')) return nueva();
       const b = e.target.closest('[data-act]'); if (!b) return;
       const c = rows.find((x) => String(x.id) === b.closest('[data-id]').dataset.id);
       if (b.dataset.act === 'edit') editar(c);
       if (b.dataset.act === 'copy') { try { await navigator.clipboard.writeText(cardUrl(c)); toast('Enlace copiado'); } catch { prompt('Copia el enlace:', cardUrl(c)); } }
       if (b.dataset.act === 'qr') modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${esc(c.name)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
         <div class="modal-body text-center"><div style="max-width:240px;margin:auto">${await qr(cardUrl(c))}</div><p class="small text-body-secondary mt-2 mb-0">${esc(cardUrl(c))}</p></div>`);
-    });
+    };
 
-    async function editar(card) {
+    // Nueva tarjeta: un modal con los profesionales del negocio como sugeridos (o en blanco); luego se edita en vivo, sin modal.
+    async function nueva() {
+      const yaTienen = new Set(rows.flatMap((c) => [String(c.name || '').trim().toLowerCase(), String(c.email || '').trim().toLowerCase()]).filter(Boolean));
+      const prof = await api('/api/profesionales/profesionales?limit=200').then((r) => r.rows.filter((p) => p.activo && !yaTienen.has(String(p.nombre).trim().toLowerCase()) && !(p.email && yaTienen.has(String(p.email).toLowerCase())))).catch(() => []);
+      if (!prof.length) return editar(null);
+      const { el: m, m: mm } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Nueva tarjeta</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body"><div class="small text-body-secondary mb-2"><i class="bi bi-stars me-1"></i>Sugeridos: profesionales de tu equipo que aún no tienen tarjeta</div>
+          <div class="d-grid gap-2">${prof.map((p, i) => `<button type="button" class="btn text-start border d-flex align-items-center gap-3 p-2" data-p="${i}"><span class="d-grid text-white fw-semibold flex-shrink-0" style="width:42px;height:42px;border-radius:50%;place-items:center;background:var(--dw-p)">${iniciales(p.nombre)}</span>
+            <span class="flex-grow-1" style="min-width:0"><span class="d-block fw-semibold text-truncate">${esc(p.nombre)}</span><span class="d-block small text-body-secondary text-truncate">${esc([p.email, p.telefono].filter(Boolean).join(' · ') || 'Sin datos de contacto')}</span></span><i class="bi bi-chevron-right text-body-secondary"></i></button>`).join('')}</div>
+          <button type="button" class="btn btn-outline-primary w-100 mt-3" data-blank><i class="bi bi-plus-lg me-1"></i>Tarjeta en blanco</button></div>`);
+      m.addEventListener('click', (e) => {
+        if (e.target.closest('[data-blank]')) { mm.hide(); return editar(null); }
+        const b = e.target.closest('[data-p]'); if (!b) return;
+        const p = prof[+b.dataset.p]; mm.hide();
+        editar(null, { name: p.nombre, email: p.email || '', phone: p.telefono || '', whatsapp: p.telefono || '', role: 'Profesional' });
+      });
+    }
+
+    // Edición en vivo (sin modal): el formulario a la izquierda y la tarjeta real, con la marca, a la derecha
+    async function editar(card, base = {}) {
       const chats = await api('/api/ai/chats').then((r) => r.rows.filter((x) => x.activo)).catch(() => []);
-      const d = card ? { ...card } : { name: '', accent: Object.keys(ACC)[0], company: me.business.name };
+      const d = card ? { ...card } : { name: '', accent: 'app', company: me.business.name, ...base };
       let foto = card ? fotoDe(card) : '', fotoNueva; // undefined = sin cambio · '' = quitar · data URL = nueva
-      const { el: m, m: mm } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${card ? 'Editar tarjeta' : 'Nueva tarjeta'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
-        <div class="modal-body"><div class="row g-3"><div class="col-md-8"><div class="row g-2">
+      el.onclick = null;
+      el.innerHTML = `<div class="d-flex align-items-center gap-2 mb-3 flex-wrap"><button class="btn btn-light btn-sm" data-back><i class="bi bi-arrow-left me-1"></i>Tarjetas</button><h2 class="h5 mb-0">${card ? 'Editar tarjeta' : 'Nueva tarjeta'}</h2>
+          ${card ? `<span class="ms-auto d-flex gap-1"><a class="btn btn-sm btn-outline-primary" href="/c/${esc(card.slug)}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right me-1"></i>Ver pública</a><button class="btn btn-sm btn-outline-primary" data-copy><i class="bi bi-link-45deg me-1"></i>Copiar enlace</button></span>` : ''}</div>
+        <div class="row g-3"><div class="col-lg-7"><form class="dw-card"><div class="row g-2">
           <div class="col-sm-6"><label class="form-label small mb-1">Nombre</label><input class="form-control" name="name" value="${esc(d.name || '')}" required></div>
           <div class="col-sm-6"><label class="form-label small mb-1">Cargo</label><input class="form-control" name="role" value="${esc(d.role || '')}" placeholder="Directora, asesor…"></div>
           <div class="col-12"><label class="form-label small mb-1">Empresa</label><input class="form-control" name="company" value="${esc(d.company || '')}"></div>
@@ -481,30 +527,30 @@ DW.ready.then((me) => {
           <div class="col-12"><label class="form-label small mb-1">Dirección</label><div class="input-group"><span class="input-group-text small">${esc(location.host)}/c/</span><input class="form-control" name="slug" value="${esc(d.slug || '')}" placeholder="se arma con el nombre"></div></div>
           <div class="col-12"><label class="form-label small mb-1"><i class="bi bi-chat-dots me-1"></i>Chat de IA de la tarjeta</label><select class="form-select" name="chat_slug"><option value="">Sin chat</option>${chats.map((x) => `<option value="${esc(x.slug)}" ${d.chat_slug === x.slug ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select>
             <div class="small text-body-secondary">${chats.length ? 'Aparece como una burbuja en la tarjeta.' : 'Aún no tienes chats activos: créalos en IA → Chats.'}</div></div>
-        </div></div>
-        <div class="col-md-4 text-center"><div class="small text-body-secondary mb-1">Foto</div><div data-foto></div>
-          <div class="d-flex justify-content-center gap-1 mt-2"><button type="button" class="btn btn-sm btn-outline-primary" data-subir><i class="bi bi-camera me-1"></i>Subir</button><button type="button" class="btn btn-sm btn-light" data-quitar>Quitar</button></div>
-          <input type="file" accept="image/*" hidden data-file>
-          <div class="small text-body-secondary mt-3 mb-1">Color</div><div class="d-flex justify-content-center flex-wrap gap-2" data-colores>${Object.entries(ACC).filter(([k]) => k !== 'ambar' || d.accent === 'ambar').map(([k, a]) => `<button type="button" class="btn p-0 rounded-circle d-grid" data-acc="${k}" title="${a[2]}" aria-label="${a[2]}" style="width:28px;height:28px;background:${a[0]};outline-offset:2px;place-items:center">${k === 'app' ? '<i class="bi bi-phone text-white" style="font-size:.8rem"></i>' : ''}</button>`).join('')}</div><div class="small text-body-secondary mt-1">El primero sigue el color de tu app</div>
-          ${card ? `<div class="mt-3" data-qr style="max-width:150px;margin:auto"></div><div class="small text-body-secondary">${num(card.views)} vistas</div>` : ''}</div></div>
-          <div class="small text-danger mt-2" data-err></div></div>
-        <div class="modal-footer border-0 pt-0 justify-content-between"><span>${card && !card.predeterminada ? '<button type="button" class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash me-1"></i>Borrar</button>' : ''}</span>
-          <span><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button> <button class="btn btn-primary">Guardar</button></span></div></form>`, { size: 'modal-lg' });
-      const f = $('form', m);
-      let accent = d.accent || 'violeta';
+          <div class="col-12"><label class="form-label small mb-1">Foto</label><div class="d-flex align-items-center gap-2 flex-wrap"><button type="button" class="btn btn-sm btn-outline-primary" data-subir><i class="bi bi-camera me-1"></i>Subir</button><button type="button" class="btn btn-sm btn-light" data-quitar>Quitar</button><input type="file" accept="image/*" hidden data-file></div></div>
+          <div class="col-12"><label class="form-label small mb-1">Color</label><div class="d-flex flex-wrap gap-2" data-colores>${Object.entries(ACC).filter(([k]) => k !== 'ambar' || d.accent === 'ambar').map(([k, a]) => `<button type="button" class="btn p-0 rounded-circle d-grid" data-acc="${k}" title="${a[2]}" aria-label="${a[2]}" style="width:28px;height:28px;background:${a[0]};outline-offset:2px;place-items:center">${k === 'app' ? '<i class="bi bi-phone text-white" style="font-size:.8rem"></i>' : ''}</button>`).join('')}</div><div class="small text-body-secondary mt-1">El primero sigue el color de tu app</div></div>
+        </div><div class="d-flex flex-wrap align-items-center gap-2 mt-3"><button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar</button><button type="button" class="btn btn-light" data-back>Cancelar</button>
+          ${card && !card.predeterminada ? '<button type="button" class="btn btn-outline-danger ms-auto" data-del><i class="bi bi-trash me-1"></i>Borrar</button>' : ''}<span class="small text-danger" data-err></span></div></form></div>
+        <div class="col-lg-5 order-first order-lg-last"><div class="position-sticky" style="top:76px"><div class="small text-body-secondary mb-2">Vista previa en vivo</div><div data-prev></div>
+          ${card ? `<div class="text-center mt-3"><div data-qr style="max-width:150px;margin:auto"></div><div class="small text-body-secondary mt-1">${num(card.views)} vistas</div></div>` : ''}</div></div></div>`;
+      const f = $('form', el);
+      let accent = d.accent || 'app';
       const pintar = () => {
-        $('[data-foto]', m).innerHTML = foto ? `<img src="${esc(foto)}" alt="" width="120" height="120" style="border-radius:50%;object-fit:cover">`
-          : `<span style="width:120px;height:120px;border-radius:50%;display:inline-grid;place-items:center;background:${ACC[accent][0]};color:#fff;font-size:2.2rem;font-weight:600">${iniciales(f.name.value)}</span>`;
-        $$('[data-acc]', m).forEach((b) => (b.style.outline = b.dataset.acc === accent ? `3px solid ${ACC[accent][1]}` : 'none'));
+        const v = Object.fromEntries(['name', 'role', 'company', 'bio', ...CONTACTOS.map((x) => x[0])].map((k) => [k, f[k].value.trim()]));
+        $('[data-prev]', el).innerHTML = tarjetaHtml({ ...v, photo_url: foto, chat_slug: f.chat_slug.value, accent }, { P: M.paletaDe(accent), claro: M.claro, familia: M.familia, logo: card?.predeterminada ? M.logo : null });
+        $$('[data-acc]', el).forEach((b) => (b.style.outline = b.dataset.acc === accent ? `3px solid ${ACC[accent][1]}` : 'none'));
       };
       pintar();
-      if (card) qr(cardUrl(card)).then((svg) => { const q = $('[data-qr]', m); if (q) q.innerHTML = svg; }).catch(() => {});
-      f.name.addEventListener('input', () => { if (!foto) pintar(); });
-      $('[data-colores]', m).addEventListener('click', (e) => { const b = e.target.closest('[data-acc]'); if (b) { accent = b.dataset.acc; pintar(); } });
-      $('[data-subir]', m).onclick = () => $('[data-file]', m).click();
-      $('[data-quitar]', m).onclick = () => { foto = ''; fotoNueva = ''; pintar(); };
+      f.addEventListener('input', pintar); f.addEventListener('change', pintar);
+      const volver = () => cards(el);
+      $$('[data-back]', el).forEach((b) => (b.onclick = volver));
+      $('[data-copy]', el)?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(cardUrl(card)); toast('Enlace copiado'); } catch { prompt('Copia el enlace:', cardUrl(card)); } });
+      if (card) qr(cardUrl(card)).then((svg) => { const q = $('[data-qr]', el); if (q) q.innerHTML = svg; }).catch(() => {});
+      $('[data-colores]', el).addEventListener('click', (e) => { const b = e.target.closest('[data-acc]'); if (b) { accent = b.dataset.acc; pintar(); } });
+      $('[data-subir]', el).onclick = () => $('[data-file]', el).click();
+      $('[data-quitar]', el).onclick = () => { foto = ''; fotoNueva = ''; pintar(); };
       // La foto se recorta cuadrada y se reduce a 400 px antes de subirla
-      $('[data-file]', m).addEventListener('change', async (e) => {
+      $('[data-file]', el).addEventListener('change', async (e) => {
         const file = e.target.files[0]; e.target.value = '';
         if (!file || !file.type.startsWith('image/')) return;
         const img = new Image(); img.src = URL.createObjectURL(file);
@@ -532,31 +578,32 @@ DW.ready.then((me) => {
         };
         try { return { icon_192: draw(192), icon_512: draw(512) }; } catch { return {}; }
       };
-      $('[data-del]', m)?.addEventListener('click', async () => {
+      $('[data-del]', el)?.addEventListener('click', async () => {
         if (!(await confirm({ title: `¿Borrar la tarjeta de ${card.name}?`, text: 'Su enlace y su QR dejan de funcionar.' }))) return;
-        try { await api(`${B}/cards/${card.id}`, { method: 'DELETE' }); mm.hide(); toast('Tarjeta borrada'); load(); } catch (x) { $('[data-err]', m).textContent = x.message; }
+        try { await api(`${B}/cards/${card.id}`, { method: 'DELETE' }); toast('Tarjeta borrada'); volver(); } catch (x) { $('[data-err]', el).textContent = x.message; }
       });
       f.onsubmit = async (e) => {
         e.preventDefault();
         const body = Object.fromEntries(['name', 'role', 'company', 'bio', ...CONTACTOS.map((x) => x[0]), 'slug'].map((k) => [k, f[k].value.trim()]));
         body.accent = accent; body.chat_slug = f.chat_slug.value;
-        if (!body.name) { $('[data-err]', m).textContent = 'Escribe el nombre'; return; }
+        if (!body.name) { $('[data-err]', el).textContent = 'Escribe el nombre'; return; }
         if (!body.slug) delete body.slug;
         const btn = f.querySelector('.btn-primary'); btn.disabled = true;
         try {
           const id = card ? card.id : (await api(`${B}/cards`, { method: 'POST', body })).id;
           if (card) await api(`${B}/cards/${id}`, { method: 'PATCH', body });
           await api(`${B}/cards/${id}/foto`, { method: 'PUT', body: { ...(fotoNueva !== undefined ? { photo_data: fotoNueva } : {}), ...(await iconos()) } });
-          mm.hide(); toast(card ? 'Tarjeta guardada' : 'Tarjeta creada'); load();
-        } catch (x) { $('[data-err]', m).textContent = x.message; btn.disabled = false; }
+          toast(card ? 'Tarjeta guardada' : 'Tarjeta creada'); volver();
+        } catch (x) { $('[data-err]', el).textContent = x.message; btn.disabled = false; }
       };
     }
-    await load();
+    // Desde Marca se puede pedir editar la tarjeta del negocio
+    if (editarPendiente) { const id = editarPendiente; editarPendiente = null; const c = rows.find((x) => x.id === id); if (c) editar(c); }
   }
 
   // Informes del analista: los escribe el asistente de IA del negocio (conexión MCP) o la automatización semanal.
   function reports(el) {
-    el.innerHTML = `<div class="alert alert-light border small">Pídele a tu asistente de IA (Configuración → IA · Conexiones): <i>«Escribe el informe de marketing de esta semana y guárdalo»</i>. Usa los datos del módulo y lo deja aquí. También puedes crear la automatización «Cada lunes → Informe del analista de IA».</div><div data-r></div>`;
+    el.innerHTML = `<div class="alert alert-light border small">Pídele a tu asistente de IA (conectado en IA → Conexiones): <i>«Escribe el informe de marketing de esta semana y guárdalo»</i>. Usa los datos del módulo y lo deja aquí. También puedes crear la automatización «Cada lunes → Informe del analista de IA».</div><div data-r></div>`;
     C.table({ el: $('[data-r]', el), base: B, entity: 'reports', title: 'informe', newText: 'Escribir informe', readOnly: RO || !me.canManage, emptyIcon: 'bi-journal-text', empty: 'Aún no hay informes.',
       fields: [{ k: 'title', label: 'Título', required: true, full: true }, { k: 'content', label: 'Informe', type: 'long', required: true }],
       defaults: () => ({ title: `Marketing · ${day(C.todayCo())}` }), fixed: { origen: 'manual' },

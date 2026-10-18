@@ -16,6 +16,7 @@ DW.ready.then((me) => {
 
   const load = async () => {
     try { D = await api(B); } catch (x) { host.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    D.card = await api('/api/marketing/cards').then((r) => r.rows.find((c) => c.predeterminada) || r.rows[0] || null).catch(() => null);
     (tabAct === 'kit' ? kit : marca)(host);
     espejoDelLogo();
   };
@@ -84,7 +85,7 @@ DW.ready.then((me) => {
         ${CAN ? '<div class="d-flex align-items-center gap-2"><button class="btn btn-primary" data-save disabled><i class="bi bi-check-lg me-1"></i>Guardar</button><button class="btn btn-light" data-reset>Deshacer</button><span class="small text-danger" data-err></span></div>'
           : '<p class="small text-body-secondary mb-0"><i class="bi bi-lock me-1"></i>Solo el propietario o un administrador cambia la marca.</p>'}
       </div>
-      <div class="col-lg-5"><div class="position-sticky" style="top:76px"><div class="small text-body-secondary mb-2">Vista previa</div><div data-prev></div></div></div></div>`;
+      <div class="col-lg-5 order-first order-lg-last"><div class="position-sticky" style="top:76px"><div class="small text-body-secondary mb-2">Tu tarjeta de negocio · en vivo</div><div data-prev></div></div></div></div>`;
 
     const pintar = () => {
       const t = temaX(), f = O.fuentes.find((x) => x.id === st.tipografia), tono = O.tonos.find((x) => x.id === st.tono), P = t.paleta;
@@ -105,12 +106,14 @@ DW.ready.then((me) => {
         style="${st.tono === x.id ? `outline:2px solid ${t.color};outline-offset:1px` : ''}"><span class="fw-semibold">${esc(x.nombre)}</span><span class="d-block small text-body-secondary fst-italic">“${esc(x.ejemplo)}”</span></button>`).join('');
       const nombre = D.negocio.nombre || me.business.name || 'Tu negocio';
       const claro = fondoEf() === 'claro', bgP = claro ? P.fondo : P.fondo_oscuro, txP = claro ? P.texto : P.texto_oscuro;
-      $('[data-prev]', el).innerHTML = `<div class="rounded-4 p-3" style="background:${bgP};color:${txP}"><div class="dw-card p-0 overflow-hidden" style="font-family:${f.familia};background:${claro ? '#fff' : 'rgba(255,255,255,.06)'};color:${txP};border-color:${claro ? 'rgba(15,23,42,.1)' : 'rgba(255,255,255,.12)'}">
-        <div style="height:72px;background:linear-gradient(135deg,${P[500]},${P[900]})"></div>
-        <div class="p-3" style="margin-top:-30px"><span class="d-grid text-white fw-semibold overflow-hidden" style="width:60px;height:60px;border-radius:50%;place-items:center;background:#150B2B;border:3px solid ${claro ? '#fff' : bgP};font-size:1.2rem">${logoSrc ? `<img src="${esc(logoSrc)}" alt="" style="width:100%;height:100%;object-fit:cover">` : esc(nombre.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase())}</span>
-          <div class="fw-semibold fs-5 mt-2">${esc(nombre)}</div><div class="small" style="opacity:.7">Tarjeta de presentación</div>
-          <div class="d-grid gap-2 mt-3"><span class="btn text-white" style="background:${P[500]};pointer-events:none"><i class="bi bi-whatsapp me-1"></i>Escríbenos</span><span class="btn" style="pointer-events:none;border:1px solid ${P[300]};color:${claro ? P[700] : P[300]}">Llamar</span></div>
-          <div class="mt-3 p-3 rounded-3" style="background:${claro ? P[50] : 'rgba(255,255,255,.08)'};color:${txP}"><div class="small mb-1" style="color:${claro ? P[700] : P[300]}"><i class="bi bi-chat-dots me-1"></i>Así responde tu chat · ${esc(tono.nombre)}</div><div>${esc(tono.ejemplo)}</div></div></div></div></div>`;
+      // La vista previa es la tarjeta REAL del negocio, con el color, el fondo y la letra que estás eligiendo (en vivo)
+      const real = D.card;
+      const pal = real && real.accent && real.accent !== 'app' ? (O.temas.find((x) => x.id === real.accent)?.paleta || P) : P;
+      const tarjeta = window.DwCard ? window.DwCard.html(real || { name: nombre, company: nombre }, { P: pal, claro, familia: f.familia, logo: logoSrc }) : '';
+      $('[data-prev]', el).innerHTML = `${tarjeta}
+        <div class="mt-3 p-3 rounded-3" style="background:${claro ? P[50] : 'rgba(var(--bs-body-color-rgb),.06)'};color:${claro ? P.texto : 'var(--bs-body-color)'};font-family:${f.familia}"><div class="small mb-1" style="color:${claro ? P[700] : P[300]}"><i class="bi bi-chat-dots me-1"></i>Así responde tu chat · ${esc(tono.nombre)}</div><div>${esc(tono.ejemplo)}</div></div>
+        ${real && window.onDwTarjetaEditar ? '<button type="button" class="btn btn-outline-primary btn-sm mt-3 w-100" data-edit-card><i class="bi bi-pencil me-1"></i>Editar los datos de la tarjeta</button>' : ''}`;
+      $('[data-edit-card]', el)?.addEventListener('click', () => window.onDwTarjetaEditar(real.id));
       const b = $('[data-save]', el); if (b) b.disabled = !dirty();
       if (CAN) window.DW?.applyTheme?.({ tema: st.tema, modo: st.modo }); // el menú y los botones cambian en vivo
     };
