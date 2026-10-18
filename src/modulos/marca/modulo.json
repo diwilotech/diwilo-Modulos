@@ -1,12 +1,13 @@
 {
   "id": "marca",
-  "nombre": "Marca e IA",
-  "version": "1.3.0",
-  "descripcion": "Todo lo de la identidad y la IA del negocio en un solo lugar: color de la app y modo claro/oscuro, logo, fondo, tipografía y tono de conversación; plantillas de la IA (chat, asistentes externos y agentes); conexiones de IA (MCP); kit de marca para webs y apps; y la bitácora. Reemplaza a Configuración.",
+  "nombre": "Marca",
+  "version": "2.0.0",
+  "descripcion": "La marca del negocio como servicio: color (el de su app) con su paleta, fondo, tipografía, tono, logo, plantillas de IA y kit de marca. Se edita en Marketing → Tarjetas → Marca; las tarjetas, los chats y el kit leen de aquí. Módulo base sin pantalla propia.",
   "icono": "bi-palette",
   "menu": {
     "ruta": "/staff/marca.html",
-    "orden": 90
+    "orden": 95,
+    "oculto": true
   },
   "permisos": {
     "ver": "staff",

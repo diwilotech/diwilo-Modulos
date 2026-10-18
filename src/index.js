@@ -11,6 +11,8 @@
 //   validar(app, code, origin)        validación pública de documentos (/validar/:código en el dominio de la app)
 //   tarjeta(app, rest, origin, opts)  tarjetas de presentación públicas (/c/… en el dominio de la app)
 //   marca(app, businessId)            kit de marca de un negocio (color, CSS, tipografía, tono y prompts de IA) para otro Worker
+//   chat(app, rest, opts)             chats de clientes públicos (/chat/<slug>… en el dominio de la app): página, widget.js y mensajes
+//   apiPublica(app, clave, path, query)  API pública del negocio con clave (/v1/… en el dominio de la app)
 //   uso(app, businessId)              registros por módulo (Diwilo avisa antes de quitar un módulo)
 //   purge(app, businessIds)           borra los datos de negocios que la app ya borró
 // Tareas diarias (cron): gastos recurrentes de Finanzas y automatizaciones de Marketing de todos los negocios.
@@ -23,10 +25,14 @@ import { linkBySlug, countClick } from './modulos/marketing/api.js';
 import { publicCard } from './modulos/marketing/tarjetas.js';
 import { validatePage } from './modulos/finanzas/api.js';
 import { kitOf } from './lib/marca.js';
+import { REG, ejecutarHerramienta } from './lib/registro.js';
+import { manejarChat } from './modulos/ai/chat.js';
+import { apiPublica } from './modulos/ai/publica.js';
 
 const router = new Router();
 for (const m of MODULOS) m.api.routes(router);
 const TOOLS = MODULOS.flatMap((m) => m.tools);
+REG.tools = TOOLS;
 const TABLA = /^[a-z][a-z0-9_]{1,40}$/;
 
 const asText = async (res) => ({ status: res.status, headers: Object.fromEntries([...res.headers].filter(([k]) => ['content-type', 'content-disposition', 'cache-control', 'location'].includes(k))), body: await res.text() });
@@ -70,16 +76,7 @@ export class Modulos extends WorkerEntrypoint {
   }
 
   async tool(ctx, name, args = {}) {
-    const t = TOOLS.find((x) => x.name === name);
-    const c = { env: this.env, ctx, req: new Request('https://x/', { method: t?.tipo === 'escritura' ? 'POST' : 'GET' }), url: new URL(ctx?.origin || 'https://app.diwilo.com') };
-    try {
-      if (!t) throw new HttpError(404, 'Herramienta no encontrada');
-      checkCtx(ctx);
-      await syncOrg(this.env, ctx);
-      authorize(c, `tenant:${t.modulo}`); // escritura con suscripción vencida = 402
-      if (t.rol === 'admin' && !['owner', 'admin'].includes(c.role)) throw new HttpError(403, 'Tu rol no puede usar esta herramienta');
-      return { ok: true, result: await t.run(c, args || {}), audit: c.auditLog || [] };
-    } catch (e) { return { ok: false, error: e.message || 'Error', status: e.status || 500, audit: c.auditLog || [] }; }
+    return ejecutarHerramienta(this.env, ctx, name, args);
   }
 
   async asset(path) {
@@ -99,6 +96,17 @@ export class Modulos extends WorkerEntrypoint {
   tarjeta(app, rest, origin, opts = {}) {
     if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
     return publicCard(this.env, app, rest, origin, opts);
+  }
+
+  // Chat público de un negocio: la app lo llama desde /chat/<slug>… y entrega la respuesta tal cual. opts: { method, query, body, meta: { country, ua }, origin }
+  chat(app, rest, opts = {}) {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
+    return manejarChat(this.env, { app, rest, ...opts, waitUntil: (p) => this.ctx.waitUntil(p) });
+  }
+
+  apiPublica(app, clave, path, query = '') {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
+    return apiPublica(this.env, { app, clave, path, query });
   }
 
   // Kit de marca de un negocio para otra pieza de Diwilo (un generador de webs o apps, un agente…): se llama por service binding.

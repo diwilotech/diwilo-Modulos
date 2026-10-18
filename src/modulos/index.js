@@ -9,9 +9,13 @@ import marketingManifest from './marketing/modulo.json';
 import * as marca from './marca/api.js';
 import marcaIa from './marca/ia.js';
 import marcaManifest from './marca/modulo.json';
+import * as ai from './ai/api.js';
+import aiTools from './ai/ia.js';
+import aiManifest from './ai/modulo.json';
 
 export const MODULOS = [
   { manifest: finanzasManifest, api: finanzas, tools: finanzasIa },
   { manifest: marketingManifest, api: marketing, tools: marketingIa },
   { manifest: marcaManifest, api: marca, tools: marcaIa },
+  { manifest: aiManifest, api: ai, tools: aiTools },
 ];

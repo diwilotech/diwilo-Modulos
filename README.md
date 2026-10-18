@@ -19,7 +19,8 @@ Worker central de los **módulos horizontales** de Diwilo (Finanzas, Marketing y
 |---|---|---|
 | Finanzas (`finanzas`) | 1.1.0 | El Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), cuentas de cobro en PDF con QR de validación, cartera, recurrentes, centros de costo, presupuestos, conciliación, exportación, informes y 15 herramientas de IA. |
 | Marketing (`marketing`) | 1.3.0 | El Marketing Hub de Diwilo por negocio: clientes y leads, embudo, campañas con links de rastreo y QR, tareas y automatizaciones, listas con revisión de sitios, informes y 18 herramientas de IA. |
-| Marca e IA (`marca`) | 1.3.0 | **Módulo base** que reemplaza a «Configuración»: color de la app y modo, logo, fondo, tipografía y tono; plantillas de IA, conexiones MCP y bitácora. La marca del negocio (color de su app con su paleta de tonalidades, fondo negro/blanco/igual que la app, tipografía y tono de conversación) y las plantillas de su IA (chat y MCP). Las tarjetas de Marketing leen de aquí. plantillas para chat, MCP y agentes, y un kit de marca para webs, apps y agentes. 4 herramientas de IA. |
+| Marca (`marca`) | 2.0.0 | Servicio de marca del negocio, **sin pantalla propia** (módulo base): color de su app con su paleta, fondo negro/blanco/igual que la app, tipografía, tono, logo, plantillas de IA y kit de marca. Se edita en **Marketing → Tarjetas → Marca**; las tarjetas, los chats y el kit leen de aquí. 3 herramientas de IA. |
+| IA (`ai`) | 1.0.0 | **Módulo general de IA** (base; reemplaza a Configuración): chats de clientes públicos (`/chat/<slug>`, burbuja `widget.js` para webs y tarjetas, leads a Marketing, tope diario), conversaciones, asistente del negocio, agentes (propone o ejecuta con las herramientas de los demás módulos), plantillas, consumo (200 llamadas/día por negocio), conexiones MCP, claves de API (`/v1/*`), webhooks y bitácora. 5 herramientas de IA. |
 
 Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 
@@ -41,6 +42,7 @@ Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 | `asset(path)` | Código de las páginas (`/m/<id>.html`, `/m/<id>.js`). |
 | `link(app, slug)` · `click(app, id)` | Links de rastreo públicos (`/l/:slug` en el dominio de la app). |
 | `validar(app, code, origin)` | Validación pública de cuentas de cobro (`/validar/:código` en el dominio de la app). |
+| `chat(app, rest, opts)` · `apiPublica(app, clave, path, query)` | Chats de clientes públicos (`/chat/<slug>…`) y API pública con clave (`/v1/…`) en el dominio de la app. |
 | `marca(app, businessId)` | Kit de marca del negocio (color, CSS, tipografía, tono y prompts de IA por canal) para otro Worker: un generador de webs o apps, agentes… |
 | `uso(app, businessId)` | Registros por módulo (Diwilo avisa antes de quitar un módulo). |
 | `purge(app, businessIds)` | Borra los datos de los negocios que la app borró (lo llama Diwilo Web). |

@@ -1,29 +1,24 @@
-// Marca e IA: reemplaza a «Configuración» de las apps. Marca (color de la app, modo, logo, fondo, tipografía y tono),
-// Asistente IA (plantillas del chat, de asistentes externos y de agentes), Conexiones (tokens MCP), Usar en otros lados (kit de marca) y Bitácora.
+// Marca: color de la app, modo, logo, fondo, tipografía y tono (y el kit de marca para webs, apps y agentes). Se muestra dentro de Marketing → Tarjetas:
+// Marketing carga este archivo y llama a window.DwMarca.mount(). Su propia página (/staff/marca.html) ya no tiene menú: lleva a Marketing.
 // Ver: todo el equipo; cambiar: propietario y administrador. El color y el modo los guarda la app (/api/settings/apariencia);
 // el logo también (para su menú) y el módulo guarda una copia para el kit; lo demás vive en el módulo (/api/marca).
+if (document.querySelector('main[data-modulo="marca"]')) location.replace('/staff/marketing.html#marca');
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
-  const { api, esc, toast, confirm, modal, table, empty, fecha } = window.App;
+  const { api, esc, toast, confirm } = window.App;
   const C = window.App.Crud;
   const B = '/api/marca';
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const CAN = me.canManage && !me.business.readOnly;
-  const VIEWS = [['marca', 'Marca', 'bi-palette'], ['ia', 'Asistente IA', 'bi-robot'], ['conexiones', 'Conexiones', 'bi-plug'], ['kit', 'Usar en otros lados', 'bi-box-arrow-up-right'],
-    ...(me.canManage ? [['bitacora', 'Bitácora', 'bi-journal-text']] : [])];
-  const CANAL = { chat: ['Chat del negocio', 'bi-chat-dots', 'Lo usa el asistente de IA dentro de la app.'], mcp: ['Asistente externo (MCP)', 'bi-plug', 'Lo lee tu asistente externo (Claude u otro) con la herramienta «guía de marca».'],
-    agente: ['Agentes y automatizaciones', 'bi-lightning-charge', 'Instrucciones para los agentes de IA que trabajan solos (seguimiento, recordatorios, publicaciones).'] };
   const TONOS_N = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900];
-  let D = null, view = (location.hash || '#marca').slice(1);
-  if (!VIEWS.some(([k]) => k === view)) view = 'marca';
+  let D = null;
 
   const load = async () => {
-    try { D = await api(B); } catch (x) { $('[data-view]').innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    render();
+    try { D = await api(B); } catch (x) { host.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    (tabAct === 'kit' ? kit : marca)(host);
     espejoDelLogo();
   };
-  const render = () => ({ marca, ia, conexiones, kit, bitacora })[view]($('[data-view]'));
 
   const tira = (P) => `<div class="d-flex rounded-3 overflow-hidden border">${TONOS_N.map((n) => `<span style="flex:1;height:34px;background:${P[n]}" title="${n} · ${P[n]}"></span>`).join('')}</div>
     <div class="d-flex flex-wrap gap-2 mt-2 small"><span class="rounded-pill px-3 py-1 border" style="background:${P.fondo};color:${P.texto}">Fondo claro · ${P.fondo}</span><span class="rounded-pill px-3 py-1" style="background:${P.fondo_oscuro};color:${P.texto_oscuro}">Fondo oscuro · ${P.fondo_oscuro}</span></div>`;
@@ -151,87 +146,6 @@ DW.ready.then((me) => {
     });
   }
 
-  /* ---------- Asistente IA: plantillas del chat, del MCP y de los agentes ---------- */
-  function ia(el) {
-    const rows = D.plantillas;
-    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Las <b>plantillas</b> son instrucciones para la IA de tu negocio. El <b>tono</b> de la pestaña Marca se aplica siempre.
-        Para conectar tu asistente externo ve a la pestaña <b>Conexiones</b>: allí creas el acceso y él lee esta guía con la herramienta <i>marca.guia_de_marca</i>.</div>
-      <div class="row g-3">${Object.entries(CANAL).map(([k, [nombre, icono, ayuda]]) => `<div class="col-xl-4 col-md-6"><div class="dw-card h-100" data-canal="${k}">
-        <div class="d-flex align-items-start gap-2 mb-2"><div class="flex-grow-1"><h2 class="h6 mb-0"><i class="bi ${icono} me-1"></i>${nombre}</h2><div class="small text-body-secondary">${ayuda}</div></div>
-          ${CAN ? `<button class="btn btn-sm btn-primary" data-new="${k}"><i class="bi bi-plus-lg me-1"></i>Agregar</button>` : ''}</div>
-        <div class="d-grid gap-2" data-list></div>
-        ${CAN ? `<div class="mt-3"><div class="small text-body-secondary mb-1">Empezar con un ejemplo</div><div class="d-flex flex-wrap gap-1">${D.starters[k].map((s, i) => `<button class="btn btn-sm btn-outline-primary" data-starter="${k}:${i}">${esc(s.nombre)}</button>`).join('')}</div></div>` : ''}
-        <details class="mt-3"><summary class="small text-body-secondary" style="cursor:pointer">Lo que recibe la IA</summary><pre class="small mt-2 mb-0 p-2 rounded-3" style="white-space:pre-wrap;background:rgba(var(--bs-body-color-rgb),.06)" data-ctx>Cargando…</pre></details></div></div>`).join('')}</div>`;
-    for (const k of Object.keys(CANAL)) {
-      const box = $(`[data-canal="${k}"]`, el), list = rows.filter((r) => r.canal === k);
-      $('[data-list]', box).innerHTML = list.length ? list.map((r) => `<div class="border rounded-3 p-2 d-flex gap-2 align-items-start ${r.activa ? '' : 'opacity-50'}" data-id="${r.id}">
-          <div class="flex-grow-1" style="min-width:0"><div class="fw-semibold text-truncate">${esc(r.nombre)}</div><div class="small text-body-secondary" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(r.instrucciones)}</div></div>
-          ${CAN ? `<div class="form-check form-switch m-0" title="Activa"><input class="form-check-input" type="checkbox" data-act ${r.activa ? 'checked' : ''} aria-label="Activa"></div><button class="btn btn-sm btn-outline-primary" data-edit aria-label="Editar"><i class="bi bi-pencil"></i></button>` : ''}</div>`).join('')
-        : '<p class="small text-body-secondary mb-0">Aún no hay plantillas. Agrega una o empieza con un ejemplo.</p>';
-      api(`${B}/ia/contexto?canal=${k}`).then((d) => { $('[data-ctx]', box).textContent = d.prompt; }).catch(() => {});
-    }
-    const editar = async (r, base) => {
-      const v = await C.form({ title: r ? 'Editar plantilla' : 'Nueva plantilla', okText: 'Guardar', values: r || base || { canal: 'chat', activa: 1 },
-        fields: [{ k: 'nombre', label: 'Nombre', required: true, full: true }, { k: 'canal', label: 'Para', type: 'select', options: Object.entries(CANAL).map(([k, x]) => [k, x[0]]) },
-          { k: 'activa', label: 'Estado', type: 'bool', check: 'Activa' }, { k: 'instrucciones', label: 'Instrucciones para la IA', type: 'long', required: true, hint: 'máx. 2000 letras' }],
-        onDelete: r ? async () => { await api(`${B}/plantillas/${r.id}`, { method: 'DELETE' }); } : null });
-      if (v === null) return;
-      if (v !== 'deleted') {
-        try { await api(r ? `${B}/plantillas/${r.id}` : `${B}/plantillas`, { method: r ? 'PATCH' : 'POST', body: v }); toast('Plantilla guardada'); } catch (x) { toast(x.message, false); return; }
-      }
-      load();
-    };
-    el.onclick = (e) => {
-      const n = e.target.closest('[data-new]'); if (n) return editar(null, { canal: n.dataset.new, activa: 1 });
-      const s = e.target.closest('[data-starter]'); if (s) { const [k, i] = s.dataset.starter.split(':'); return editar(null, { ...D.starters[k][+i], canal: k, activa: 1 }); }
-      const ed = e.target.closest('[data-edit]'); if (ed) return editar(rows.find((x) => String(x.id) === ed.closest('[data-id]').dataset.id));
-    };
-    el.onchange = async (e) => {
-      const sw = e.target.closest('[data-act]'); if (!sw) return;
-      const id = sw.closest('[data-id]').dataset.id;
-      try { await api(`${B}/plantillas/${id}`, { method: 'PATCH', body: { activa: sw.checked } }); toast(sw.checked ? 'Plantilla activada' : 'Plantilla desactivada'); load(); } catch (x) { toast(x.message, false); sw.checked = !sw.checked; }
-    };
-  }
-
-  /* ---------- Conexiones (MCP): el negocio conecta su propio asistente con un token ---------- */
-  async function conexiones(el) {
-    el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
-    let tk;
-    try { tk = await api('/api/ia/tokens'); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const { tokens, url } = tk;
-    el.innerHTML = `<div class="dw-card mb-3"><h2 class="h6">Conecta tu asistente de IA</h2>
-        <p class="small text-body-secondary mb-2">Con una conexión, tu asistente (Claude u otro compatible con MCP) puede consultar y registrar datos de este negocio con <b>tu mismo rol</b>. Antes de cambiar algo, el asistente te pide confirmación, y todo queda en la bitácora.</p>
-        <div class="small mb-3">Dirección del servidor: <code>${esc(url)}</code></div>
-        ${CAN ? '<form class="d-flex gap-2 needs-validation" data-new novalidate><input class="form-control" name="name" placeholder="Nombre (ej. «Claude de Ana»)" maxlength="60" required aria-label="Nombre de la conexión"><button class="btn btn-primary text-nowrap"><i class="bi bi-plus-lg me-1"></i>Crear conexión</button></form>' : ''}</div>
-      <div class="dw-card p-0 p-md-2" data-list></div>`;
-    $('[data-list]', el).innerHTML = tokens.length ? table([
-      { label: 'Conexión', main: true, html: (t) => `${esc(t.name)}<div class="small text-body-secondary fw-normal">${esc(t.email)}</div>` },
-      { label: 'Creada', html: (t) => fecha(t.created_at) },
-      { label: 'Último uso', html: (t) => (t.last_used_at ? fecha(t.last_used_at, true) : 'Nunca') },
-      { label: 'Estado', html: (t) => (t.revoked_at ? '<span class="badge text-bg-secondary">Revocada</span>' : '<span class="badge text-bg-success">Activa</span>') },
-      { label: '', cls: 'text-end', html: (t) => (t.revoked_at || !CAN ? '' : `<button class="btn btn-sm btn-outline-danger" data-revoke="${esc(t.id)}" data-name="${esc(t.name)}">Revocar</button>`) },
-    ], tokens) : empty('bi-plug', 'Aún no hay conexiones de IA.');
-    const f = $('[data-new]', el);
-    if (f) f.onsubmit = async (e) => {
-      e.preventDefault(); f.classList.add('was-validated'); if (!f.checkValidity()) return;
-      try {
-        const r = await api('/api/ia/tokens', { method: 'POST', body: { name: f.name.value } });
-        const { el: mo } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Conexión creada</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
-          <div class="modal-body"><p class="small">Copia el token ahora: <b>no se vuelve a mostrar</b>. Si lo pierdes, revoca esta conexión y crea otra.</p>
-          <div class="input-group mb-3"><input class="form-control font-monospace small" readonly value="${esc(r.token)}"><button class="btn btn-primary" data-copy aria-label="Copiar token"><i class="bi bi-clipboard"></i></button></div>
-          <p class="small text-body-secondary mb-1">En tu asistente agrega un servidor MCP remoto con:</p>
-          <ul class="small text-body-secondary mb-0"><li>URL: <code>${esc(r.url)}</code></li><li>Encabezado: <code>Authorization: Bearer &lt;token&gt;</code></li></ul></div>`);
-        mo.querySelector('[data-copy]').onclick = async () => { try { await navigator.clipboard.writeText(r.token); toast('Token copiado'); } catch { mo.querySelector('input').select(); } };
-        conexiones(el);
-      } catch (x) { toast(x.message, false); }
-    };
-    $('[data-list]', el).onclick = async (e) => {
-      const b = e.target.closest('[data-revoke]');
-      if (!b || !(await confirm({ title: `¿Revocar «${b.dataset.name}»?`, text: 'El asistente conectado con ese token dejará de tener acceso de inmediato.', ok: 'Revocar' }))) return;
-      try { await api(`/api/ia/tokens/${b.dataset.revoke}`, { method: 'DELETE' }); toast('Conexión revocada'); conexiones(el); } catch (x) { toast(x.message, false); }
-    };
-  }
-
   /* ---------- Usar en otros lados: el kit de marca para webs, apps, chats y agentes ---------- */
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
   async function kit(el) {
@@ -266,20 +180,9 @@ DW.ready.then((me) => {
     };
   }
 
-  /* ---------- Bitácora: quién hizo qué (propietario y administrador) ---------- */
-  async function bitacora(el) {
-    el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
-    let items;
-    try { ({ items } = await api('/api/settings/bitacora')); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const ORIGEN = { app: 'App', mcp: 'IA (MCP)', diwilo: 'Diwilo' };
-    el.innerHTML = `<div class="dw-card p-0 p-md-2">${items.length ? table([
-      { label: 'Cuándo', html: (a) => fecha(a.created_at, true) },
-      { label: 'Quién', html: (a) => esc(a.email || '—') },
-      { label: 'Qué', main: true, html: (a) => esc(a.accion) },
-      { label: 'Desde', html: (a) => `<span class="badge text-bg-light">${ORIGEN[a.origen] || esc(a.origen)}</span>` },
-    ], items) : empty('bi-journal-text', 'Aún no hay movimientos registrados.')}</div>`;
-  }
-
-  C.seg($('[data-seg]'), VIEWS, (k) => { view = k; D && render(); }, view);
-  load();
+  let host = null, tabAct = 'marca';
+  window.DwMarca = {
+    // Marketing → Tarjetas → Marca: tab = 'marca' (color, modo, logo, fondo, tipografía y tono) o 'kit' (usar en otros lados)
+    async mount(el, tab = 'marca') { host = el; tabAct = tab; el.innerHTML = '<p class="text-body-secondary">Cargando…</p>'; await load(); },
+  };
 });

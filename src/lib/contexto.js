@@ -16,11 +16,11 @@ export function checkCtx(ctx) {
 const seen = new Map();
 export async function syncOrg(env, ctx) {
   const id = orgId(ctx.app, ctx.business.id);
-  const sig = JSON.stringify([ctx.business.name || null, ctx.modulos || null, ctx.business.tema || null, ctx.business.modo || null]);
+  const sig = JSON.stringify([ctx.business.name || null, ctx.modulos || null, ctx.business.tema || null, ctx.business.modo || null, ctx.readOnly ? 1 : 0]);
   if (seen.get(id) === sig) return;
-  await env.DB.prepare(`INSERT INTO orgs (id, app, business_id, name, modulos, tema, modo, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET name = COALESCE(excluded.name, orgs.name), modulos = COALESCE(excluded.modulos, orgs.modulos), tema = COALESCE(excluded.tema, orgs.tema), modo = COALESCE(excluded.modo, orgs.modo), updated_at = excluded.updated_at`)
-    .bind(id, ctx.app, ctx.business.id, ctx.business.name ? String(ctx.business.name).slice(0, 120) : null, ctx.modulos ? JSON.stringify(ctx.modulos) : null, /^[a-z]{3,12}$/.test(ctx.business.tema || '') ? ctx.business.tema : null, ['light', 'dark'].includes(ctx.business.modo) ? ctx.business.modo : null, Date.now()).run();
+  await env.DB.prepare(`INSERT INTO orgs (id, app, business_id, name, modulos, tema, modo, solo_lectura, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = COALESCE(excluded.name, orgs.name), modulos = COALESCE(excluded.modulos, orgs.modulos), tema = COALESCE(excluded.tema, orgs.tema), modo = COALESCE(excluded.modo, orgs.modo), solo_lectura = excluded.solo_lectura, updated_at = excluded.updated_at`)
+    .bind(id, ctx.app, ctx.business.id, ctx.business.name ? String(ctx.business.name).slice(0, 120) : null, ctx.modulos ? JSON.stringify(ctx.modulos) : null, /^[a-z]{3,12}$/.test(ctx.business.tema || '') ? ctx.business.tema : null, ['light', 'dark'].includes(ctx.business.modo) ? ctx.business.modo : null, ctx.readOnly ? 1 : 0, Date.now()).run();
   seen.set(id, sig);
 }
 
@@ -42,4 +42,12 @@ export function authorize(c, spec) {
   });
   if (c.readOnly && c.req.method !== 'GET') throw new HttpError(402, 'La suscripción del negocio está vencida: solo lectura.', 'READ_ONLY');
   if (level === 'manager' && !['owner', 'admin'].includes(c.role)) throw new HttpError(403, 'Solo el propietario o un administrador');
+}
+
+// Contexto de un negocio para trabajo sin persona delante (agentes programados, chats públicos): se arma con lo último que la app envió.
+export async function ctxDeOrg(env, org, { role = 'admin', user = null, via = 'mcp' } = {}) {
+  const o = await env.DB.prepare('SELECT app, business_id, name, modulos, tema, modo, solo_lectura FROM orgs WHERE id = ?').bind(org).first();
+  if (!o) return null;
+  let modulos = null; try { modulos = JSON.parse(o.modulos || 'null'); } catch { /* sin lista: todos */ }
+  return { app: o.app, business: { id: o.business_id, name: o.name, tema: o.tema, modo: o.modo }, role, readOnly: !!o.solo_lectura, user: user || { id: null, email: null, name: 'IA' }, origin: null, via, modulos };
 }

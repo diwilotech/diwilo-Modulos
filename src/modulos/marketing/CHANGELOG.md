@@ -1,5 +1,10 @@
 # Marketing — cambios
 
+## 1.4.0 · 2026-10-17
+- **Marca dentro de Tarjetas:** la vista «Tarjetas» pasa a «Tarjetas y marca», con tres partes: Tarjetas, **Marca** (color de la app, modo claro/oscuro, logo, fondo, tipografía y tono)
+  y **Usar en otros lados** (kit de marca para webs, apps, chats y agentes). Antes vivía en la pantalla «Marca e IA».
+- **Chat de IA en la tarjeta:** cada tarjeta puede mostrar un chat del módulo IA como burbuja (`mk_cards.chat_slug`, migración `0009_ia.sql`).
+
 ## 1.3.0 · 2026-10-17
 - **Tarjetas con el color de la app:** el color «app» (el predeterminado) sigue al color que el negocio elige en Apariencia y cambia solo
   cuando él cambia; también se pueden elegir los 9 temas completos (antes había 5 colores y el tema se copiaba una sola vez al crear la tarjeta).

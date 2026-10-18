@@ -194,5 +194,6 @@ $('sheet-ok').onclick=()=>$('sheet').classList.remove('on');
 $('sheet').onclick=(e)=>{if(e.target===$('sheet'))$('sheet').classList.remove('on');};
 document.getElementById('share').onclick=async()=>{try{if(navigator.share)await navigator.share({title:document.title,url});else{await navigator.clipboard.writeText(url);alert('Enlace copiado');}}catch(e){}};
 </script>
+${c.chat_ok ? `<script src="/chat/${encodeURIComponent(c.chat_slug)}/widget.js" defer></script>` : ''}
 </body></html>`;
 }

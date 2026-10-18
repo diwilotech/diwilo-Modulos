@@ -14,7 +14,7 @@ const MOD = 'marketing', B = '/api/marketing';
 // 'app' = el color de la marca del negocio (por defecto el de su app: cambia solo cuando cambia Apariencia); luego los 9 temas y «ámbar» (tarjetas viejas)
 export const ACCENTS = ['app', ...Object.keys(TEMAS), 'ambar'];
 const slugify = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-const COLS = 'id, business_id, slug, name, role, company, bio, phone, whatsapp, email, website, instagram, linkedin, accent, predeterminada, views, created_at, updated_at, photo_data IS NOT NULL AS has_photo, icon_512 IS NOT NULL AS has_icon';
+const COLS = 'id, business_id, slug, name, role, company, bio, phone, whatsapp, email, website, instagram, linkedin, accent, chat_slug, predeterminada, views, created_at, updated_at, photo_data IS NOT NULL AS has_photo, icon_512 IS NOT NULL AS has_icon';
 
 // La dirección /c/<slug> es única en todas las apps.
 async function uniqueSlug(env, wanted, exceptId = 0) {
@@ -26,11 +26,18 @@ async function uniqueSlug(env, wanted, exceptId = 0) {
   return `${base}-${Date.now().toString(36)}`;
 }
 
+// El chat de una tarjeta debe ser de este negocio (el vacío lo quita)
+async function chatDelNegocio(c, row) {
+  if (!('chat_slug' in row)) return;
+  if (!row.chat_slug) { row.chat_slug = null; return; }
+  if (!(await one(c.env, 'SELECT 1 FROM ia_chats WHERE slug = ? AND business_id = ?', row.chat_slug, c.businessId))) throw new HttpError(400, 'Ese chat no existe en este negocio');
+}
+
 export const CARD_ENTITY = {
   table: 'mk_cards', label: 'la tarjeta', title: 'name', search: ['name', 'company', 'role', 'slug'], order: 'predeterminada DESC, created_at',
-  fields: { slug: 'text', name: 'text!', role: 'text', company: 'text', bio: 'long', phone: 'text', whatsapp: 'text', email: 'email', website: 'url', instagram: 'text', linkedin: 'url', accent: ACCENTS },
-  async beforeCreate(c, row) { row.slug = await uniqueSlug(c.env, row.slug || row.name); if (row.bio) row.bio = row.bio.slice(0, 600); },
-  async beforeUpdate(c, row, before) { if ('slug' in row) row.slug = await uniqueSlug(c.env, row.slug || before.name, before.id); if (row.bio) row.bio = row.bio.slice(0, 600); },
+  fields: { slug: 'text', name: 'text!', role: 'text', company: 'text', bio: 'long', phone: 'text', whatsapp: 'text', email: 'email', website: 'url', instagram: 'text', linkedin: 'url', accent: ACCENTS, chat_slug: 'text' },
+  async beforeCreate(c, row) { row.slug = await uniqueSlug(c.env, row.slug || row.name); if (row.bio) row.bio = row.bio.slice(0, 600); await chatDelNegocio(c, row); },
+  async beforeUpdate(c, row, before) { if ('slug' in row) row.slug = await uniqueSlug(c.env, row.slug || before.name, before.id); if (row.bio) row.bio = row.bio.slice(0, 600); await chatDelNegocio(c, row); },
   async beforeDelete(c, before) { if (before.predeterminada) throw new HttpError(409, 'La tarjeta del negocio no se borra: puedes editarla'); },
   decorate(c, rows) { return rows.map(({ photo_data, icon_192, icon_512, ...r }) => ({ ...r, has_photo: !!photo_data, has_icon: !!icon_512 })); },
 };
@@ -92,6 +99,7 @@ export async function publicCard(env, app, rest, origin, { bot = false } = {}) {
   const brand = await brandOf(env, card.business_id);
   card.accent_efectivo = card.accent === 'app' ? brand.color_efectivo : card.accent;
   card.tipografia = brand.tipografia;
+  card.chat_ok = !!card.chat_slug && !!(await one(env, 'SELECT 1 FROM ia_chats WHERE slug = ? AND business_id = ? AND activo = 1', card.chat_slug, card.business_id)); // chat de IA de la tarjeta
   card.paleta = paleta(TEMAS[card.accent_efectivo]?.ui || TEMAS.violeta.ui);
   card.fondo_modo = brand.fondo_efectivo; // 'oscuro' | 'claro' (negro, blanco o igual que la app)
   const img = (dataUrl, cache) => {

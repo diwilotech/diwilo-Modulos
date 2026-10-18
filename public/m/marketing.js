@@ -64,14 +64,15 @@ DW.ready.then((me) => {
   };
 
   const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['contactos', 'Clientes y leads', 'bi-person-lines-fill'], ['oportunidades', 'Oportunidades', 'bi-funnel'],
-    ['campanas', 'Campañas', 'bi-megaphone'], ['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['tareas', 'Tareas y automatizaciones', 'bi-check2-square'], ['listas', 'Listas', 'bi-list-ul'], ['informes', 'Informes', 'bi-journal-text'], ['herramientas', 'Suscripciones y herramientas', 'bi-plug']];
-  let view = (location.hash || '#resumen').slice(1);
+    ['campanas', 'Campañas', 'bi-megaphone'], ['tarjetas', 'Tarjetas y marca', 'bi-person-vcard'], ['tareas', 'Tareas y automatizaciones', 'bi-check2-square'], ['listas', 'Listas', 'bi-list-ul'], ['informes', 'Informes', 'bi-journal-text'], ['herramientas', 'Suscripciones y herramientas', 'bi-plug']];
+  let view = (location.hash || '#resumen').slice(1), subTar = 'tarjetas';
+  if (view === 'marca' || view === 'kit') { subTar = view; view = 'tarjetas'; }   // enlaces a Marketing → Tarjetas → Marca
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   function render() {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false);
     old.replaceWith(el);
-    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, campanas: campaigns, tarjetas: cards, tareas: tasks, listas: lists, informes: reports, herramientas: tools })[view](el);
+    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, campanas: campaigns, tarjetas: tarjetasYMarca, tareas: tasks, listas: lists, informes: reports, herramientas: tools })[view](el);
   }
 
   async function summary(el) {
@@ -420,6 +421,22 @@ DW.ready.then((me) => {
     qrLib ||= new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
     await qrLib; const q = window.qrcode(0, 'M'); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
   };
+  // Tarjetas de presentación y la marca del negocio (color de la app, modo, logo, fondo, tipografía, tono y kit), en un solo lugar
+  let marcaCargada = null;
+  async function tarjetasYMarca(el) {
+    const SUB = [['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['marca', 'Marca', 'bi-palette'], ['kit', 'Usar en otros lados', 'bi-box-arrow-up-right']];
+    el.innerHTML = '<ul data-sub></ul><div data-body></div>';
+    const body = $('[data-body]', el);
+    const show = async (k) => {
+      subTar = k;
+      if (k === 'tarjetas') return cards(body);
+      marcaCargada ||= new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = '/m/marca.js'; sc.onload = res; sc.onerror = () => rej(new Error('No se pudo cargar la marca')); document.head.appendChild(sc); });
+      try { await marcaCargada; await DW.ready; await new Promise((r) => setTimeout(r, 0)); await window.DwMarca.mount(body, k); } catch (x) { body.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; }
+    };
+    C.seg($('[data-sub]', el), SUB, show, subTar);
+    show(subTar);
+  }
+
   async function cards(el) {
     el.innerHTML = `<div class="alert alert-light border small">Tarjetas de presentación digitales: cada una tiene su enlace y su QR, se instala como app en el celular y guarda el contacto con un toque. La del negocio se crea sola con sus datos.</div><div class="dw-grid" data-cards><div class="text-body-secondary">Cargando…</div></div>`;
     const box = $('[data-cards]', el);
@@ -451,6 +468,7 @@ DW.ready.then((me) => {
     });
 
     async function editar(card) {
+      const chats = await api('/api/ai/chats').then((r) => r.rows.filter((x) => x.activo)).catch(() => []);
       const d = card ? { ...card } : { name: '', accent: Object.keys(ACC)[0], company: me.business.name };
       let foto = card ? fotoDe(card) : '', fotoNueva; // undefined = sin cambio · '' = quitar · data URL = nueva
       const { el: m, m: mm } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${card ? 'Editar tarjeta' : 'Nueva tarjeta'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
@@ -461,6 +479,8 @@ DW.ready.then((me) => {
           <div class="col-12"><label class="form-label small mb-1">Presentación</label><textarea class="form-control" name="bio" rows="2" maxlength="600">${esc(d.bio || '')}</textarea></div>
           ${CONTACTOS.map(([k, ic, l, ph, t]) => `<div class="col-sm-6"><label class="form-label small mb-1"><i class="bi ${ic} me-1"></i>${l}</label><input class="form-control" name="${k}" type="${t}" value="${esc(d[k] || '')}" placeholder="${esc(ph)}"></div>`).join('')}
           <div class="col-12"><label class="form-label small mb-1">Dirección</label><div class="input-group"><span class="input-group-text small">${esc(location.host)}/c/</span><input class="form-control" name="slug" value="${esc(d.slug || '')}" placeholder="se arma con el nombre"></div></div>
+          <div class="col-12"><label class="form-label small mb-1"><i class="bi bi-chat-dots me-1"></i>Chat de IA de la tarjeta</label><select class="form-select" name="chat_slug"><option value="">Sin chat</option>${chats.map((x) => `<option value="${esc(x.slug)}" ${d.chat_slug === x.slug ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select>
+            <div class="small text-body-secondary">${chats.length ? 'Aparece como una burbuja en la tarjeta.' : 'Aún no tienes chats activos: créalos en IA → Chats.'}</div></div>
         </div></div>
         <div class="col-md-4 text-center"><div class="small text-body-secondary mb-1">Foto</div><div data-foto></div>
           <div class="d-flex justify-content-center gap-1 mt-2"><button type="button" class="btn btn-sm btn-outline-primary" data-subir><i class="bi bi-camera me-1"></i>Subir</button><button type="button" class="btn btn-sm btn-light" data-quitar>Quitar</button></div>
@@ -519,7 +539,7 @@ DW.ready.then((me) => {
       f.onsubmit = async (e) => {
         e.preventDefault();
         const body = Object.fromEntries(['name', 'role', 'company', 'bio', ...CONTACTOS.map((x) => x[0]), 'slug'].map((k) => [k, f[k].value.trim()]));
-        body.accent = accent;
+        body.accent = accent; body.chat_slug = f.chat_slug.value;
         if (!body.name) { $('[data-err]', m).textContent = 'Escribe el nombre'; return; }
         if (!body.slug) delete body.slug;
         const btn = f.querySelector('.btn-primary'); btn.disabled = true;
