@@ -28,5 +28,30 @@
   "depende_de": [],
   "pagina": "/m/marca.js",
   "central": true,
-  "base": true
+  "base": true,
+  "mcp": {
+    "guia": "La marca del negocio como servicio: color (el de su app) con su paleta, fondo, tipografía, tono de conversación, logo y plantillas de IA. LÉELA ANTES de redactar mensajes, correos, publicaciones o páginas para los clientes del negocio (marca_guia_de_marca) y, si vas a construir una web, una landing o un chat, pide el kit completo (marca_kit_de_marca: CSS con variables, tipografía y prompts listos).",
+    "ejemplos": [
+      "Pídele: «Redacta un mensaje para clientes con el tono de mi marca.»",
+      "Pídele: «Crea mi landing con los colores, la letra y el tono de mi negocio.»"
+    ],
+    "flujos": [
+      {
+        "id": "redactar",
+        "nombre": "Escribir con la voz del negocio",
+        "descripcion": "Leer la guía de marca y redactar el texto.",
+        "pasos": [
+          "marca.guia_de_marca"
+        ]
+      },
+      {
+        "id": "web",
+        "nombre": "Construir una web con la marca",
+        "descripcion": "Pedir el kit de marca (CSS, tipografía y prompts) y armar la página.",
+        "pasos": [
+          "marca.kit_de_marca"
+        ]
+      }
+    ]
+  }
 }

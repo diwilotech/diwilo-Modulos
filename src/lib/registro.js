@@ -3,10 +3,26 @@
 import { HttpError } from './http.js';
 import { authorize, checkCtx, syncOrg } from './contexto.js';
 
-export const REG = { tools: [] };
+export const REG = { tools: [], manifests: [] };
+const BASE = ['marca', 'ai'], RANK = { staff: 1, admin: 2, owner: 3 };
+
+// Herramientas que este negocio puede usar con este contexto: las centrales de sus módulos activos y las PROPIAS de la app (ctx.propias.catalogo),
+// con un rol que el contexto alcance. Es el catálogo único que usan el MCP, el asistente y los agentes.
+export function herramientasDe(ctx) {
+  const centrales = REG.tools.filter((t) => !ctx.modulos || ctx.modulos.includes(t.modulo) || BASE.includes(t.modulo));
+  const propias = (ctx.propias?.catalogo || []).map((t) => ({ ...t, propia: true }));
+  return [...centrales, ...propias].filter((t) => (RANK[ctx.role] || 0) >= (RANK[t.rol || 'staff'] || 1))
+    .map(({ name, description, inputSchema, rol, tipo, modulo, propia }) => ({ name, description, inputSchema, rol, tipo, modulo, ...(propia ? { propia: true } : {}) }));
+}
 
 // Ejecuta una herramienta con el contexto de un negocio, con las mismas reglas que el MCP (módulo activo, rol, solo lectura).
 export async function ejecutarHerramienta(env, ctx, name, args = {}) {
+  // Herramienta propia de la app: la ejecuta la app (con la sesión de quien hizo la llamada), no este Worker
+  const propia = ctx?.propias?.catalogo?.find((x) => x.name === name);
+  if (propia && typeof ctx.propias.ejecutar === 'function') {
+    try { const r = await ctx.propias.ejecutar(name, args || {}); return r?.ok ? { ok: true, result: r.result, audit: r.audit || [] } : { ok: false, error: r?.error || 'Error', status: r?.status || 500, audit: r?.audit || [] }; }
+    catch (e) { return { ok: false, error: e.message || 'Error al llamar a la app', status: 502, audit: [] }; }
+  }
   const t = REG.tools.find((x) => x.name === name);
   const c = { env, ctx, req: new Request('https://x/', { method: t?.tipo === 'escritura' ? 'POST' : 'GET' }), url: new URL(ctx?.origin || 'https://app.diwilo.com') };
   try {

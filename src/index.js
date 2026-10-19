@@ -26,6 +26,7 @@ import { publicCard } from './modulos/marketing/tarjetas.js';
 import { validatePage } from './modulos/finanzas/api.js';
 import { kitOf } from './lib/marca.js';
 import { REG, ejecutarHerramienta } from './lib/registro.js';
+import { guiasDe } from './lib/guias.js';
 import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
 
@@ -33,6 +34,7 @@ const router = new Router();
 for (const m of MODULOS) m.api.routes(router);
 const TOOLS = MODULOS.flatMap((m) => m.tools);
 REG.tools = TOOLS;
+REG.manifests = MODULOS.map((m) => m.manifest);
 const TABLA = /^[a-z][a-z0-9_]{1,40}$/;
 
 const asText = async (res) => ({ status: res.status, headers: Object.fromEntries([...res.headers].filter(([k]) => ['content-type', 'content-disposition', 'cache-control', 'location'].includes(k))), body: await res.text() });
@@ -69,6 +71,12 @@ export class Modulos extends WorkerEntrypoint {
       const res = await route.handler(c);
       return { ...(await asText(res)), audit: c.auditLog || [] };
     } catch (err) { return { ...fail(err), audit: [] }; }
+  }
+
+  // Guías de uso de los módulos (estándar «guía de módulo v1») para el MCP de la app: las centrales y las propias que mande en ctx.propias
+  guias(ctx) {
+    checkCtx(ctx);
+    return guiasDe(ctx, ctx.origin || '');
   }
 
   tools() {

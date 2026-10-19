@@ -112,6 +112,27 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('IA: solo se aprueban herramientas de escritura', (await A.app(`${X}/asistente/aprobar`, { method: 'POST', body: { herramienta: 'marketing.resumen', args: {} } })).status === 400);
   check('IA: el asistente sin pregunta se rechaza', (await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [] } })).status === 400);
 
+  /* ---------- estándar compartido: guías y herramientas propias de la app para el asistente y los agentes ---------- */
+  const gs = (await A.app(`${X}/guias`)).data.modulos;
+  check('IA: las guías de uso (el estándar del MCP) incluyen módulos centrales y propios, con sus flujos', gs.some((g) => g.modulo === 'marketing' && g.flujos.some((f) => f.id === 'informe')) && gs.some((g) => g.modulo === 'estudiantes' && g.herramientas.some((h) => h.nombre === 'estudiantes_buscar')) && !gs.some((g) => g.modulo === 'ai'), JSON.stringify(gs.map((g) => g.modulo)));
+  const hh = (await A.app(`${X}/herramientas`)).data.herramientas;
+  check('IA: las herramientas propias de la app llegan al mismo catálogo que las centrales', hh.some((t) => t.name === 'estudiantes.buscar' && t.propia) && hh.some((t) => t.name === 'marketing.resumen' && !t.propia));
+  await A.app('/api/estudiantes/estudiantes', { method: 'POST', body: { nombre: 'Marta Buscada', documento: '55501', telefono: '3015550101' } });
+  const ap1 = await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [{ role: 'user', content: GUION(['{"accion":"guia","modulo":"estudiantes"}', '{"accion":"usar","herramienta":"estudiantes.buscar","args":{"texto":"Marta"}}', '{"accion":"fin","respuesta":"Encontré a Marta."}']) }] } });
+  check('IA: el asistente lee la guía de un módulo y luego usa su herramienta propia', ap1.status === 200 && /^guía de estudiantes/.test(ap1.data.pasos?.[0]?.herramienta) && ap1.data.pasos[0].estado === 'consultada' && ap1.data.pasos[1]?.herramienta === 'estudiantes.buscar' && ap1.data.pasos[1].estado === 'consultada' && /Marta Buscada/.test(ap1.data.pasos[1].resultado), JSON.stringify(ap1.data).slice(0, 300));
+  const ap2 = await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [{ role: 'user', content: GUION(['{"accion":"guia","modulo":"no-existe"}', '{"accion":"fin","respuesta":"ok"}']) }] } });
+  check('IA: pedir la guía de un módulo que no existe no rompe nada', ap2.status === 200 && ap2.data.pasos[0].estado === 'error');
+  const ap3 = await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [{ role: 'user', content: GUION(['{"accion":"usar","herramienta":"estudiantes.crear","args":{"nombre":"Creado por IA"}}', '{"accion":"fin","respuesta":"Te lo propongo."}']) }] } });
+  check('IA: una escritura propia de la app queda como propuesta', ap3.data.pasos?.[0]?.estado === 'propuesta' && !(await A.app('/api/estudiantes/estudiantes?q=Creado por IA')).data.rows.length);
+  check('IA: al aprobarla la ejecuta la app con la sesión de quien aprueba', (await A.app(`${X}/asistente/aprobar`, { method: 'POST', body: { herramienta: 'estudiantes.crear', args: { nombre: 'Creado por IA' } } })).status === 200 && (await A.app('/api/estudiantes/estudiantes?q=Creado por IA')).data.rows.length === 1);
+  check('IA: el personal no puede aprobar herramientas propias de administrador', (await staff.app(`${X}/asistente/aprobar`, { method: 'POST', body: { herramienta: 'cuotas.registrar_pago', args: { inscripcion_id: 1, valor: 1 } } })).status === 400);
+  const agp = await A.app(`${X}/agentes`, { method: 'POST', body: { nombre: 'Con herramienta propia', autonomia: 'proponer', herramientas: JSON.stringify(['estudiantes.buscar', 'cuotas.cartera']),
+    instrucciones: GUION(['{"accion":"usar","herramienta":"cuotas.cartera","args":{}}', '{"accion":"usar","herramienta":"estudiantes.buscar","args":{"texto":"Marta"}}', '{"accion":"fin","respuesta":"Revisé la cartera y a Marta."}']) } });
+  check('IA: un agente acepta herramientas propias de la app', agp.status === 201, JSON.stringify(agp.data));
+  const rgp = await A.app(`${X}/agentes/${agp.data.id}/ejecutar`, { method: 'POST' });
+  check('IA: el agente ejecutado desde la app usa las herramientas propias', rgp.data.estado === 'ok' && rgp.data.pasos?.length === 2 && rgp.data.pasos.every((p) => p.estado === 'consultada'), JSON.stringify(rgp.data).slice(0, 300));
+  check('IA: un agente no usa herramientas propias de otro negocio ni inexistentes', (await B.app(`${X}/agentes`, { method: 'POST', body: { nombre: 'x', instrucciones: 'y', herramientas: JSON.stringify(['estudiantes.buscar', 'no.existe']) } })).status === 400);
+
   /* ---------- claves de la API ---------- */
   const k = await A.app(`${X}/claves`, { method: 'POST', body: { nombre: 'Mi CRM' } });
   check('IA: crea una clave de API y la muestra una sola vez', k.status === 201 && /^dwi_[0-9a-f]{40}$/.test(k.data.key));

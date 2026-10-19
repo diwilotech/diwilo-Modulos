@@ -11,6 +11,7 @@ Worker central `diwilo-modulos` con los módulos horizontales (Finanzas, Marketi
 ## Mapa
 - `src/index.js` clase `Modulos`: catalog, call(ctx,req), tools, tool, asset, link/click, validar, tarjeta, chat (chats públicos `/chat/…`), apiPublica (`/v1/…`), marca (kit), uso, purge.
 - IA (`src/modulos/ai/`): `api.js` (chats, conversaciones, agentes, asistente, uso, claves), `chat.js` (chat público), `agentes.js` (bucle de herramientas), `publica.js` (`/v1`). Motor y tope diario en `src/lib/ia.js` (binding `AI`; Gemini si hay `GEMINI_API_KEY`). Las pruebas NO gastan IA: un mensaje que empieza por `[prueba]` responde sin llamar al modelo, y `[[GUION]]…[[/GUION]]` guioniza a un agente.
+- Estándar de IA: `src/lib/guias.js` (guía de módulo v1 desde el bloque `mcp` del manifiesto) + `src/lib/registro.js` (`herramientasDe`, `ejecutarHerramienta`, `ctx.propias` con las herramientas propias de la app). Lo usan el MCP (vía RPC `guias`), el asistente y los agentes del módulo `ai`.
 - Módulos BASE (`"base": true`): `marca` (sin pantalla) e `ai`; las apps los mantienen siempre activos.
 - `src/lib/contexto.js` (ctx, orgs, permisos tenant/manager, 402 solo lectura), `src/lib/audit.js`.
 - `src/modulos/<id>/{api.js, ia.js, modulo.json, CHANGELOG.md}`; Marketing además `tarjeta.js` (HTML público) y `tarjetas.js` (CRUD, predeterminada, publicCard).

@@ -49,9 +49,20 @@ Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 
 `ctx` = `{ app, business: { id, name, logo, tema, modo }, user: { id, email, name }, role, readOnly, origin, via: 'app'|'mcp', modulos }`.
 
+## Estándar de uso de los módulos por IA (MCP, asistente y agentes)
+
+Un solo estándar para todo lo que use las herramientas de los módulos. Cada módulo declara su bloque `mcp` (guía, ejemplos y flujos) y sus herramientas (`ia.js`);
+`src/lib/guias.js` arma de ahí la **guía de módulo v1** y `src/lib/registro.js` el **catálogo único de herramientas** (`herramientasDe`) y su ejecución (`ejecutarHerramienta`).
+- **MCP del negocio** (en la app): `GET /api/<módulo>/mcp`, recursos `diwilo://<módulo>/guia` y prompts `<módulo>_<flujo>`; la app pide las guías por RPC `guias(ctx)`.
+- **Asistente y agentes** (módulo `ai`): su prompt lleva el resumen de las guías de los módulos que usan, pueden leer la guía completa (acción `guia`), se crean desde un flujo
+  (`GET /api/ai/guias`) y usan el mismo catálogo y la misma ejecución que el MCP.
+- **Herramientas propias de la app** (Academia: estudiantes, cuotas, cursos…): la app las entrega en `ctx.propias` (manifiestos, catálogo y una función `ejecutar` por RPC) y las
+  EJECUTA ELLA con la sesión de quien llamó (mismo rol, módulo activo, solo lectura y bitácora). Solo en llamadas hechas desde la app (asistente y agentes ejecutados a mano):
+  los agentes programados (cron) usan únicamente las herramientas centrales.
+
 ## Crear un módulo nuevo
 
-1. `src/modulos/<id>/`: `modulo.json` (manifiesto, con `tablas`), `api.js` (`routes(r)` y, si hace falta, `daily(env)`),
+1. `src/modulos/<id>/`: `modulo.json` (manifiesto, con `tablas` y el bloque `mcp`: guía de uso, ejemplos y flujos que la app publica en `GET /api/<id>/mcp`, en los recursos `diwilo://<id>/guia` y en los prompts del MCP), `api.js` (`routes(r)` y, si hace falta, `daily(env)`),
    `ia.js` (herramientas), `CHANGELOG.md`. Toda consulta filtra por `c.businessId`.
 2. Su migración en `migrations/` (siempre con `business_id`, sin llaves foráneas a tablas de las apps).
 3. Su página en `public/m/<id>.html` (empieza con `<main class="dw-main" …>`) y `public/m/<id>.js` (usa `App`, `App.Crud` y el tema de la app).

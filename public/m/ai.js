@@ -111,8 +111,15 @@ DW.ready.then((me) => {
   function asistente(el) {
     const pintarPasos = (pasos) => (pasos?.length ? `<details class="mt-1"><summary class="small text-body-secondary" style="cursor:pointer">Lo que consultó (${pasos.length})</summary><ul class="small mb-0 ps-3">${pasos.map((p) => `<li><code>${esc(p.herramienta)}</code> ${esc(p.estado)}${p.resultado ? ` · ${esc(String(p.resultado).slice(0, 120))}` : ''}</li>`).join('')}</ul></details>` : '');
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Pregúntale a la IA por los datos de tu negocio (clientes, ventas, cuentas…). Consulta con las herramientas de tus módulos activos; si quiere <b>crear o cambiar</b> algo, te lo propone y tú lo apruebas.</div>
+      <div class="d-flex flex-wrap gap-2 mb-3" data-flujos></div>
       <div class="dw-card"><div data-log class="d-flex flex-column gap-2 mb-3" style="min-height:160px;max-height:55vh;overflow:auto"></div>
         <form class="d-flex gap-2" data-f><input class="form-control" name="q" maxlength="2000" placeholder="Ej.: ¿Cuántos leads nuevos tuve esta semana?" autocomplete="off" required aria-label="Pregunta"><button class="btn btn-primary text-nowrap"><i class="bi bi-send me-1"></i>Preguntar</button><button type="button" class="btn btn-light" data-clear title="Empezar de nuevo"><i class="bi bi-eraser"></i></button></form></div>`;
+    // Flujos sugeridos: salen de la guía de cada módulo (el mismo estándar del MCP y de los agentes)
+    api(`${B}/guias`).then((r) => {
+      const fl = r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })));
+      $('[data-flujos]', el).innerHTML = fl.length ? `<span class="small text-body-secondary align-self-center"><i class="bi bi-diagram-3 me-1"></i>Flujos:</span>${fl.map((f, i) => `<button type="button" class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('')}` : '';
+      $('[data-flujos]', el).onclick = (e) => { const b = e.target.closest('[data-fl]'); if (b) { const q = $('[data-f] [name=q]', el); q.value = fl[+b.dataset.fl].prompt; q.focus(); } };
+    }).catch(() => {});
     const log = $('[data-log]', el);
     const burbuja = (rol, html) => { const d = document.createElement('div'); d.className = `p-2 px-3 rounded-4 ${rol === 'user' ? 'align-self-end text-white' : 'align-self-start'}`; d.style.cssText = `max-width:90%;white-space:pre-wrap;${rol === 'user' ? 'background:var(--dw-p)' : 'background:rgba(var(--bs-body-color-rgb),.08)'}`; d.innerHTML = html; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
     for (const m of hist) burbuja(m.role, m.role === 'user' ? esc(m.content) : esc(m.content) + (m.pasosHtml || ''));
@@ -149,11 +156,11 @@ DW.ready.then((me) => {
   const PROG = { manual: 'Cuando yo lo pida', diario: 'Todos los días', semanal: 'Los lunes' }, AUTO = { proponer: 'Propone y yo apruebo', ejecutar: 'Ejecuta solo' };
   async function agentes(el) {
     el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
-    let rows, herr, st;
-    try { [rows, herr, st] = await Promise.all([api(`${B}/agentes`).then((r) => r.rows), api(`${B}/herramientas`).then((r) => r.herramientas), CAN ? api(M).then((r) => r.starters.agente) : []]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    let rows, herr, st, flujos;
+    try { [rows, herr, st, flujos] = await Promise.all([api(`${B}/agentes`).then((r) => r.rows), api(`${B}/herramientas`).then((r) => r.herramientas), CAN ? api(M).then((r) => r.starters.agente) : [], CAN ? api(`${B}/guias`).then((r) => r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))).catch(() => []) : []]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Un <b>agente</b> es una IA que trabaja sola con las herramientas de tus módulos: revisa, prepara y propone. Corre cuando tú lo pidas, cada día o cada lunes.
         Lo que <b>escribe</b> (crear contactos, tareas…) queda como propuesta para que tú la apruebes, o se ejecuta solo si así lo configuras.</div>
-      ${CAN ? '<div class="mb-3 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nuevo agente</button>' + (st.length ? `<span class="small text-body-secondary">o empieza con:</span>${st.map((s, i) => `<button class="btn btn-sm btn-outline-primary" data-st="${i}">${esc(s.nombre)}</button>`).join('')}` : '') + '</div>' : ''}
+      ${CAN ? '<div class="mb-3 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nuevo agente</button>' + (st.length ? `<span class="small text-body-secondary">o empieza con:</span>${st.map((s, i) => `<button class="btn btn-sm btn-outline-primary" data-st="${i}">${esc(s.nombre)}</button>`).join('')}` : '') + '</div>' + (flujos.length ? `<div class="mb-3 d-flex flex-wrap gap-2 align-items-center"><span class="small text-body-secondary"><i class="bi bi-diagram-3 me-1"></i>Desde un flujo de tus módulos:</span>${flujos.map((f, i) => `<button class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('')}</div>` : '') : ''}
       <div class="row g-3">${rows.length ? rows.map((a) => `<div class="col-lg-6"><div class="dw-card h-100 ${a.activo ? '' : 'opacity-75'}" data-id="${a.id}">
         <div class="d-flex align-items-start gap-2"><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(a.nombre)}</h2><div class="small text-body-secondary">${PROG[a.programacion]} · ${AUTO[a.autonomia]} · ${a.herramientas.length} herramienta${a.herramientas.length === 1 ? '' : 's'}</div></div>
           ${a.ultima?.pendientes ? `<span class="badge text-bg-warning">${a.ultima.pendientes} por aprobar</span>` : ''}<span class="badge ${a.activo ? 'text-bg-success' : 'text-bg-secondary'}">${a.activo ? 'Activo' : 'Pausado'}</span></div>
@@ -202,6 +209,11 @@ DW.ready.then((me) => {
     el.onclick = async (e) => {
       if (e.target.closest('[data-new]')) return editar(null);
       const s = e.target.closest('[data-st]'); if (s) return editar(null, { ...st[+s.dataset.st], programacion: 'manual', autonomia: 'proponer', activo: 1, herramientas: [] });
+      const fl = e.target.closest('[data-fl]');
+      if (fl) { // un flujo de un módulo (el mismo estándar del MCP): su prompt y sus herramientas
+        const f = flujos[+fl.dataset.fl];
+        return editar(null, { nombre: f.nombre, instrucciones: f.prompt, programacion: 'manual', autonomia: 'proponer', activo: 1, herramientas: f.pasos.map((p) => herr.find((t) => t.name.replace(/\./g, '_') === p)?.name).filter(Boolean) });
+      }
       const card = e.target.closest('[data-id]'); if (!card) return;
       const a = rows.find((x) => String(x.id) === card.dataset.id);
       if (e.target.closest('[data-edit]')) return editar(a);

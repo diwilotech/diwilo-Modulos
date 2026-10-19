@@ -54,5 +54,43 @@
   "tarea_diaria": "gastos recurrentes que vencen",
   "depende_de": [],
   "pagina": "/m/finanzas.js",
-  "central": true
+  "central": true,
+  "mcp": {
+    "guia": "Finanzas del negocio: ingresos, gastos, cuentas de cobro, cartera, gastos recurrentes, centros de costo y cuentas. Para cifras usa siempre las herramientas de lectura (resumen_mes, cartera, buscar_movimientos) y no inventes valores. Registrar o editar movimientos y crear cuentas de cobro son escrituras: confirma valor, fecha y centro de costo antes. Los montos van en COP salvo que el movimiento sea en USD.",
+    "ejemplos": [
+      "Pídele: «¿Cómo va el mes? Ingresos, gastos y utilidad.»",
+      "Pídele: «Registra un gasto de 85.000 de transporte de ayer, centro de costo Eventos.»",
+      "Pídele: «Prepara el informe financiero de la semana y guárdalo.»"
+    ],
+    "flujos": [
+      {
+        "id": "cierre_mes",
+        "nombre": "Cierre del mes",
+        "descripcion": "Resumen del mes, cartera por cobrar y recomendaciones.",
+        "pasos": [
+          "finanzas.resumen_mes",
+          "finanzas.cartera",
+          "finanzas.ver_gastos_recurrentes"
+        ]
+      },
+      {
+        "id": "informe",
+        "nombre": "Informe financiero",
+        "descripcion": "Reunir los datos del periodo, escribir el informe y guardarlo.",
+        "pasos": [
+          "finanzas.datos_informe",
+          "finanzas.guardar_informe"
+        ]
+      },
+      {
+        "id": "gasto",
+        "nombre": "Registrar un gasto",
+        "descripcion": "Ver centros y cuentas, y registrar el movimiento.",
+        "pasos": [
+          "finanzas.ver_centros_y_cuentas",
+          "finanzas.registrar_movimiento"
+        ]
+      }
+    ]
+  }
 }

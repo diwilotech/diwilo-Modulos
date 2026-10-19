@@ -37,5 +37,31 @@
   "depende_de": [],
   "pagina": "/m/ai.js",
   "central": true,
-  "base": true
+  "base": true,
+  "mcp": {
+    "guia": "IA del negocio: chats de clientes (públicos, en /chat/<slug>, para tarjetas y webs), sus conversaciones, y el consumo diario de IA. Para revisar cómo atiende el chat lee las conversaciones (ver_conversaciones, leer_conversacion). Crear un chat es una escritura. Los agentes y el asistente interno se manejan desde la pantalla IA de la app.",
+    "ejemplos": [
+      "Pídele: «Resume las conversaciones de los chats de esta semana: qué preguntan los clientes.»",
+      "Pídele: «Crea un chat de ventas con este saludo…»"
+    ],
+    "flujos": [
+      {
+        "id": "revision",
+        "nombre": "Revisar los chats",
+        "descripcion": "Ver las conversaciones recientes y resumir qué preguntan los clientes y qué falta responder.",
+        "pasos": [
+          "ai.ver_conversaciones",
+          "ai.leer_conversacion"
+        ]
+      },
+      {
+        "id": "consumo",
+        "nombre": "Consumo de IA",
+        "descripcion": "Cuánta IA se ha usado hoy frente al tope.",
+        "pasos": [
+          "ai.resumen_uso"
+        ]
+      }
+    ]
+  }
 }

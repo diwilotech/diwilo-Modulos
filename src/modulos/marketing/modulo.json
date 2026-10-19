@@ -59,5 +59,43 @@
   "tarea_diaria": "automatizaciones (leads sin contacto, presupuesto de campañas, facturas vencidas si usa Finanzas, revisión e informe de los lunes)",
   "depende_de": [],
   "pagina": "/m/marketing.js",
-  "central": true
+  "central": true,
+  "mcp": {
+    "guia": "Marketing del negocio: clientes y leads, oportunidades, campañas con presupuesto y links de rastreo, tareas, automatizaciones, listas (competidores, fuentes) e informes. Antes de crear algo, consulta si ya existe (buscar_contactos, ver_listas, tareas_pendientes): las herramientas evitan duplicados pero conviene verificar. Todo lo que escribe pide confirmación. Los leads nuevos disparan las automatizaciones de «lead nuevo».",
+    "ejemplos": [
+      "Pídele: «¿Cuántos leads nuevos tuve esta semana y de dónde vienen?»",
+      "Pídele: «Crea el lead Ana Pérez, 300…, origen Instagram, y una tarea para llamarla hoy.»",
+      "Pídele: «Escribe el informe de marketing de la semana y guárdalo.»"
+    ],
+    "flujos": [
+      {
+        "id": "resumen",
+        "nombre": "Resumen de marketing",
+        "descripcion": "Leads, embudo, campañas y tareas de los últimos 30 días.",
+        "pasos": [
+          "marketing.resumen",
+          "marketing.tareas_pendientes"
+        ]
+      },
+      {
+        "id": "informe",
+        "nombre": "Informe semanal",
+        "descripcion": "Reunir los datos y guardar el informe del analista.",
+        "pasos": [
+          "marketing.datos_informe",
+          "marketing.guardar_informe"
+        ]
+      },
+      {
+        "id": "lead",
+        "nombre": "Atender un lead",
+        "descripcion": "Buscar o crear el contacto y dejar la tarea de seguimiento.",
+        "pasos": [
+          "marketing.buscar_contactos",
+          "marketing.crear_contacto",
+          "marketing.crear_tarea"
+        ]
+      }
+    ]
+  }
 }

@@ -2,32 +2,31 @@
 // Un bucle de pasos: el modelo responde SIEMPRE con un JSON, o usa una herramienta o termina. Las herramientas de lectura corren;
 // las de escritura se PROPONEN (la persona las aprueba) o se ejecutan, según la autonomía.
 import { llamarIA } from '../../lib/ia.js';
-import { REG, ejecutarHerramienta } from '../../lib/registro.js';
+import { REG, ejecutarHerramienta, herramientasDe } from '../../lib/registro.js';
+import { guiasDe } from '../../lib/guias.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
 import { all, one, now, today } from '../../lib/crud.js';
 
 const MAX_PASOS = 8;
-const BASE = ['marca', 'ai'];
-
-// Herramientas que este negocio puede usar: las de sus módulos activos, con un rol que el contexto alcance.
-export function herramientasDe(ctx) {
-  const rank = { staff: 1, admin: 2, owner: 3 };
-  return REG.tools.filter((t) => (!ctx.modulos || ctx.modulos.includes(t.modulo) || BASE.includes(t.modulo)) && (rank[ctx.role] || 0) >= (rank[t.rol] || 1))
-    .map(({ name, description, inputSchema, rol, tipo, modulo }) => ({ name, description, inputSchema, rol, tipo, modulo }));
-}
+export { herramientasDe };
 
 const resumenArgs = (schema) => Object.entries(schema?.properties || {}).map(([k, v]) => `${k}${(schema.required || []).includes(k) ? '*' : ''}: ${v.enum ? v.enum.join('|') : v.type || 'texto'}`).join(', ');
 
-export function sistemaDeHerramientas({ rol, instrucciones, negocio, herramientas, autonomia, extra = '' }) {
+const wire = (n) => String(n).replace(/\./g, '_');
+// Resumen de las guías de los módulos que usa (el estándar de src/lib/guias.js): qué hace cada uno y sus flujos; la guía completa se pide con la acción «guia»
+const guiasResumen = (guias) => (guias.length ? `\nMÓDULOS (cada uno tiene su guía de uso; léela con {"accion":"guia","modulo":"<id>"} antes de usarlo si no lo conoces bien):\n${guias.map((g) => `- ${g.modulo} (${g.nombre}): ${g.guia.slice(0, 220)}${g.guia.length > 220 ? '…' : ''}${g.flujos.length ? ` · flujos: ${g.flujos.map((f) => f.id).join(', ')}` : ''}`).join('\n')}\n` : '');
+
+export function sistemaDeHerramientas({ rol, instrucciones, negocio, herramientas, autonomia, extra = '', guias = [] }) {
   return `${rol}
 
 Trabajas para el negocio «${negocio}». Hoy es ${today()}.
-${instrucciones ? `\nINSTRUCCIONES\n${instrucciones}\n` : ''}${extra}
+${instrucciones ? `\nINSTRUCCIONES\n${instrucciones}\n` : ''}${extra}${guiasResumen(guias)}
 HERRAMIENTAS (usa solo estas; * = obligatorio):
 ${herramientas.map((t) => `- ${t.name} [${t.tipo}] ${t.description} · args: { ${resumenArgs(t.inputSchema)} }`).join('\n') || '(ninguna)'}
 
 CÓMO RESPONDER: siempre con UN solo objeto JSON, sin texto fuera de él:
 {"accion":"usar","herramienta":"<nombre>","args":{...}}   para usar una herramienta
+{"accion":"guia","modulo":"<id>"}   para leer la guía de uso de un módulo
 {"accion":"fin","respuesta":"<lo que le dices a la persona>"}   cuando ya terminaste
 Reglas: no inventes datos ni cifras: si no los tienes, consúltalos con una herramienta. No repitas una herramienta con los mismos argumentos. Máximo ${MAX_PASOS} pasos.
 ${autonomia === 'ejecutar' ? 'Las herramientas de escritura se ejecutan al instante: úsalas solo cuando estés seguro.' : 'Las herramientas de escritura quedan como PROPUESTA hasta que una persona las apruebe: propónlas y explica por qué en tu respuesta final.'}`;
@@ -42,16 +41,22 @@ function leerJson(texto) {
 const corto = (v, n = 5000) => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > n ? `${s.slice(0, n)}…` : s; };
 
 // El bucle. Devuelve { respuesta, pasos }. `pasos` guarda lo que se usó y el estado de cada escritura.
-export async function bucle(env, { org, ctx, system, historial, herramientas, autonomia, fuente, limite }) {
+export async function bucle(env, { org, ctx, system, historial, herramientas, autonomia, fuente, limite, guias = [] }) {
   const hist = [...historial], pasos = [], usadas = new Set();
   let respuesta = null, invalidos = 0;
   for (let n = 1; n <= MAX_PASOS && respuesta === null; n++) {
     const texto = await llamarIA(env, org, system, hist, { fuente, maxTokens: 900, temperature: 0.3, limite });
     const o = leerJson(texto);
     hist.push({ role: 'assistant', content: texto });
-    if (!o || !['usar', 'fin'].includes(o.accion)) {
+    if (!o || !['usar', 'fin', 'guia'].includes(o.accion)) {
       if (++invalidos >= 2) { respuesta = texto.slice(0, 1500); break; }
-      hist.push({ role: 'user', content: 'Respuesta no válida. Responde con UN objeto JSON: {"accion":"usar",...} o {"accion":"fin","respuesta":"..."}.' });
+      hist.push({ role: 'user', content: 'Respuesta no válida. Responde con UN objeto JSON: {"accion":"usar",...}, {"accion":"guia","modulo":"..."} o {"accion":"fin","respuesta":"..."}.' });
+      continue;
+    }
+    if (o.accion === 'guia') {
+      const g = guias.find((d) => d.modulo === o.modulo);
+      pasos.push({ n, herramienta: `guía de ${String(o.modulo || '?').slice(0, 40)}`, args: {}, tipo: 'lectura', estado: g ? 'consultada' : 'error', resultado: g ? `${g.nombre}: guía y ${g.flujos.length} flujo(s)` : 'No hay guía de ese módulo' });
+      hist.push({ role: 'user', content: g ? `Guía de ${g.nombre}:\n${g.markdown.slice(0, 4000)}` : `No hay guía del módulo «${o.modulo}». Módulos con guía: ${guias.map((d) => d.modulo).join(', ') || 'ninguno'}.` });
       continue;
     }
     if (o.accion === 'fin') { respuesta = String(o.respuesta || 'Listo.').slice(0, 3000); break; }
@@ -85,8 +90,9 @@ export async function correrAgente(env, { org, agente, disparador = 'manual', ct
   try {
     const disp = herramientasDe(ctx), elegidas = parseList(agente.herramientas);
     const herr = disp.filter((t) => elegidas.includes(t.name));
-    const system = sistemaDeHerramientas({ rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia });
-    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente' });
+    const guias = guiasDe(ctx).filter((g) => herr.some((t) => t.modulo === g.modulo));
+    const system = sistemaDeHerramientas({ rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias });
+    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias });
     resumen = r.respuesta; pasos = r.pasos;
   } catch (e) { estado = 'error'; resumen = String(e.message || e).slice(0, 500); }
   const pend = pasos.filter((p) => p.estado === 'propuesta').length;
@@ -125,7 +131,8 @@ export async function asistente(env, { org, ctx, mensajes }) {
   const hist = (Array.isArray(mensajes) ? mensajes : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
   if (!hist.length || hist[hist.length - 1].role !== 'user') return { status: 400, error: 'Escribe tu pregunta' };
   const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai');
-  const system = sistemaDeHerramientas({ rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: 'Responde en español, claro y breve. Para preguntas sobre el negocio consulta con herramientas antes de contestar.', negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
-  const r = await bucle(env, { org, ctx, system, historial: hist, herramientas: herr, autonomia: 'proponer', fuente: 'asistente' });
+  const guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai');
+  const system = sistemaDeHerramientas({ guias, rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: 'Responde en español, claro y breve. Para preguntas sobre el negocio consulta con herramientas antes de contestar.', negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
+  const r = await bucle(env, { org, ctx, system, historial: hist, herramientas: herr, autonomia: 'proponer', fuente: 'asistente', guias });
   return { status: 200, respuesta: r.respuesta, pasos: r.pasos };
 }

@@ -14,6 +14,7 @@ import { audit } from '../../lib/audit.js';
 import { motor, usoDelDia, TOPE_DIA, dayCo } from '../../lib/ia.js';
 import { REG, ejecutarHerramienta } from '../../lib/registro.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
+import { guiasDe } from '../../lib/guias.js';
 import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe } from './agentes.js';
 import { webhookValido, dispararWebhook } from './chat.js';
 
@@ -131,6 +132,8 @@ export function routes(r) {
 
   /* herramientas, agentes y asistente */
   r.get(`${B}/herramientas`, `tenant:${MOD}`, async (c) => json({ herramientas: herramientasDe(c.ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura') }));
+  // Las guías de uso de los módulos (el mismo estándar del MCP): para crear agentes desde un flujo y para el asistente
+  r.get(`${B}/guias`, `tenant:${MOD}`, async (c) => json({ modulos: guiasDe(c.ctx).filter((g) => g.modulo !== 'ai').map(({ markdown, ...g }) => g) }));
   r.post(`${B}/agentes/:id/ejecutar`, `manager:${MOD}`, async (c) => {
     const a = await one(c.env, 'SELECT * FROM ia_agentes WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
     if (!a) throw new HttpError(404, 'Agente no encontrado');
@@ -157,7 +160,7 @@ export function routes(r) {
     return json({ respuesta: res.respuesta, pasos: res.pasos });
   });
   r.post(`${B}/asistente/aprobar`, `tenant:${MOD}`, async (c) => {
-    const b = await readJson(c.req), t = REG.tools.find((x) => x.name === b.herramienta);
+    const b = await readJson(c.req), t = herramientasDe(c.ctx).find((x) => x.name === b.herramienta);
     if (!t || t.tipo !== 'escritura') throw new HttpError(400, 'Herramienta no válida');
     const res = await ejecutarHerramienta(c.env, c.ctx, t.name, b.args && typeof b.args === 'object' ? b.args : {});
     for (const a of res.audit || []) (c.auditLog ||= []).push(a);
