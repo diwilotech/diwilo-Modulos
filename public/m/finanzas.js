@@ -87,7 +87,7 @@ DW.ready.then((me) => {
   }
 
   function recurrentes(el) {
-    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software y servicios que se cobran solos. Cada día, a las 3:00 a. m., los que vencen se registran como gasto en su centro de costo y la fecha pasa al siguiente cobro.</div><div data-t></div><div data-nomina class="mt-4"></div>';
+    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software y servicios que se cobran solos. Cada día, a las 3:00 a. m., los que vencen se registran como gasto en su centro de costo y la fecha pasa al siguiente cobro.</div><div class="d-flex align-items-center gap-2 mb-2"><i class="bi bi-receipt fs-5"></i><h2 class="h5 mb-0">Servicios</h2><span class="small text-body-secondary">arriendo, internet, software…</span></div><div data-t></div><div data-nomina class="mt-5 pt-4 border-top"></div>';
     let est = { pagados: [], por_pagar: [] };
     const cargaEstado = async () => {
       est = await api(`${B}/recurring/estado`).catch(() => est);
@@ -117,27 +117,38 @@ DW.ready.then((me) => {
       try { [personas, aprox, pm] = await Promise.all([api('/api/team/nomina/personas').then((r) => r.personas), api(`/api/team/nomina/aproximado?month=${mesN}`).then((r) => r.rows).catch(() => []), api(`${B}/pagos-mes?month=${mesN}`)]); }
       catch (_) { nomEl.innerHTML = ''; return; }   // la app no tiene nómina
       const rk = (k) => String(k || '').replace(/[^\w.-]/g, '_').slice(0, 60);
-      nomEl.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h5 mb-0 flex-grow-1">Nómina de ${esc(monthName(mesN))}</h2></div>
-        ${personas.length ? `<div class="dw-card p-0 p-md-2"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Persona</th><th>Cédula o NIT</th><th>Pago definido</th><th class="text-end">Por pagar este mes</th><th>Estado</th><th></th></tr></thead><tbody>
+      const hoyD = C.todayCo(), diaHoy = Number(hoyD.slice(8)), ultimoDia = new Date(Date.UTC(Number(mesN.slice(0, 4)), Number(mesN.slice(5, 7)), 0)).getUTCDate();
+      // Cómo se paga en el mes: cuántos pagos son, de cuánto cada uno y cuántos faltan
+      const calendario = (p, a, pagado) => {
+        if (!a?.definido) return { total: null, texto: 'Sin pago definido', falta: '' };
+        const per = p.periodicidad, v = money(p.valor);
+        if (per === 'mensual') return { total: a.estimado, texto: `1 pago de ${v} · cada mes`, falta: pagado ? 'Pagado' : 'Falta 1 de 1' };
+        if (per === 'quincenal') return { total: a.estimado, texto: `2 pagos de ${v} · cada quincena`, falta: pagado ? 'Pagados' : `Faltan ${diaHoy <= 15 ? 2 : 1} de 2` };
+        if (per === 'semanal') { const f = Math.min(4, Math.max(0, Math.ceil((ultimoDia - diaHoy + 1) / 7))); return { total: a.estimado, texto: `4 pagos de ${v} · cada semana`, falta: pagado ? 'Pagados' : `Faltan ${f} de 4` }; }
+        if (per === 'clase') return { total: a.estimado, texto: `${a.clases} clase${a.clases === 1 ? '' : 's'} × ${v}`, falta: pagado ? 'Pagado' : `Faltan ${a.clases_faltan} de ${a.clases}` };
+        return { total: a.estimado, texto: `${a.horas} h × ${v}`, falta: pagado ? 'Pagado' : `Faltan ${a.horas_faltan} h de ${a.horas}` };
+      };
+      nomEl.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><i class="bi bi-people fs-5"></i><h2 class="h5 mb-0 flex-grow-1">Nómina de ${esc(monthName(mesN))}</h2></div>
+        ${personas.length ? `<div class="dw-card p-0 p-md-2"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Persona</th><th>Cédula o NIT</th><th class="text-end">Valor</th><th>Estado</th><th></th></tr></thead><tbody>
         ${personas.map((p, i) => {
           const a = aprox.find((x) => x.key === p.key), pl = pm.planes.find((x) => x.tipo === 'nomina' && x.key === p.key), pg = pm.pagados.find((x) => x.tipo === 'nomina' && x.key === rk(p.key));
-          const det = a?.periodicidad === 'clase' ? `${a.clases} clase${a.clases === 1 ? '' : 's'}` : a?.periodicidad === 'hora' ? `${a.horas} h` : a?.clases ? `+ ${a.clases} clase${a.clases === 1 ? '' : 's'}` : '';
-          return `<tr><td><b>${esc(p.nombre)}</b>${sub(p.detalle)}</td><td>${esc(p.documento || '—')}</td>
-            <td>${p.valor ? `${money(p.valor)} <span class="small text-body-secondary">${({ mensual: 'mensual', quincenal: 'quincenal', semanal: 'semanal', clase: 'por clase', hora: 'por hora' })[p.periodicidad]}</span>` : '<span class="text-body-secondary small">Sin definir</span>'}${RO || !me.canManage ? '' : ` <button type="button" class="btn btn-sm btn-link py-0" data-def-pago="${i}" title="Definir cuánto se le paga y su cédula"><i class="bi bi-pencil"></i></button>`}</td>
-            <td class="text-end">${a?.definido ? `<b>${money(a.estimado)}</b>${det ? sub(det) : ''}` : '—'}</td>
+          const cal = calendario(p, a, !!pg);
+          return `<tr><td><b>${esc(p.nombre)}</b>${sub(p.detalle)}</td><td>${p.documento ? esc(p.documento) : '<span class="text-body-secondary small" title="Se pone desde Equipo">Falta · en Equipo</span>'}</td>
+            <td class="text-end">${cal.total === null ? '<span class="text-body-secondary small">Sin pago definido</span>' : `<b>${money(cal.total)}</b>`}${RO || !me.canManage ? '' : ` <button type="button" class="btn btn-sm btn-link py-0" data-def-pago="${i}" title="Definir cuánto se le paga"><i class="bi bi-pencil"></i></button>`}
+              <div class="small text-body-secondary fw-normal">${esc(cal.texto)}</div>${cal.falta ? `<div class="small fw-normal ${pg ? 'text-success' : 'text-danger'}">${esc(cal.falta)}</div>` : ''}</td>
             <td>${pg ? chip('ok', `Pagado ${money(pg.total)}`) : pl ? chip('soon', `Armado ${money(pl.amount)}`) : '<span class="text-body-secondary small">Sin armar</span>'}</td>
-            <td class="text-end"><button type="button" class="btn btn-sm ${pg ? 'btn-outline-secondary' : 'btn-primary'}" data-pago-persona="${i}">${pg ? 'Ver pago' : RO ? 'Ver' : 'Armar pago'}</button></td></tr>`; }).join('')}</tbody></table></div></div>`
+            <td class="text-end"><button type="button" class="btn btn-sm ${pg ? 'btn-outline-secondary' : 'btn-primary'}" data-pago-persona="${i}">${pg ? 'Ver pago' : RO ? 'Ver' : 'Armar y pagar'}</button></td></tr>`; }).join('')}</tbody></table></div></div>`
           : '<div class="dw-card text-body-secondary">Aún no hay nadie en el equipo.</div>'}`;
       nomEl.onclick = async (e) => {
         const b = e.target.closest('[data-pago-persona]'); if (b) return pagosMes({ persona: personas[+b.dataset.pagoPersona].key, despues: refrescar });
         const d = e.target.closest('[data-def-pago]'); if (!d) return;
         const p = personas[+d.dataset.defPago];   // lo que se le paga normalmente y su cédula (se guarda en el equipo de la app)
         const out = await C.form({ title: `Pago de ${p.nombre}`, okText: 'Guardar', base: B,
-          fields: [{ k: 'documento', label: 'Cédula o NIT', placeholder: 'Para su documento de pago' }, { k: 'valor', label: 'Cuánto se le paga (COP)', type: 'money' },
+          fields: [{ k: 'valor', label: 'Cuánto se le paga (COP)', type: 'money' },
             { k: 'periodicidad', label: 'Cada', type: 'select', options: [['mensual', 'Mes'], ['quincenal', 'Quincena'], ['semanal', 'Semana'], ['clase', 'Clase dictada'], ['hora', 'Hora']] }],
-          values: { documento: p.documento || '', valor: p.valor || 0, periodicidad: p.periodicidad || 'mensual' } });
+          values: { valor: p.valor || 0, periodicidad: p.periodicidad || 'mensual' } });
         if (!out) return;
-        try { await api(`/api/team/nomina/${encodeURIComponent(p.key)}`, { method: 'PUT', body: { valor: Number(out.valor) || 0, periodicidad: out.periodicidad, documento: out.documento, centro_costo: p.centro_costo, notas: p.notas } }); toast('Pago guardado'); cargaNomina(); }
+        try { await api(`/api/team/nomina/${encodeURIComponent(p.key)}`, { method: 'PUT', body: { valor: Number(out.valor) || 0, periodicidad: out.periodicidad, centro_costo: p.centro_costo, notas: p.notas } }); toast('Pago guardado'); cargaNomina(); }
         catch (x) { toast(x.message, false); }
       };
     }
@@ -250,6 +261,10 @@ DW.ready.then((me) => {
       cur = { def, pagado: pg }; sucio = false;
       titulo.textContent = `${t === 'nomina' ? 'Pago de nómina' : 'Pago de servicio'} · ${tercero || 'nuevo'}`;
       const total = () => items.reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0);
+      // Los ítems se ven por grupos: sueldo, clases y otros (en servicios, lo que se paga)
+      const GRUPOS = { Sueldo: ['bi-wallet2', 'Sueldo definido'], Clases: ['bi-journal-bookmark', 'Clases que dicta'], Otros: ['bi-plus-circle', 'Otros ítems (bonos, auxilios…)'], Servicio: ['bi-receipt', 'Lo que se paga'] };
+      const GRUPOS_ORDEN = ['Sueldo', 'Clases', 'Otros', 'Servicio'], grupoNuevo = t === 'nomina' ? 'Otros' : 'Servicio';
+      const grupoDe = (x) => x.grupo || (x.fijo || /^(Sueldo mensual|Pago de \d+ (quincenas|semanas))$/.test(x.concepto || '') ? 'Sueldo' : /^Clase \d+/.test(x.concepto || '') ? 'Clases' : grupoNuevo);
       const dibuja = () => {
         const bloqueado = !!pg;
         // Lo que ya escribiste (cédula, centro de costo, proveedor) se conserva al volver a dibujar (agregar o quitar un ítem)
@@ -261,21 +276,29 @@ DW.ready.then((me) => {
         cuerpo.innerHTML = `<div class="d-flex align-items-center gap-2 mb-3"><span class="small text-body-secondary">Mes del pago</span><input type="month" class="form-control form-control-sm w-auto" data-mes value="${mes}" ${bloqueado ? '' : ''} aria-label="Mes"></div>
           ${pg ? `<div class="alert alert-success py-2"><i class="bi bi-check-circle-fill me-1"></i><b>Pagado ${money(pg.total)}</b> ${pg.fuentes.map((f) => `<span class="small ms-2">${esc(cuentas.find((a) => a.id === f.account_id)?.name || 'Sin cuenta')}: ${money(f.valor)}</span>`).join('')}</div>` : ''}
           <div class="row g-2 mb-3"><div class="col-md-4"><label class="form-label small mb-1">${t === 'nomina' ? 'Persona' : 'Proveedor o servicio'}</label><input class="form-control" data-tercero value="${esc(tercero)}" maxlength="200" ${t === 'nomina' || bloqueado ? 'disabled' : ''} placeholder="Ej.: Claro, Inmobiliaria…"></div>
-            <div class="col-md-4"><label class="form-label small mb-1">Cédula o NIT</label><input class="form-control" data-taxid value="${esc(taxId)}" maxlength="40" ${bloqueado ? 'disabled' : ''} placeholder="Para el documento del pago"></div>
+            <div class="col-md-4"><label class="form-label small mb-1">Cédula o NIT</label><input class="form-control" data-taxid value="${esc(taxId)}" maxlength="40" ${bloqueado || t === 'nomina' ? 'disabled' : ''} placeholder="Para el documento del pago">${t === 'nomina' ? '<div class="form-text">Se pone desde Equipo.</div>' : ''}</div>
             <div class="col-md-4"><label class="form-label small mb-1">Centro de costo</label><select class="form-select" data-centro ${bloqueado ? 'disabled' : ''}><option value="">Sin centro de costo</option>${centros.map((x) => `<option value="${x.id}" ${x.id === centro ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div></div>
-          <h3 class="h6">Ítems que se pagan</h3><p class="small text-body-secondary">Ponle valor a los que quieras pagar; los que dejes vacíos no cuentan.</p>
-          <div class="table-responsive"><table class="table align-middle mb-2"><thead><tr><th>Concepto</th><th style="width:180px">Valor</th><th style="width:3rem"></th></tr></thead><tbody>${items.map((x, i) => `<tr data-i="${i}"><td>${x.fijo ? esc(x.concepto) : `<input class="form-control form-control-sm" data-f="concepto" value="${esc(x.concepto)}" maxlength="200" ${bloqueado ? 'disabled' : ''} aria-label="Concepto">`}${x.detalle ? sub(x.detalle) : ''}</td>
-            <td><div class="input-group input-group-sm"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-f="valor" value="${x.valor || ''}" placeholder="Valor" ${bloqueado ? 'disabled' : ''} aria-label="Valor"></div></td>
-            <td>${bloqueado || x.fijo ? '' : '<button type="button" class="btn btn-sm btn-light" data-quitar aria-label="Quitar"><i class="bi bi-x-lg"></i></button>'}</td></tr>`).join('') || '<tr><td colspan="3" class="text-body-secondary small">Aún no hay ítems. Agrega el primero.</td></tr>'}</tbody></table></div>
-          ${bloqueado ? '' : '<button type="button" class="btn btn-sm btn-outline-secondary" data-mas><i class="bi bi-plus-lg me-1"></i>Agregar ítem</button>'}`;
+          <div class="d-flex align-items-baseline gap-2 mb-2"><h3 class="h6 mb-0">Ítems que se pagan</h3><span class="small text-body-secondary">Ponle valor a los que quieras pagar; los que dejes vacíos no cuentan.</span></div>
+          ${GRUPOS_ORDEN.filter((g) => items.some((x) => grupoDe(x) === g) || g === grupoNuevo).map((g) => {
+            const its = items.map((x, i) => ({ x, i })).filter((o) => grupoDe(o.x) === g), [ico, nom] = GRUPOS[g], conValor = its.filter((o) => Number(o.x.valor) > 0).length;
+            return `<div class="card mb-3"><div class="card-header bg-body-tertiary d-flex align-items-center gap-2 py-2"><i class="bi ${ico}"></i><b>${nom}</b>${its.length > 1 ? `<span class="small text-body-secondary">${conValor} de ${its.length} con valor</span>` : ''}<span class="ms-auto fw-semibold" data-sub="${g}">${money(its.reduce((a, o) => a + (Number(o.x.valor) > 0 ? Math.round(Number(o.x.valor)) : 0), 0))}</span></div>
+              <ul class="list-group list-group-flush">${its.map(({ x, i }) => `<li class="list-group-item d-flex flex-wrap align-items-center gap-2 ${Number(x.valor) > 0 ? '' : 'opacity-75'}" data-i="${i}">
+                <div class="flex-grow-1" style="min-width:180px">${x.fijo || x.detalle ? `<div class="fw-semibold">${esc(x.concepto)}</div>${x.detalle ? `<div class="small text-body-secondary">${esc(x.detalle)}</div>` : ''}` : `<input class="form-control form-control-sm" data-f="concepto" value="${esc(x.concepto)}" maxlength="200" ${bloqueado ? 'disabled' : ''} placeholder="${t === 'nomina' ? 'Bono, auxilio…' : 'Qué se paga'}" aria-label="Concepto">`}</div>
+                <div class="input-group input-group-sm" style="width:170px"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-f="valor" value="${x.valor || ''}" placeholder="Sin valor" ${bloqueado ? 'disabled' : ''} aria-label="Valor"></div>
+                ${bloqueado || x.fijo ? '<span style="width:2rem"></span>' : '<button type="button" class="btn btn-sm btn-light" data-quitar aria-label="Quitar"><i class="bi bi-x-lg"></i></button>'}</li>`).join('') || '<li class="list-group-item text-body-secondary small">Aún no hay ítems aquí.</li>'}</ul>
+              ${g === grupoNuevo && !bloqueado ? '<div class="card-footer bg-transparent py-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-mas><i class="bi bi-plus-lg me-1"></i>Agregar ítem</button></div>' : ''}</div>`; }).join('')}`;
         pie.innerHTML = `<span>Total: <b data-total>${money(total())}</b>${sucio ? ' <span class="badge text-bg-warning ms-1">Sin guardar</span>' : ''}</span><span class="d-flex gap-2"><button type="button" class="btn btn-light" data-cerrar>Cerrar</button>${bloqueado || RO ? '' : '<button type="button" class="btn btn-outline-primary" data-guardar>Guardar presupuesto</button><button type="button" class="btn btn-primary" data-pagar><i class="bi bi-cash-coin me-1"></i>Pagar</button>'}</span>`;
       };
       dibuja();
       cur.leer = () => ({ items: items.filter((x) => x.concepto && Number(x.valor) > 0).map((x) => ({ concepto: x.concepto, valor: Math.round(Number(x.valor)) })), tercero: mo.querySelector('[data-tercero]')?.value.trim() || tercero, taxId: mo.querySelector('[data-taxid]')?.value.trim() || '', centro: mo.querySelector('[data-centro]')?.value || null, total: total() });
       cur.items = items; cur.ref = () => { const v = cur.leer(); return { month: mes, tipo: t, key: k, tercero: v.tercero, tax_id: v.taxId, cost_center_id: v.centro || null, recurring_id: def.recurring_id || null, items: v.items }; };
-      cur.add = () => { items.push({ concepto: '', valor: '' }); sucio = true; dibuja(); };
+      cur.add = () => { items.push({ concepto: '', valor: '', grupo: grupoNuevo }); sucio = true; dibuja(); };
       cur.quitar = (i) => { items.splice(i, 1); sucio = true; dibuja(); };
-      cur.editar = (i, f, v) => { items[i][f] = v; sucio = true; const tt = mo.querySelector('[data-total]'); if (tt) tt.textContent = money(total()); };
+      cur.editar = (i, f, v) => {
+        items[i][f] = v; sucio = true; const tt = mo.querySelector('[data-total]'); if (tt) tt.textContent = money(total());
+        for (const g of GRUPOS_ORDEN) { const el_ = mo.querySelector(`[data-sub="${g}"]`); if (el_) el_.textContent = money(items.filter((x) => grupoDe(x) === g).reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0)); }
+        const li = mo.querySelector(`li[data-i="${i}"]`); if (li) li.classList.toggle('opacity-75', !(Number(items[i].valor) > 0));
+      };
       cur.total = total;
     }
     async function guardar(pagar, extra = {}) {
@@ -340,10 +363,10 @@ DW.ready.then((me) => {
       return armar({ tipo: 'nomina', key: p.key, tercero: p.nombre, taxId: p.documento || '', centroId: centros.find((x) => x.name.toLowerCase() === String(p.centro_costo || '').toLowerCase())?.id ?? null,
         sugerir: async () => {
           const it = [];
-          if (p.valor && FACTOR[p.periodicidad]) it.push({ concepto: BASE[p.periodicidad], valor: p.valor * FACTOR[p.periodicidad], fijo: true });
+          if (p.valor && FACTOR[p.periodicidad]) it.push({ concepto: BASE[p.periodicidad], valor: p.valor * FACTOR[p.periodicidad], fijo: true, grupo: 'Sueldo' });
           if (p.profesional_id) {
             const cl = await api(`/api/team/nomina/clases?profesional=${p.profesional_id}&month=${mes}`).then((r) => r.clases).catch(() => []);
-            for (const c_ of cl) it.push({ concepto: `Clase ${c_.n} · ${c_.curso}`, detalle: `${day(c_.fecha)}${c_.ini ? ` · ${c_.ini}` : ''}`, valor: p.periodicidad === 'clase' && p.valor ? p.valor : '' });
+            for (const c_ of cl) it.push({ grupo: 'Clases', concepto: `Clase ${c_.n} · ${c_.curso}`, detalle: `${day(c_.fecha)}${c_.ini ? ` · ${c_.ini}` : ''}`, valor: p.periodicidad === 'clase' && p.valor ? p.valor : '' });
           }
           if (!it.length) it.push({ concepto: '', valor: '' });
           return it;

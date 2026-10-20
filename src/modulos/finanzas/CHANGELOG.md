@@ -1,5 +1,12 @@
 # Finanzas — cambios
 
+## 1.9.4 · 2026-10-22
+- El editor de pagos muestra los **ítems por grupos** (sueldo, clases que dicta, otros ítems; en servicios, lo que se paga) con su subtotal y cuántos tienen valor; los sin valor se ven atenuados.
+- En Gastos recurrentes los **Servicios** y la **Nómina** quedan en secciones aparte, cada una con su título.
+
+## 1.9.3 · 2026-10-22
+- Tabla «Nómina de <mes>»: se quitan «Pago definido» y «Por pagar este mes»; la columna **Valor** muestra el total del mes y cómo se paga («4 pagos de $500.000 · cada semana», «Faltan 2 de 4»; por clase u hora, las que faltan). La cédula o NIT se pone **desde Equipo** y aquí solo se ve.
+
 ## 1.9.2 · 2026-10-22
 - En la tabla «Nómina de <mes>» de Gastos recurrentes, el lápiz junto al pago definido de cada persona abre un formulario pequeño para definir cuánto se le paga (por mes, quincena, semana, clase u hora) y su cédula o NIT; Equipo ya no tiene el modal de nómina, solo un botón que lleva aquí.
 
