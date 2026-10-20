@@ -142,18 +142,16 @@ DW.ready.then((me) => {
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
       // Todo se paga aquí; los que gestiona otra app (nómina) tienen además el enlace a sus ítems
-      rowActions: (r) => (!r.active || RO ? '' : `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>`),
+      rowActions: (r) => (!r.active || RO ? '' : `<button class="btn btn-sm btn-outline-primary" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>`),
       onAction: (a, r) => { if (a === 'pagar') pagarRecurrente(r, () => cargaEstado().then(() => t.load())); },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
-        { label: 'Nombre', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}` },
-        { label: 'Cédula o NIT', html: (r) => (r.tax_id ? esc(r.tax_id) : '<span class="text-body-secondary">—</span>') },
+        { label: 'Nombre', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}` },
         { label: 'Tipo', html: (r) => `<span class="badge ${r.category === 'nomina' ? 'text-bg-info' : 'text-bg-light'}">${esc(REC_CAT[r.category] || r.category)}</span>` },
         { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => (r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b> <span class="small text-body-secondary">${esc(CICLO[r.cycle] || r.cycle)}</span>${sub(`≈ ${money(r.amount)} hoy`)}` : `<b>${money(r.amount)}</b>${sub(r.notes && r.category === 'nomina' ? `${CICLO[r.cycle] || r.cycle} · ${r.notes}` : CICLO[r.cycle] || r.cycle)}`) },
         { label: 'Este mes', html: (r) => { const p = est.pagados.find((x) => x.recurring_id === r.id), x = est.por_pagar.find((y) => y.id === r.id); return p ? `${chip('ok', 'Pagado')}${sub(money(p.pagado))}` : x ? `${chip(x.fecha < C.todayCo() ? 'bad' : 'soon', 'Por pagar')}${sub(`vence ${day(x.fecha)}`)}` : '<span class="text-body-secondary">—</span>'; } },
-        { label: 'Próximo cobro', html: (r) => day(r.next_date) },
-        { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
-        { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Pausado')) }] });
+        { label: 'Próximo cobro', html: (r) => `${day(r.next_date)}${r.active ? '' : ` ${chip('free', 'Pausado')}`}` },
+        { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) }] });
     cargaEstado().then(() => t.load());
     // Desde Equipo: «Pagar» de una persona abre aquí su pago (#pagar:<id del gasto>)
     const abrirId = abrirPagar;
