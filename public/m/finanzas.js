@@ -146,7 +146,7 @@ DW.ready.then((me) => {
       onAction: (a, r) => { if (a === 'pagar') pagarRecurrente(r, () => cargaEstado().then(() => t.load())); },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
-        { label: 'Nombre', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}` },
+        { label: 'Nombre', main: true, html: (r) => (r.category === 'nomina' && r.vendor ? `${esc(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}` : `${esc(r.name)}${sub(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}`) },
         { label: 'Tipo', html: (r) => `<span class="badge ${r.category === 'nomina' ? 'text-bg-info' : 'text-bg-light'}">${esc(REC_CAT[r.category] || r.category)}</span>` },
         { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => (r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b> <span class="small text-body-secondary">${esc(CICLO[r.cycle] || r.cycle)}</span>${sub(`≈ ${money(r.amount)} hoy`)}` : `<b>${money(r.amount)}</b>${sub(r.notes && r.category === 'nomina' ? `${CICLO[r.cycle] || r.cycle} · ${r.notes}` : CICLO[r.cycle] || r.cycle)}`) },
         { label: 'Este mes', html: (r) => { const p = est.pagados.find((x) => x.recurring_id === r.id), x = est.por_pagar.find((y) => y.id === r.id); return p ? `${chip('ok', 'Pagado')}${sub(money(p.pagado))}` : x ? `${chip(x.fecha < C.todayCo() ? 'bad' : 'soon', 'Por pagar')}${sub(`vence ${day(x.fecha)}`)}` : '<span class="text-body-secondary">—</span>'; } },
