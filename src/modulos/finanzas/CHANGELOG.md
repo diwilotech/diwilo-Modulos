@@ -1,5 +1,9 @@
 # Finanzas — cambios
 
+## 1.10.2 · 2026-10-23
+- **La nómina semanal o quincenal cubre el mes**: el total de los ítems se divide entre las 4 semanas o las 2 quincenas y cada «Pagar» registra una parte (el diálogo muestra el total del mes y «Este pago · 1 de 4»). Se pueden registrar todas las partes del mes; cada una solo una vez por cobro.
+- Se quita el acceso a los ítems de la fila de gastos recurrentes (Finanzas es general; los ítems se arman en la app).
+
 ## 1.10.1 · 2026-10-23
 - **El pago se hace en Finanzas**: el botón «Pagar» de un gasto recurrente (incluida la nómina) muestra el total con sus ítems (los de la nómina vienen de la app), la fecha y de qué cuentas sale, con «Mitad y mitad» y cuentas extra; queda en Movimientos con su documento. La nómina trae además un acceso a sus ítems (`url`). `#pagar:<id>` abre ese pago directo.
 

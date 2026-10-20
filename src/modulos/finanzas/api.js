@@ -676,14 +676,17 @@ export function routes(r) {
     if (antes && (antes.cost_center_id !== cc || antes.category !== categoria)) await reconstruirPresupuesto(c, month, antes.cost_center_id, antes.category);
     if (!b.pagar) { await audit(c, `Armó el pago de ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}`, { modulo: MOD }); return json({ ok: true, total, pagado: false }, 201); }
     // 2) el pago, repartido entre las cuentas elegidas
-    const fuentes = (Array.isArray(b.fuentes) && b.fuentes.length ? b.fuentes : [{ account_id: null, valor: total }]).slice(0, 6).map((f) => ({ account_id: cast('cuenta', 'int', f.account_id) || null, valor: Math.round(Number(f.valor)) }));
-    if (fuentes.some((f) => !(f.valor > 0)) || fuentes.reduce((a, f) => a + f.valor, 0) !== total) throw new HttpError(400, `Lo que sale de las cuentas debe sumar ${'$' + total.toLocaleString('es-CO')}`);
+    // La nómina semanal o quincenal cubre todo el mes: cada pago es el total dividido entre sus semanas (4) o quincenas (2)
+    const de = rec && tipo === 'nomina' ? (rec.cycle === 'semanal' ? 4 : rec.cycle === 'quincenal' ? 2 : 1) : 1, pago = de > 1 ? Math.round(total / de) : total;
+    const fuentes = (Array.isArray(b.fuentes) && b.fuentes.length ? b.fuentes : [{ account_id: null, valor: pago }]).slice(0, 6).map((f) => ({ account_id: cast('cuenta', 'int', f.account_id) || null, valor: Math.round(Number(f.valor)) }));
+    if (fuentes.some((f) => !(f.valor > 0)) || fuentes.reduce((a, f) => a + f.valor, 0) !== pago) throw new HttpError(400, `Lo que sale de las cuentas debe sumar ${'$' + pago.toLocaleString('es-CO')}`);
     for (const f of fuentes) if (f.account_id) await api.get(c, 'accounts', f.account_id);
     const fecha = DATE.test(b.fecha || '') ? b.fecha : today(), rk = refKey(key);
-    const yaPagado = rec ? await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND recurring_id = ? AND date BETWEEN ? AND ?', c.businessId, rec.id, `${month}-01`, `${month}-31`)
+    const yaPagado = rec ? (de > 1 ? await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND ref = ?', c.businessId, `rec:${rec.id}:${rec.next_date}`)
+        : await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND recurring_id = ? AND date BETWEEN ? AND ?', c.businessId, rec.id, `${month}-01`, `${month}-31`))
       : await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND ref LIKE ?', c.businessId, `pago:${tipo}:${month}:${rk}:%`);
     if (yaPagado) throw new HttpError(409, 'Este pago ya está registrado este mes');
-    const titulo = `${tipo === 'nomina' ? 'Nómina' : 'Pago'} ${month}${tercero ? ` · ${tercero}` : ''}`;
+    const titulo = `${tipo === 'nomina' ? 'Nómina' : 'Pago'} ${month}${tercero ? ` · ${tercero}` : ''}${de > 1 ? ` · 1/${de} del mes` : ''}`;
     let hechos = 0;
     for (let i = 0; i < fuentes.length; i++) {
       const f = fuentes[i], nombreCuenta = f.account_id ? (await one(c.env, 'SELECT name FROM fin_accounts WHERE id = ? AND business_id = ?', f.account_id, c.businessId))?.name : null;
@@ -699,8 +702,8 @@ export function routes(r) {
       }
     }
     if (rec) await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(siguienteCobro(rec.next_date, rec.cycle), now(), rec.id, c.businessId).run();
-    await audit(c, `Pagó ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}${fuentes.length > 1 ? ` en ${fuentes.length} cuentas` : ''}`, { modulo: MOD });
-    return json({ ok: true, total, pagado: true, movimientos: hechos }, 201);
+    await audit(c, `Pagó ${tercero || key} (${month}) por $${pago.toLocaleString('es-CO')}${fuentes.length > 1 ? ` en ${fuentes.length} cuentas` : ''}`, { modulo: MOD });
+    return json({ ok: true, total: pago, mes: total, partes: de, pagado: true, movimientos: hechos }, 201);
   });
   // El documento de un pago (total con sus ítems, nombre y cédula, y de qué cuentas salió) para soportar el movimiento. GET /api/finanzas/pagos-mes/documento?tipo=&month=&key=
   r.get(`${B}/pagos-mes/documento`, `tenant:${MOD}`, async (c) => {

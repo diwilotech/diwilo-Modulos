@@ -91,14 +91,15 @@ DW.ready.then((me) => {
     const key = r.ref ? String(r.ref).replace(/^academia:nomina:/, '') : `r:${r.id}`;
     const [pm, cuentas] = await Promise.all([api(`${B}/pagos-mes?month=${mes}`).catch(() => ({ planes: [] })), C.refs(B, 'accounts').catch(() => [])]);
     const plan = pm.planes.find((x) => x.tipo === (esNomina ? 'nomina' : 'servicios') && x.key === key);
-    if (esNomina && !plan && !(r.amount > 0)) { toast(`Primero arma los ítems de ${r.vendor || r.name} este mes${r.url ? ' (botón de ítems)' : ''}`, false); return; }
+    if (esNomina && !plan && !(r.amount > 0)) { toast(`Primero arma los ítems de ${r.vendor || r.name} este mes${r.ref ? ' en Equipo' : ''}`, false); return; }
     const items = plan ? plan.items : [{ concepto: r.name, valor: r.amount }], editable = !plan;
-    const total0 = items.reduce((a, x) => a + (Number(x.valor) || 0), 0), hoy = C.todayCo();
+    const totalMes = items.reduce((a, x) => a + (Number(x.valor) || 0), 0), hoy = C.todayCo();
+    const de = esNomina && plan ? (r.cycle === 'semanal' ? 4 : r.cycle === 'quincenal' ? 2 : 1) : 1, total0 = de > 1 ? Math.round(totalMes / de) : totalMes;   // la nómina cubre el mes: cada pago es una parte
     let tot = total0, fu = [{ account_id: r.account_id || cuentas[0]?.id || '', valor: tot }];
     const efectivo = cuentas.find((a) => a.kind === 'efectivo'), banco = cuentas.find((a) => a.kind === 'banco') || cuentas.find((a) => a !== efectivo);
     const { el, m } = window.App.modal(`<div class="modal-header border-0 pb-0"><div><h2 class="modal-title h5 mb-0">Pagar · ${esc(r.vendor || r.name)}</h2><div class="small text-body-secondary">${esc(r.name)}${r.tax_id ? ` · ${esc(r.tax_id)}` : ''}</div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body"><ul class="list-group mb-3">${items.map((x, i) => `<li class="list-group-item d-flex gap-2 align-items-center"><span class="flex-grow-1">${esc(x.concepto)}</span>${editable ? `<div class="input-group input-group-sm" style="width:170px"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-valor value="${x.valor}" aria-label="Valor"></div>` : `<b>${money(x.valor)}</b>`}</li>`).join('')}
-          <li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>Total</b><b data-total>${money(total0)}</b></li></ul>
+          ${de > 1 ? `<li class="list-group-item d-flex justify-content-between"><span>Total del mes</span><b>${money(totalMes)}</b></li>` : ''}<li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>${de > 1 ? `Este pago · 1 de ${de} ${r.cycle === 'semanal' ? 'semanas' : 'quincenas'}` : 'Total'}</b><b data-total>${money(total0)}</b></li></ul>
         <div class="mb-3"><label class="form-label small mb-1">Fecha del pago</label><input type="date" class="form-control" data-fecha value="${hoy}"></div>
         <div class="d-flex align-items-center mb-1"><label class="form-label small mb-0 flex-grow-1">De dónde sale</label><button type="button" class="btn btn-sm btn-outline-secondary" data-mitad><i class="bi bi-scissors me-1"></i>Mitad y mitad</button></div>
         <div data-fuentes></div><button type="button" class="btn btn-sm btn-link px-0" data-otra><i class="bi bi-plus-lg me-1"></i>Agregar otra cuenta</button><div class="small mt-1" data-dif></div></div>
@@ -141,7 +142,7 @@ DW.ready.then((me) => {
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
       // Todo se paga aquí; los que gestiona otra app (nómina) tienen además el enlace a sus ítems
-      rowActions: (r) => (!r.active || RO ? '' : `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>${r.url ? ` <a class="btn btn-sm btn-outline-secondary" href="${esc(r.url)}" title="Ver o editar sus ítems" aria-label="Ítems"><i class="bi bi-list-check"></i></a>` : ''}`),
+      rowActions: (r) => (!r.active || RO ? '' : `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>`),
       onAction: (a, r) => { if (a === 'pagar') pagarRecurrente(r, () => cargaEstado().then(() => t.load())); },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
