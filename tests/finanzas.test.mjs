@@ -73,6 +73,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const pagoRec2 = await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'nomina', key: 'u:9', tercero: 'Ana Gómez', recurring_id: f1.id, items: [{ concepto: 'Sueldo del mes', valor: 800000 }], pagar: true, fuentes: [{ account_id: acc.data.id, valor: 800000 }] } });
   const pagoRec3 = await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'nomina', key: 'u:9', tercero: 'Ana Gómez', recurring_id: f1.id, items: [{ concepto: 'Sueldo del mes', valor: 800000 }], pagar: true, fuentes: [{ account_id: acc.data.id, valor: 400000 }] } });
   check('Finanzas: la nómina quincenal cubre el mes: cada pago es la mitad, no acepta el total y deja pagar la otra quincena', pagoRec.data.total === 400000 && pagoRec.data.mes === 800000 && pagoRec.data.partes === 2 && pagoRec2.status === 400 && pagoRec3.status === 201 && movAna?.amount === 400000, JSON.stringify([pagoRec.data, pagoRec2.data, pagoRec3.status]));
+  const docN = await A.app(`${F}/pagos-mes/documento?tipo=nomina&month=${mesAct}&key=${encodeURIComponent('u:9')}`), movN = (await A.app(`${F}/movements?limit=100`)).data.rows.find((m) => m.recurring_id === f1.id);
+  check('Finanzas: el documento del pago de una nómina recurrente abre', docN.status === 200 && String(docN.data.text || '').includes('Ana') && movN?.pago_doc?.key === 'u:9', JSON.stringify([docN.status, String(docN.data.text || docN.data.error || '').slice(0, 120), movN?.pago_doc]));
   check('Finanzas: saldo de la cuenta suma el ingreso', s.accounts?.find((a) => a.id === acc.data.id)?.balance === 1500000);
   check('Finanzas: flujo de caja de 9 meses', s.cash_flow?.length === 9);
 

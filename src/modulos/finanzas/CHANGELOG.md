@@ -1,5 +1,8 @@
 # Finanzas — cambios
 
+## 1.10.3 · 2026-10-23
+- **Los ítems se editan en el mismo diálogo de «Pagar»**: cambiar concepto o valor, agregar y quitar ítems. La app de origen (Equipo) solo los organiza y los trae; lo que cambies aquí queda en el plan del mes (y en su presupuesto). El total y la parte del pago (semanal/quincenal) se recalculan al escribir.
+
 ## 1.10.2 · 2026-10-23
 - **La nómina semanal o quincenal cubre el mes**: el total de los ítems se divide entre las 4 semanas o las 2 quincenas y cada «Pagar» registra una parte (el diálogo muestra el total del mes y «Este pago · 1 de 4»). Se pueden registrar todas las partes del mes; cada una solo una vez por cobro.
 - Se quita el acceso a los ítems de la fila de gastos recurrentes (Finanzas es general; los ítems se arman en la app).

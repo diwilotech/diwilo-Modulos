@@ -92,41 +92,56 @@ DW.ready.then((me) => {
     const [pm, cuentas] = await Promise.all([api(`${B}/pagos-mes?month=${mes}`).catch(() => ({ planes: [] })), C.refs(B, 'accounts').catch(() => [])]);
     const plan = pm.planes.find((x) => x.tipo === (esNomina ? 'nomina' : 'servicios') && x.key === key);
     if (esNomina && !plan && !(r.amount > 0)) { toast(`Primero arma los ítems de ${r.vendor || r.name} este mes${r.ref ? ' en Equipo' : ''}`, false); return; }
-    const items = plan ? plan.items : [{ concepto: r.name, valor: r.amount }], editable = !plan;
-    const totalMes = items.reduce((a, x) => a + (Number(x.valor) || 0), 0), hoy = C.todayCo();
-    const de = esNomina && plan ? (r.cycle === 'semanal' ? 4 : r.cycle === 'quincenal' ? 2 : 1) : 1, total0 = de > 1 ? Math.round(totalMes / de) : totalMes;   // la nómina cubre el mes: cada pago es una parte
+    // Los ítems se pueden cambiar aquí mismo (la app de origen, como Equipo, solo los organiza y los trae)
+    const de = esNomina ? (r.cycle === 'semanal' ? 4 : r.cycle === 'quincenal' ? 2 : 1) : 1, hoy = C.todayCo();
+    let items = plan ? plan.items.map((x) => ({ ...x })) : [{ concepto: r.vendor && esNomina ? `Nómina de ${monthName(mes)}` : r.name, valor: (Number(r.amount) || 0) * de }];
+    const sumaMes = () => items.reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0), parte = () => (de > 1 ? Math.round(sumaMes() / de) : sumaMes());
+    let totalMes = sumaMes(), total0 = parte();
     let tot = total0, fu = [{ account_id: r.account_id || cuentas[0]?.id || '', valor: tot }];
     const efectivo = cuentas.find((a) => a.kind === 'efectivo'), banco = cuentas.find((a) => a.kind === 'banco') || cuentas.find((a) => a !== efectivo);
     const { el, m } = window.App.modal(`<div class="modal-header border-0 pb-0"><div><h2 class="modal-title h5 mb-0">Pagar · ${esc(r.vendor || r.name)}</h2><div class="small text-body-secondary">${esc(r.name)}${r.tax_id ? ` · ${esc(r.tax_id)}` : ''}</div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
-      <div class="modal-body"><ul class="list-group mb-3">${items.map((x, i) => `<li class="list-group-item d-flex gap-2 align-items-center"><span class="flex-grow-1">${esc(x.concepto)}</span>${editable ? `<div class="input-group input-group-sm" style="width:170px"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-valor value="${x.valor}" aria-label="Valor"></div>` : `<b>${money(x.valor)}</b>`}</li>`).join('')}
-          ${de > 1 ? `<li class="list-group-item d-flex justify-content-between"><span>Total del mes</span><b>${money(totalMes)}</b></li>` : ''}<li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>${de > 1 ? `Este pago · 1 de ${de} ${r.cycle === 'semanal' ? 'semanas' : 'quincenas'}` : 'Total'}</b><b data-total>${money(total0)}</b></li></ul>
+      <div class="modal-body"><ul class="list-group mb-1" data-items></ul>
+        <button type="button" class="btn btn-sm btn-link px-0 mb-2" data-mas><i class="bi bi-plus-lg me-1"></i>Agregar ítem</button>
+        <ul class="list-group mb-3" data-resumen></ul>
         <div class="mb-3"><label class="form-label small mb-1">Fecha del pago</label><input type="date" class="form-control" data-fecha value="${hoy}"></div>
         <div class="d-flex align-items-center mb-1"><label class="form-label small mb-0 flex-grow-1">De dónde sale</label><button type="button" class="btn btn-sm btn-outline-secondary" data-mitad><i class="bi bi-scissors me-1"></i>Mitad y mitad</button></div>
         <div data-fuentes></div><button type="button" class="btn btn-sm btn-link px-0" data-otra><i class="bi bi-plus-lg me-1"></i>Agregar otra cuenta</button><div class="small mt-1" data-dif></div></div>
       <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-ok>Registrar pago</button></div>`);
+    const pintaItems = () => {
+      el.querySelector('[data-items]').innerHTML = items.map((x, i) => `<li class="list-group-item d-flex gap-2 align-items-center" data-k="${i}"><input class="form-control form-control-sm" data-concepto value="${esc(x.concepto)}" maxlength="200" placeholder="Concepto" aria-label="Concepto"><div class="input-group input-group-sm" style="width:170px;flex:none"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-valor value="${x.valor || ''}" aria-label="Valor"></div>${items.length > 1 ? '<button type="button" class="btn btn-sm btn-light" data-quita aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : '<span style="width:2rem"></span>'}</li>`).join('');
+    };
+    const resumen = () => {
+      totalMes = sumaMes(); tot = parte();
+      el.querySelector('[data-resumen]').innerHTML = `${de > 1 ? `<li class="list-group-item d-flex justify-content-between"><span>Total del mes</span><b>${money(totalMes)}</b></li>` : ''}<li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>${de > 1 ? `Este pago · 1 de ${de} ${r.cycle === 'semanal' ? 'semanas' : 'quincenas'}` : 'Total'}</b><b>${money(tot)}</b></li>`;
+      if (fu.length === 1) { fu[0].valor = tot; const v = el.querySelector('[data-j] [data-v]'); if (v) v.value = tot; }
+      estado();
+    };
     const dif = () => tot - fu.reduce((a, f) => a + (Number(f.valor) || 0), 0);
     const estado = () => { const d = dif(); el.querySelector('[data-dif]').innerHTML = d === 0 ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Cuadra con el total</span>' : `<span class="text-danger">${d > 0 ? 'Falta' : 'Sobra'} ${money(Math.abs(d))} para llegar a ${money(tot)}</span>`; el.querySelector('[data-ok]').disabled = d !== 0 || !(tot > 0); };
     const pinta = () => { el.querySelector('[data-fuentes]').innerHTML = fu.map((f, i) => `<div class="input-group mb-2" data-j="${i}"><select class="form-select" data-c aria-label="Cuenta"><option value="">Sin cuenta</option>${cuentas.map((a) => `<option value="${a.id}" ${a.id === f.account_id ? 'selected' : ''}>${esc(a.name)}${a.kind === 'efectivo' ? ' (efectivo)' : ''}</option>`).join('')}</select><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-v value="${f.valor}" aria-label="Valor">${fu.length > 1 ? '<button type="button" class="btn btn-outline-secondary" data-x aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : ''}</div>`).join(''); estado(); };
     el.addEventListener('input', (e) => {
-      if (e.target.matches('[data-valor]')) { tot = Math.max(0, Math.round(Number(e.target.value) || 0)); el.querySelector('[data-total]').textContent = money(tot); if (fu.length === 1) { fu[0].valor = tot; el.querySelector('[data-j] [data-v]').value = tot; } estado(); return; }
+      const li = e.target.closest('[data-k]');
+      if (li) { const x = items[+li.dataset.k]; if (e.target.matches('[data-valor]')) x.valor = Math.max(0, Math.round(Number(e.target.value) || 0)); else x.concepto = e.target.value; resumen(); return; }
       const j = e.target.closest('[data-j]'); if (!j) return; const f = fu[+j.dataset.j];
       if (e.target.matches('[data-c]')) f.account_id = e.target.value ? Number(e.target.value) : ''; else f.valor = Math.round(Number(e.target.value) || 0); estado();
     });
     el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-mas]')) { items.push({ concepto: '', valor: '' }); pintaItems(); return; }
+      const q = e.target.closest('[data-quita]'); if (q) { items.splice(+q.closest('[data-k]').dataset.k, 1); pintaItems(); resumen(); return; }
       if (e.target.closest('[data-mitad]')) { const a = Math.floor(tot / 2); fu = [{ account_id: efectivo?.id || '', valor: a }, { account_id: banco?.id || '', valor: tot - a }]; pinta(); }
       if (e.target.closest('[data-otra]')) { fu.push({ account_id: '', valor: 0 }); pinta(); }
       const x = e.target.closest('[data-x]'); if (x) { fu.splice(+x.closest('[data-j]').dataset.j, 1); pinta(); }
     });
     el.querySelector('[data-ok]').addEventListener('click', async (e) => {
       const btn = e.currentTarget; btn.disabled = true;
-      const lista = editable ? [{ concepto: r.name, valor: tot }] : items;
+      const lista = items.filter((x) => x.concepto && Number(x.valor) > 0).map((x) => ({ concepto: x.concepto, valor: Math.round(Number(x.valor)) }));
       try {
         const x = await api(`${B}/pagos-mes`, { method: 'POST', body: { month: mes, tipo: esNomina ? 'nomina' : 'servicios', key, tercero: r.vendor || r.name, tax_id: r.tax_id || '', cost_center_id: r.cost_center_id || null, recurring_id: r.id, items: lista,
           pagar: true, fecha: el.querySelector('[data-fecha]').value, fuentes: fu.map((f) => ({ account_id: f.account_id || null, valor: f.valor })) } });
         toast(`Pago registrado en Movimientos${x.movimientos > 1 ? ` (${x.movimientos} cuentas)` : ''}`); m.hide(); despues?.();
       } catch (ex) { toast(ex.message, false); btn.disabled = false; }
     });
-    pinta();
+    pintaItems(); pinta(); resumen();
   }
 
   function recurrentes(el) {
