@@ -272,12 +272,13 @@ async function autoMatch(c, accountId) {
 }
 
 /* ---------------- gastos recurrentes ---------------- */
-export async function chargeRecurring(env, r, d) {
-  const usd = r.currency === 'USD' && r.amount_usd > 0, rate = usd ? await trm(env, d).catch(() => r.fx_rate || null) : null;
+// `o` (pago manual): periodo (fecha de vencimiento que se paga; evita duplicar), amount (COP), vendor, accountId.
+export async function chargeRecurring(env, r, d, o = {}) {
+  const manual = o.amount > 0, usd = !manual && r.currency === 'USD' && r.amount_usd > 0, rate = usd ? await trm(env, d).catch(() => r.fx_rate || null) : null;
   const t = now();
   return env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, currency, amount_usd, fx_rate, category, description, counterparty, cost_center_id, account_id, recurring_id, ref, created_at, updated_at)
-    VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(r.business_id, d, usd && rate ? Math.round(r.amount_usd * rate) : r.amount, usd ? 'USD' : 'COP', usd ? r.amount_usd : null, rate,
-    r.category, r.name, r.vendor, r.cost_center_id, r.account_id, r.id, `rec:${r.id}:${d}`, t, t).run();
+    VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(r.business_id, d, manual ? o.amount : usd && rate ? Math.round(r.amount_usd * rate) : r.amount, usd ? 'USD' : 'COP', usd ? r.amount_usd : null, rate,
+    r.category, r.name, o.vendor ?? r.vendor, r.cost_center_id, o.accountId ?? r.account_id, r.id, `rec:${r.id}:${o.periodo || d}`, t, t).run();
 }
 // Tarea diaria: los recurrentes que vencen se registran como gasto y la fecha pasa al siguiente cobro.
 export async function daily(env) {
@@ -586,6 +587,23 @@ export function routes(r) {
     return json({ ok: true, movement_id: movementId });
   });
 
+  // Pagar un gasto recurrente cuando se acerca (o cuando se quiera): registra el pago al proveedor como gasto en Movimientos y pasa al siguiente cobro.
+  //   POST /api/finanzas/recurring/:id/pagar { date?, amount?, vendor?, account_id? }
+  r.post(`${B}/recurring/:id/pagar`, `tenant:${MOD}`, async (c) => {
+    const rec = await api.get(c, 'recurring', Number(c.params.id));
+    if (!rec.active) throw new HttpError(409, 'El gasto está pausado: actívalo para registrar el pago');
+    const b = await readJson(c.req), date = cast('fecha', 'date', b.date) || today();
+    const amount = b.amount === undefined || b.amount === '' || b.amount === null ? null : cast('valor', 'money', b.amount);
+    if (amount !== null && !(amount > 0)) throw new HttpError(400, 'El valor debe ser mayor que cero');
+    const accountId = cast('cuenta', 'int', b.account_id) || null;
+    if (accountId) await api.get(c, 'accounts', accountId);
+    const vendor = b.vendor === undefined ? undefined : String(b.vendor || '').trim().slice(0, 200) || null;
+    const res = await chargeRecurring(c.env, rec, date, { periodo: rec.next_date, amount: amount || 0, vendor, accountId });
+    if (!res.meta.changes) throw new HttpError(409, 'Ese cobro ya está registrado');
+    await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1), now(), rec.id, c.businessId).run();
+    await audit(c, `Pagó «${rec.name}»${vendor ?? rec.vendor ? ` a ${vendor ?? rec.vendor}` : ''} por $${(amount || rec.amount).toLocaleString('es-CO')}`, { modulo: MOD });
+    return json({ ok: true, movimiento: res.meta.last_row_id, siguiente: addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1) }, 201);
+  });
   r.post(`${B}/recurring/:id/charges`, `tenant:${MOD}`, async (c) => {
     const rec = await api.get(c, 'recurring', Number(c.params.id));
     const dates = (await readJson(c.req)).dates;

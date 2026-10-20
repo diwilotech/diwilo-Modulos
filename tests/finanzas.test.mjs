@@ -24,6 +24,13 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Finanzas: al marcar el movimiento como conciliado cambia el saldo conciliado', conc2.data.sin_conciliar === 0 && conc2.data.saldo_conciliado === 1500000 && conc2.data.rows.length === 0, JSON.stringify(conc2.data).slice(0, 200));
   await A.app(`${F}/movements/${ing.data.id}`, { method: 'PATCH', body: { reconciled: 0 } });
   check('Finanzas: otro negocio no ve la conciliación de la cuenta', (await B.app(`${F}/accounts/${acc.data.id}/conciliacion`)).status === 404);
+  const rc = await A.app(`${F}/recurring`, { method: 'POST', body: { name: 'Internet', vendor: 'Claro', category: 'software', amount: 120000, cycle: 'mensual', next_date: hoy, account_id: acc.data.id } });
+  const pag = await A.app(`${F}/recurring/${rc.data.id}/pagar`, { method: 'POST', body: { vendor: 'Claro Hogar', amount: 125000, account_id: acc.data.id } });
+  const movPag = (await A.app(`${F}/movements?limit=50`)).data.rows.find((m) => m.recurring_id === rc.data.id);
+  check('Finanzas: pagar un gasto recurrente lo deja en Movimientos con su proveedor y cuenta', pag.status === 201 && movPag?.counterparty === 'Claro Hogar' && movPag.amount === 125000 && movPag.account_id === acc.data.id && movPag.kind === 'gasto', JSON.stringify([pag.data, movPag]));
+  check('Finanzas: al pagar, el gasto recurrente pasa al siguiente cobro', (await A.app(`${F}/recurring`)).data.rows.find((x) => x.id === rc.data.id)?.next_date > hoy);
+  check('Finanzas: el pago manual no se duplica con el cobro automático', (await A.app(`${F}/movements?limit=100`)).data.rows.filter((m) => m.recurring_id === rc.data.id).length === 1);
+  check('Finanzas: otro negocio no paga el recurrente ajeno', (await B.app(`${F}/recurring/${rc.data.id}/pagar`, { method: 'POST', body: {} })).status === 404);
   check('Finanzas: saldo de la cuenta suma el ingreso', s.accounts?.find((a) => a.id === acc.data.id)?.balance === 1500000);
   check('Finanzas: flujo de caja de 9 meses', s.cash_flow?.length === 9);
 

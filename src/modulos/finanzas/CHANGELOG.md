@@ -1,5 +1,8 @@
 # Finanzas — cambios
 
+## 1.6.0 · 2026-10-21
+- **Gastos recurrentes → Pagar**: cada gasto tiene el botón «Pagar» (destacado cuando vence este mes). Se elige proveedor, fecha, valor y la cuenta de la que sale; el pago queda como gasto en Movimientos (con su proveedor y cuenta) y el gasto pasa al siguiente cobro, sin duplicarse con el cobro automático. `POST /api/finanzas/recurring/:id/pagar`.
+
 ## 1.5.2 · 2026-10-21
 - Bancos y conciliación: la lista de cuentas vuelve a ser simple (nombre, tipo, banco, saldo inicial y el botón «Conciliar»); sin saldos ni totales.
 - «Conciliar» abre una ventana fija (no se cierra sin querer): tocas «Vi el movimiento» en los pagos que ya salieron en el banco, los cambios quedan resaltados «Sin guardar» y el botón «Guardar conciliación» de abajo los concilia; al guardar, los conciliados bajan al final. Opción para ocultar los ya conciliados. La ventana va por meses (flechas y «Este mes»): «Total mes anterior» y «Total este mes» con lo que falta conciliar de cada uno, y un aviso con lo sin conciliar de meses anteriores que se puede ver y conciliar ahí mismo.

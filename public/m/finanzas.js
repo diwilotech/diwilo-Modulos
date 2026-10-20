@@ -95,6 +95,16 @@ DW.ready.then((me) => {
     };
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
+      rowActions: (r) => (r.active && !RO ? `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>` : ''),
+      onAction: async (a, r) => {
+        if (a !== 'pagar') return;
+        const out = await C.form({ title: `Pagar · ${r.name}`, base: B, okText: 'Registrar pago',
+          fields: [{ k: 'vendor', label: 'Proveedor', placeholder: 'A quién se le paga' }, { k: 'date', label: 'Fecha del pago', type: 'date', required: true }, { k: 'amount', label: `Valor (COP)${r.currency === 'USD' ? ` · ${usd(r.amount_usd)} ≈ hoy` : ''}`, type: 'money', required: true },
+            { k: 'account_id', label: 'Se paga desde', ref: 'accounts' }],
+          values: { vendor: r.vendor || '', date: C.todayCo(), amount: r.amount, account_id: r.account_id } });
+        if (!out) return;
+        try { const x = await api(`${B}/recurring/${r.id}/pagar`, { method: 'POST', body: out }); toast(`Pago registrado: queda en Movimientos. Próximo cobro ${day(x.siguiente)}`); await cargaEstado(); t.load(); } catch (e) { toast(e.message, false); }
+      },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
         { label: 'Gasto', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}` },
