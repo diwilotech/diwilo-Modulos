@@ -1,6 +1,7 @@
 // Cuentas de cobro (y facturas) en PDF del módulo Finanzas: datos de quien cobra, consecutivo, valor en letras,
 // líneas en COP o USD (TRM oficial), firma, Bre-B, QR para el comprobante y QR de validación pública (/validar/:código).
 // El documento se arma en HTML con diseño de impresión (A4); el navegador lo guarda como PDF con texto real.
+import { brandOf, TEMAS, FUENTES, paleta } from '../../lib/marca.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pesos = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO');
 const usdTxt = (n) => 'USD ' + Number(n || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -146,28 +147,35 @@ export function enLetras(value) {
 
 /* ---------------- documento ---------------- */
 
+// Colores, tipografía y logo de la marca del negocio (Marca e IA): los documentos se ven como el negocio, no con un color fijo.
+async function skin(env, org) {
+  const b = await brandOf(env, org), t = TEMAS[b.color_efectivo], f = FUENTES[b.tipografia], pal = paleta(t.ui);
+  return { c500: t.ui, c700: pal[700], c400: pal[400], c100: pal[100], c50: pal[50], fam: f.familia, gfont: `https://fonts.googleapis.com/css2?family=${f.google}&display=swap` };
+}
+
 // Recibo de caja (un pago recibido de una cuenta por cobrar), listo para imprimir o guardar como PDF.
-export async function receiptDocument(env, org, rc, inv, { autoprint = false, abonado = null } = {}) {
-  const p = await getProfile(env, org);
+export async function receiptDocument(env, org, rc, inv, { autoprint = false, abonado = null, logo = null } = {}) {
+  const p = await getProfile(env, org), K = await skin(env, org);
   const total = inv?.total || 0, saldo = inv ? Math.max(0, total - (abonado ?? inv.paid ?? 0)) : null;
   const issuer = p.issuer_name || p.brand || '';
   const fileName = `Recibo de caja ${rc.number} - ${rc.counterparty || ''}`.replace(/[\\/:*?"<>|]/g, '');
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(fileName)}</title>
-<style>@page{size:A5 landscape;margin:0}*{box-sizing:border-box}:root{--ink:#14112b;--ink2:#4a4766;--ink3:#8a87a3;--line:#e7e4f2;--brand:#7c3aed;--brand2:#5b21b6}
-html{background:#e9e7f1}body{margin:0;font:12.5px/1.45 system-ui,sans-serif;color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.bar{position:sticky;top:0;display:flex;gap:10px;justify-content:center;align-items:center;padding:12px 16px;background:#14112b;color:#fff}.bar button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18px;cursor:pointer;background:#a66cf5;color:#fff}
+<link href="${K.gfont}" rel="stylesheet">
+<style>@page{size:A5 landscape;margin:0}*{box-sizing:border-box}:root{--ink:#14112b;--ink2:#4a4766;--ink3:#8a87a3;--line:#e7e4f2;--brand:${K.c500};--brand2:${K.c700}}
+html{background:#e9e7f1}body{margin:0;font:12.5px/1.45 ${K.fam};color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.bar{position:sticky;top:0;display:flex;gap:10px;justify-content:center;align-items:center;padding:12px 16px;background:#14112b;color:#fff}.bar button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18px;cursor:pointer;background:${K.c400};color:#fff}
 .page{width:210mm;min-height:148mm;margin:24px auto;background:#fff;box-shadow:0 10px 40px rgba(20,17,43,.15);padding:12mm 14mm;position:relative;overflow:hidden}
-.page::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,#a66cf5,#7c3aed 45%,#5b21b6)}
+.page::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,${K.c400},${K.c500} 45%,${K.c700})}
 header{display:flex;justify-content:space-between;gap:16px}header b{font-size:17px}header small{display:block;color:var(--ink3)}
 .doc{text-align:right}.doc h1{margin:0;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand)}.doc .num{font-size:22px;font-weight:700;margin-top:4px}.doc small{display:block;color:var(--ink2)}
-.amount{margin-top:12px;border-radius:12px;padding:11px 16px;background:#f6f0ff;display:flex;justify-content:space-between;align-items:center;gap:16px}.amount .v{font-size:25px;font-weight:700;color:var(--brand2);white-space:nowrap}.amount .w{color:var(--ink2);font-style:italic;text-align:right;max-width:58%}
+.amount{margin-top:12px;border-radius:12px;padding:11px 16px;background:${K.c50};display:flex;justify-content:space-between;align-items:center;gap:16px}.amount .v{font-size:25px;font-weight:700;color:var(--brand2);white-space:nowrap}.amount .w{color:var(--ink2);font-style:italic;text-align:right;max-width:58%}
 dl{display:grid;grid-template-columns:150px 1fr;gap:5px 12px;margin:12px 0 0}dt{color:var(--ink3)}dd{margin:0;font-weight:500}
 .sign{display:flex;justify-content:space-between;gap:30px;margin-top:34px}.sign div{flex:1;border-top:1px solid var(--ink);padding-top:5px;color:var(--ink2);font-size:11px}
 .void{position:absolute;top:34%;left:28%;transform:rotate(-12deg);font-size:56px;font-weight:800;color:rgba(200,30,30,.28);border:6px solid rgba(200,30,30,.28);padding:2px 18px;border-radius:10px}
 @media print{html{background:#fff}.bar{display:none}.page{margin:0;box-shadow:none;width:auto}}</style></head><body>
 <div class="bar"><button onclick="print()">Imprimir o guardar PDF</button></div>
 <div class="page">${rc.voided ? '<div class="void">ANULADO</div>' : ''}
-<header><div><b>${esc(issuer)}</b>${p.issuer_doc ? `<small>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}</small>` : ''}<small>${[p.city, p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</small></div>
+<header><div style="display:flex;gap:10px;align-items:center">${logo ? `<img src="${esc(logo)}" alt="" style="width:40px;height:40px;border-radius:9px;object-fit:cover">` : ''}<div><b>${esc(issuer)}</b>${p.issuer_doc ? `<small>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}</small>` : ''}<small>${[p.city, p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</small></div></div>
 <div class="doc"><h1>Recibo de caja</h1><div class="num">${esc(rc.number)}</div><small>${esc(fecha(rc.date))}</small></div></header>
 <div class="amount"><div class="v">${pesos(rc.amount)}</div><div class="w">${esc(enLetras(rc.amount))}</div></div>
 <dl><dt>Recibimos de</dt><dd>${esc(rc.counterparty || '')}${inv?.tax_id ? ` · ${esc(inv.tax_id)}` : ''}</dd>
@@ -179,7 +187,7 @@ ${autoprint ? '<script>addEventListener("load",()=>setTimeout(print,300))</scrip
 }
 
 export async function invoiceDocument(env, org, inv, { autoprint = false, origin = '', logo = null } = {}) {
-  const p = await getProfile(env, org);
+  const p = await getProfile(env, org), K = await skin(env, org);
   let items = []; try { items = JSON.parse(inv.items || '[]'); } catch {}
   if (!items.length) items = [{ concepto: inv.concept || inv.notes || 'Servicios', cantidad: 1, moneda: 'COP', valor: inv.subtotal || inv.total, total: inv.subtotal || inv.total }];
   const subtotal = inv.subtotal || items.reduce((s, i) => s + (i.total || 0), 0), tax = inv.tax || 0, total = inv.total || subtotal + tax;
@@ -191,36 +199,36 @@ export async function invoiceDocument(env, org, inv, { autoprint = false, origin
   const vcode = await verifyCode(env, inv), vurl = `${origin}/validar/${vcode}`;
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(fileName)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="${K.gfont}" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <style>
 @page{size:A4;margin:0}
 *{box-sizing:border-box}
-:root{--ink:#14112b;--ink2:#4a4766;--ink3:#8a87a3;--line:#e7e4f2;--soft:#f6f3fd;--brand:#7c3aed;--brand2:#5b21b6}
+:root{--ink:#14112b;--ink2:#4a4766;--ink3:#8a87a3;--line:#e7e4f2;--soft:${K.c50};--brand:${K.c500};--brand2:${K.c700}}
 html{background:#e9e7f1}
-body{margin:0;font:12px/1.45 Inter,system-ui,sans-serif;color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;font:12px/1.45 ${K.fam};color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .bar{position:sticky;top:0;z-index:5;display:flex;gap:10px;justify-content:center;align-items:center;padding:12px 16px;background:#14112b;color:#fff;font-size:13px}
-.bar button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18px;cursor:pointer;background:#a66cf5;color:#fff}.bar button.sec{background:transparent;box-shadow:inset 0 0 0 1px #5a5580}
+.bar button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18px;cursor:pointer;background:${K.c400};color:#fff}.bar button.sec{background:transparent;box-shadow:inset 0 0 0 1px #5a5580}
 .bar span{opacity:.7}
 .page{width:210mm;min-height:297mm;margin:24px auto;background:#fff;box-shadow:0 10px 40px rgba(20,17,43,.15);padding:16mm 16mm 14mm;position:relative;display:flex;flex-direction:column;overflow:hidden}
-.page::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,#a66cf5,#7c3aed 45%,#5b21b6)}
+.page::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,${K.c400},${K.c500} 45%,${K.c700})}
 header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
 .brand{display:flex;gap:10px;align-items:center}.brand svg{width:36px;height:38px}
-.brand b{display:block;font:600 19px/1.1 'Space Grotesk',sans-serif;letter-spacing:-.02em}.brand small{color:var(--ink3);font-size:10.5px}
-.doc{text-align:right}.doc h1{margin:0;font:600 12px/1 Inter,sans-serif;letter-spacing:.18em;text-transform:uppercase;color:var(--brand)}
-.doc .num{font:600 21px/1.15 'Space Grotesk',sans-serif;margin-top:6px;letter-spacing:-.01em}
+.brand b{display:block;font:600 19px/1.1 ${K.fam};letter-spacing:-.02em}.brand small{color:var(--ink3);font-size:10.5px}
+.doc{text-align:right}.doc h1{margin:0;font:600 12px/1 ${K.fam};letter-spacing:.18em;text-transform:uppercase;color:var(--brand)}
+.doc .num{font:600 21px/1.15 ${K.fam};margin-top:6px;letter-spacing:-.01em}
 .doc dl{display:grid;grid-template-columns:auto auto;gap:1px 12px;margin:6px 0 0;font-size:11px;justify-content:end}.doc dt{color:var(--ink3)}.doc dd{margin:0;font-weight:500}
 .parties{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
 .party{border:1px solid var(--line);border-radius:10px;padding:9px 12px}
-.party h2,.sec h2{margin:0 0 5px;font:600 9.5px/1 Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+.party h2,.sec h2{margin:0 0 5px;font:600 9.5px/1 ${K.fam};letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
 .party b{display:block;font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em}.party span{display:block;color:var(--ink2);font-size:11px}
-.amount{margin-top:10px;border-radius:12px;padding:11px 16px;background:linear-gradient(135deg,#f6f0ff,#efe6ff 60%,#f8f4ff);display:flex;justify-content:space-between;align-items:center;gap:16px}
+.amount{margin-top:10px;border-radius:12px;padding:11px 16px;background:linear-gradient(135deg,${K.c50},${K.c100} 60%,${K.c50});display:flex;justify-content:space-between;align-items:center;gap:16px}
 .amount small{display:block;color:var(--ink2);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
-.amount .v{font:600 24px/1.1 'Space Grotesk',sans-serif;color:var(--brand2);white-space:nowrap}
+.amount .v{font:600 24px/1.1 ${K.fam};color:var(--brand2);white-space:nowrap}
 .amount .w{color:var(--ink2);font-size:11.5px;font-style:italic;text-align:right;max-width:58%}
 .sec{margin-top:13px}.concept{color:var(--ink2);margin:0}
 table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11.5px}
-thead th{text-align:left;font:600 9.5px/1 Inter,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:7px 8px;border-bottom:1.5px solid var(--ink)}
+thead th{text-align:left;font:600 9.5px/1 ${K.fam};letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:7px 8px;border-bottom:1.5px solid var(--ink)}
 tbody td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}td.c,th.c{text-align:center}
 td small{display:block;color:var(--ink3);font-size:10px;margin-top:1px}
@@ -230,7 +238,7 @@ td small{display:block;color:var(--ink3);font-size:10px;margin-top:1px}
 .totals dt{color:var(--ink2)}.totals dd{margin:0;text-align:right}
 .totals .t{font-weight:600;font-size:13.5px;color:var(--ink);padding-top:8px;border-top:1.5px solid var(--ink)}
 .pay{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;margin-top:13px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;break-inside:avoid}
-.pay p{margin:1px 0;color:var(--ink2);font-size:11.5px}.breb{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px!important}.bb{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--brand2);font:700 10px/1.4 Inter,sans-serif;letter-spacing:.04em;box-shadow:inset 0 0 0 1px #ddd0fb}.pay strong{color:var(--ink)}
+.pay p{margin:1px 0;color:var(--ink2);font-size:11.5px}.breb{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px!important}.bb{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--brand2);font:700 10px/1.4 ${K.fam};letter-spacing:.04em;box-shadow:inset 0 0 0 1px #ddd0fb}.pay strong{color:var(--ink)}
 .qr{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9px;line-height:1.3;color:var(--ink3);text-align:center;width:80px}.qr svg{width:62px;height:62px}
 .legal{margin-top:10px;color:var(--ink3);font-size:10px}
 .sign{margin-top:auto;padding-top:26px;display:flex;justify-content:space-between;align-items:flex-end;gap:20px;break-inside:avoid}
@@ -240,7 +248,7 @@ td small{display:block;color:var(--ink3);font-size:10px;margin-top:1px}
 .sign .thanks{color:var(--ink3);font-size:11px;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
 .verify{display:flex;gap:9px;align-items:center;text-align:left;border:1px solid var(--line);border-radius:10px;padding:7px 9px}.verify #qrv svg{width:58px;height:58px;display:block}.verify b{display:block;color:var(--ink);font-size:10.5px}.verify span{display:block;font-size:9.5px;line-height:1.35}.verify code{display:block;margin-top:2px;font:600 9.5px ui-monospace,monospace;letter-spacing:.08em;color:var(--brand2)}
 footer{margin-top:12px;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;color:var(--ink3);font-size:9.5px}
-.stamp{position:absolute;top:120px;right:-6px;transform:rotate(-12deg);border:3px solid currentColor;border-radius:10px;padding:4px 16px;font:700 26px/1 'Space Grotesk',sans-serif;letter-spacing:.12em;text-transform:uppercase;opacity:.22;color:${inv.status === 'anulada' ? '#dc2626' : '#16a34a'}}
+.stamp{position:absolute;top:120px;right:-6px;transform:rotate(-12deg);border:3px solid currentColor;border-radius:10px;padding:4px 16px;font:700 26px/1 ${K.fam};letter-spacing:.12em;text-transform:uppercase;opacity:.22;color:${inv.status === 'anulada' ? '#dc2626' : '#16a34a'}}
 @media print{html{background:#fff}.bar{display:none}.page{margin:0;box-shadow:none;width:210mm;min-height:296mm;height:auto;overflow:visible;padding:11mm 13mm 8mm}.page::before{height:4px}tr,.party,.amount,.pay,.sign{break-inside:avoid}.sign{padding-top:${p.signature ? '4px' : '14px'}}.sign img{max-height:48px;margin-bottom:-10px}}
 @media screen and (max-width:820px){.page{width:auto;min-height:0;margin:12px;padding:20px}.parties{grid-template-columns:1fr}.amount{flex-direction:column;align-items:flex-start}.amount .w{text-align:left;max-width:none}}
 </style></head><body>
@@ -265,7 +273,7 @@ footer{margin-top:12px;padding-top:8px;border-top:1px solid var(--line);display:
     </tbody></table>
     <div class="totals"><dl>${tax ? `<dt>Subtotal</dt><dd>${pesos(subtotal)}</dd><dt>Impuestos</dt><dd>${pesos(tax)}</dd>` : ''}<dt class="t">Total a pagar</dt><dd class="t">${pesos(total)}</dd></dl></div>
   </section>
-  ${p.account_number || p.breb_key ? `<section class="pay"><div><h2 style="margin:0 0 6px;font:600 9.5px/1 Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)">Forma de pago</h2>
+  ${p.account_number || p.breb_key ? `<section class="pay"><div><h2 style="margin:0 0 6px;font:600 9.5px/1 ${K.fam};letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)">Forma de pago</h2>
     ${p.breb_key ? `<p class="breb"><span class="bb">Bre-B</span><span>Paga al instante desde cualquier banco o billetera con la <strong>llave ${esc(p.breb_key)}</strong>.</span></p>` : ''}
     ${p.account_number ? `<p>${p.breb_key ? 'O consigna o transfiere' : 'Consignar o transferir'} a la <strong>cuenta de ${esc(p.account_type || 'ahorros')} N.º ${esc(p.account_number)} de ${esc(p.bank)}</strong>, a nombre de ${esc(p.issuer_name)}.</p>` : ''}
     <p>Usa como referencia <strong>${esc(number)}</strong>. Cualquier inquietud: ${[p.phone && `celular ${esc(p.phone)}`, p.email && esc(p.email)].filter(Boolean).join(' o ')}.</p>

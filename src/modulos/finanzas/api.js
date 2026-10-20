@@ -310,7 +310,7 @@ export function routes(r) {
     return json({ id: res.meta.last_row_id, nuevo: !!res.meta.changes }, res.meta.changes ? 201 : 200);
   });
   // Cuenta de cobro que crea otra app (una por matrícula, por ejemplo). Se identifica por `ref`: si ya existe se actualiza (mientras no esté anulada).
-  //   POST /api/finanzas/invoices/externo { ref, counterparty, tax_id?, client_email?, issue_date?, due_date?, concept, detail?, total, category?, centro_costo? }
+  //   POST /api/finanzas/invoices/externo { ref, counterparty, tax_id?, client_email?, issue_date?, due_date?, concept, detail?, items?: [{concepto, detalle?, valor}], total, category?, centro_costo? }
   r.post(`${B}/invoices/externo`, `manager:${MOD}`, async (c) => {
     const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);
     if (!ref) throw new HttpError(400, 'Falta ref');
@@ -319,7 +319,9 @@ export function routes(r) {
     const counterparty = String(b.counterparty || '').trim().slice(0, 200);
     if (!counterparty) throw new HttpError(400, 'Falta quién paga');
     const concept = String(b.concept || 'Servicio').slice(0, 300), issue = cast('fecha', 'date', b.issue_date) || today(), due = cast('vence', 'date', b.due_date) || null;
-    const items = JSON.stringify([{ concepto: concept, detalle: b.detail ? String(b.detail).slice(0, 300) : undefined, cantidad: 1, moneda: 'COP', valor: total, total }]);
+    // `items` opcional (p. ej. una línea por cuota): deben sumar el total; si no, queda una sola línea con el concepto.
+    const lineas = (Array.isArray(b.items) ? b.items : []).slice(0, 40).map((i) => { const v = Math.round(Number(i.valor) || 0); return { concepto: String(i.concepto || '').slice(0, 300), detalle: i.detalle ? String(i.detalle).slice(0, 300) : undefined, cantidad: 1, moneda: 'COP', valor: v, total: v }; }).filter((i) => i.concepto);
+    const items = JSON.stringify(lineas.length && lineas.reduce((a, i) => a + i.total, 0) === total ? lineas : [{ concepto: concept, detalle: b.detail ? String(b.detail).slice(0, 300) : undefined, cantidad: 1, moneda: 'COP', valor: total, total }]);
     let cc = null;
     if (b.centro_costo) {
       const name = String(b.centro_costo).slice(0, 120);
@@ -415,7 +417,7 @@ export function routes(r) {
     if (!rc) throw new HttpError(404, 'No encontrado');
     const inv = rc.invoice_id ? await one(c.env, 'SELECT * FROM fin_invoices WHERE id = ? AND business_id = ?', rc.invoice_id, c.businessId) : null;
     const antes = inv ? (await one(c.env, 'SELECT COALESCE(SUM(amount), 0) s FROM fin_receipts WHERE business_id = ? AND invoice_id = ? AND voided = 0 AND id <= ?', c.businessId, inv.id, rc.id)).s : null;
-    return new Response(await receiptDocument(c.env, c.businessId, rc, inv, { autoprint: c.url.searchParams.has('imprimir'), abonado: antes }), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+    return new Response(await receiptDocument(c.env, c.businessId, rc, inv, { autoprint: c.url.searchParams.has('imprimir'), abonado: antes, logo: c.ctx?.business?.logo || null }), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
   });
   r.post(`${B}/receipts/externo`, `manager:${MOD}`, async (c) => {
     const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);

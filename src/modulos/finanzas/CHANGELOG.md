@@ -1,5 +1,9 @@
 # Finanzas — cambios
 
+## 1.4.0 · 2026-10-20
+- La cuenta de cobro y el recibo de caja usan la marca del negocio (Marca e IA): color principal y sus tonos, tipografía y logo, en lugar de un violeta fijo.
+- `POST /api/finanzas/invoices/externo` acepta `items: [{ concepto, detalle?, valor }]` (una línea por cuota, por ejemplo); si no suman el total se usa una sola línea. El recibo también muestra el logo.
+
 ## 1.3.1 · 2026-10-17
 - Centros de costo: cada uno muestra su total acumulado (ingresos, gastos y resultado, con el número de movimientos) y arriba un resumen de todos los centros y de lo que no tiene centro. `GET /api/finanzas/cost_centers/totales`.
 
