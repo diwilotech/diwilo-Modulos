@@ -152,7 +152,15 @@ export const ENTITIES = {
       return rows.map((r) => { const x = t.get(r.id) || { ingresos: 0, gastos: 0, movimientos: 0 }; return { ...r, ...x, resultado: x.ingresos - x.gastos }; });
     } },
   accounts: { table: 'fin_accounts', label: 'la cuenta', title: 'name', search: ['name', 'bank'], order: 'name',
-    fields: { name: 'text!', kind: ['banco', 'efectivo', 'tarjeta', 'billetera'], bank: 'text', last4: 'text', opening_balance: 'money' } },
+    fields: { name: 'text!', kind: ['banco', 'efectivo', 'tarjeta', 'billetera'], bank: 'text', last4: 'text', opening_balance: 'money' },
+    // Saldo según los registros (saldo inicial + ingresos − gastos de la cuenta) y cuánto falta por conciliar
+    async decorate(c, rows) {
+      if (!rows.length) return rows;
+      const m = await all(c.env, `SELECT account_id id, SUM(CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) n, COUNT(*) total, SUM(reconciled = 0) sin FROM fin_movements WHERE business_id = ? AND account_id IS NOT NULL GROUP BY account_id`, c.businessId);
+      const l = await all(c.env, 'SELECT account_id id, COUNT(*) n FROM fin_bank_lines WHERE business_id = ? AND movement_id IS NULL GROUP BY account_id', c.businessId);
+      rows.forEach((r) => { const x = m.find((y) => y.id === r.id); r.balance = (r.opening_balance || 0) + (x?.n || 0); r.movimientos = x?.total || 0; r.sin_conciliar = x?.sin || 0; r.lineas_sin_conciliar = l.find((y) => y.id === r.id)?.n || 0; });
+      return rows;
+    } },
   budgets: { table: 'fin_budgets', label: 'el presupuesto', title: 'month', search: ['category'], order: 'month DESC, id DESC',
     fields: { month: 'month!', cost_center_id: 'int', category: 'text', amount: 'money!' } },
 };
@@ -511,13 +519,24 @@ export function routes(r) {
   });
   r.get(`${B}/billing/fx`, `tenant:${MOD}`, async (c) => json({ date: c.url.searchParams.get('date') || today(), rate: await trm(c.env, c.url.searchParams.get('date')) }));
 
+  // Conciliación de una cuenta: sus movimientos (con su recibo) y cuántos faltan por conciliar con el banco.
+  r.get(`${B}/accounts/:id/conciliacion`, `tenant:${MOD}`, async (c) => {
+    const acc = await one(c.env, 'SELECT * FROM fin_accounts WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
+    if (!acc) throw new HttpError(404, 'No encontrada');
+    const solo = c.url.searchParams.get('estado') !== 'todos';
+    const rows = await all(c.env, `SELECT * FROM fin_movements WHERE business_id = ? AND account_id = ? ${solo ? 'AND reconciled = 0' : ''} ORDER BY date DESC, id DESC LIMIT 300`, c.businessId, acc.id);
+    await ENTITIES.movements.decorate(c, rows);
+    const t = await one(c.env, `SELECT SUM(CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) n, COUNT(*) total, COALESCE(SUM(reconciled = 0), 0) sin, COALESCE(SUM(CASE WHEN reconciled = 1 THEN (CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) END), 0) conc FROM fin_movements WHERE business_id = ? AND account_id = ?`, c.businessId, acc.id);
+    const l = await one(c.env, 'SELECT COUNT(*) n FROM fin_bank_lines WHERE business_id = ? AND account_id = ? AND movement_id IS NULL', c.businessId, acc.id);
+    return json({ cuenta: acc, balance: (acc.opening_balance || 0) + (t.n || 0), saldo_conciliado: (acc.opening_balance || 0) + (t.conc || 0), movimientos: t.total, sin_conciliar: t.sin, lineas_sin_conciliar: l.n, rows });
+  });
   r.get(`${B}/bank-lines`, `tenant:${MOD}`, async (c) => {
     const acc = Number(c.url.searchParams.get('account_id')) || null;
     const lines = await all(c.env, `SELECT b.*, m.description AS m_description, m.category AS m_category FROM fin_bank_lines b
       LEFT JOIN fin_movements m ON m.id = b.movement_id AND m.business_id = b.business_id WHERE b.business_id = ? ${acc ? 'AND b.account_id = ?' : ''} ORDER BY b.movement_id IS NOT NULL, b.date DESC LIMIT 500`, c.businessId, ...(acc ? [acc] : []));
     for (const l of lines.filter((x) => !x.movement_id).slice(0, 100)) {
       l.candidates = await all(c.env, `SELECT id, date, description, counterparty, amount FROM fin_movements WHERE business_id = ? AND reconciled = 0 AND kind = ? AND amount = ?
-        AND date BETWEEN ? AND ? LIMIT 5`, c.businessId, l.amount > 0 ? 'ingreso' : 'gasto', Math.abs(l.amount), addDays(l.date, -7), addDays(l.date, 7));
+        AND date BETWEEN ? AND ? ${l.account_id ? 'AND (account_id = ? OR account_id IS NULL)' : ''} ORDER BY account_id IS NULL LIMIT 5`, c.businessId, l.amount > 0 ? 'ingreso' : 'gasto', Math.abs(l.amount), addDays(l.date, -7), addDays(l.date, 7), ...(l.account_id ? [l.account_id] : []));
     }
     return json({ lines });
   });

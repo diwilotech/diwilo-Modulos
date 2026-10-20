@@ -1,5 +1,10 @@
 # Finanzas — cambios
 
+## 1.5.1 · 2026-10-21
+- **Bancos y conciliación**: la lista de cuentas muestra el «Saldo según registros» (saldo inicial + movimientos de la cuenta) y lo que falta por conciliar, con el total en cuentas arriba.
+- Al tocar el banco (o «Conciliar») se abre su conciliación: sus movimientos y pagos con el recibo, el saldo conciliado y el botón «Ya salió en el banco»; debajo, el extracto de esa cuenta. `GET /api/finanzas/accounts/:id/conciliacion`.
+- Las líneas del extracto sugieren primero los movimientos de la misma cuenta.
+
 ## 1.5.0 · 2026-10-21
 - **Movimientos** (antes «Ingresos y gastos»): cada movimiento que viene de un recibo de caja muestra su recibo (PDF) y los archivos que lo acompañan; el recibo suelto se crea desde aquí.
 - **Cobros** (antes «Cuentas por cobrar y pagar»): el botón «Ver» abre la cuenta con su PDF, sus pagos, el recibo de cada pago (PDF) y sus archivos (comprobantes); se registra el cobro y se anula un recibo desde ahí. Se quita la vista «Recibos de caja» (la API sigue igual).

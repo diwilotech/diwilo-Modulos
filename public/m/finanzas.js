@@ -470,16 +470,51 @@ DW.ready.then((me) => {
 
   /* ---------- bancos y conciliación ---------- */
   async function banks(el) {
-    el.innerHTML = `<div data-acc></div>
-      <div class="dw-card mt-3"><h2 class="h6">Importar extracto (CSV)</h2>
+    el.innerHTML = `<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div data-acc></div><div data-conc class="mt-3" hidden></div>
+      <div class="dw-card mt-3" data-imp><h2 class="h6">Importar extracto (CSV)</h2>
         <p class="small text-body-secondary">Descarga el extracto de tu banco en CSV (o guárdalo como CSV desde Excel). Elige la cuenta y el archivo, y marca qué columna es cada dato. Se concilia solo lo que coincide en valor, sentido y fecha (±3 días).</p>
         <div class="d-flex flex-wrap gap-2"><select class="form-select w-auto" data-acct aria-label="Cuenta"></select><input class="form-control w-auto" type="file" accept=".csv,text/csv" data-file aria-label="Archivo CSV" ${RO || !me.canManage ? 'disabled' : ''}></div>
         <div data-map class="mt-3"></div></div>
       <div class="dw-card mt-3"><div class="d-flex flex-wrap gap-2 align-items-center mb-2"><h2 class="h6 mb-0 flex-grow-1">Líneas del extracto</h2><select class="form-select w-auto" data-filter aria-label="Cuenta"></select></div><div data-lines></div></div>`;
-    const accTable = C.table({ el: $('[data-acc]', el), base: B, entity: 'accounts', title: 'cuenta', newText: 'Nueva cuenta', fields: F.accounts, onChanged: fillAccounts,
+    const accTable = C.table({ el: $('[data-acc]', el), base: B, entity: 'accounts', title: 'cuenta', newText: 'Nueva cuenta', fields: F.accounts, onChanged: () => { fillAccounts(); totales(); },
       empty: 'Agrega tus cuentas bancarias, de efectivo o billeteras.', emptyIcon: 'bi-bank',
-      columns: [{ label: 'Cuenta', main: true, html: (r) => `${esc(r.name)}${r.last4 ? ` <span class="text-body-secondary">···${esc(r.last4)}</span>` : ''}` },
-        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) }] });
+      rowActions: () => '<button class="btn btn-sm btn-primary" data-act="conciliar"><i class="bi bi-check2-square me-1"></i>Conciliar</button>',
+      onAction: (a, r) => { if (a === 'conciliar') conciliar(r.id); },
+      columns: [{ label: 'Cuenta', main: true, html: (r) => `<button type="button" class="btn btn-link p-0 fw-semibold text-start" data-act="conciliar" title="Empezar la conciliación">${esc(r.name)}</button>${r.last4 ? ` <span class="text-body-secondary">···${esc(r.last4)}</span>` : ''}` },
+        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) },
+        { label: 'Saldo según registros', cls: 'text-end', html: (r) => `<b>${money(r.balance)}</b>${sub(`${r.movimientos} movimiento${r.movimientos === 1 ? '' : 's'}`)}` },
+        { label: 'Por conciliar', cls: 'text-end', html: (r) => (r.sin_conciliar || r.lineas_sin_conciliar ? `${chip('soon', `${r.sin_conciliar} mov.`)}${r.lineas_sin_conciliar ? ` ${chip('soon', `${r.lineas_sin_conciliar} del extracto`)}` : ''}` : (r.movimientos ? chip('ok', 'Al día') : '—')) }] });
+    const totales = () => api(`${B}/accounts`).then(({ rows }) => C.kpis($('[data-tot]', el), [['Total en cuentas', money(rows.reduce((a, r) => a + r.balance, 0)), 'según los movimientos registrados', 'bi-bank'],
+      ['Movimientos por conciliar', String(rows.reduce((a, r) => a + r.sin_conciliar, 0)), 'sin marcar como conciliados', 'bi-hourglass-split'], ['Líneas del extracto sin conciliar', String(rows.reduce((a, r) => a + r.lineas_sin_conciliar, 0)), 'importadas del banco', 'bi-file-earmark-spreadsheet']])).catch(() => {});
+    totales();
+    // Empezar la conciliación de una cuenta: sus movimientos (marcar los que ya salieron en el banco) y su extracto
+    async function conciliar(id, estado = 'sin') {
+      const box = $('[data-conc]', el); box.hidden = false;
+      box.innerHTML = '<div class="dw-card text-body-secondary">Cargando…</div>';
+      let d; try { d = await api(`${B}/accounts/${id}/conciliacion?estado=${estado}`); } catch (x) { box.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; return; }
+      $('[data-acct]', el).value = String(id); $('[data-filter]', el).value = String(id); loadLines();
+      const diff = d.balance - d.saldo_conciliado;
+      box.innerHTML = `<div class="dw-card"><div class="d-flex flex-wrap gap-2 align-items-start mb-2"><div class="flex-grow-1"><h2 class="h5 mb-0">Conciliación · ${esc(d.cuenta.name)}</h2>
+          <div class="small text-body-secondary">Marca cada pago que ya salió en tu extracto del banco, o importa el extracto y se concilia solo lo que coincide.</div></div>
+          <button class="btn btn-sm btn-outline-secondary" data-ir-imp><i class="bi bi-upload me-1"></i>Importar extracto</button><button class="btn btn-sm btn-light" data-cerrar aria-label="Cerrar">Cerrar</button></div>
+        <div class="row g-2 mb-3"><div class="col-6 col-md-3"><div class="small text-body-secondary">Saldo según registros</div><b>${money(d.balance)}</b></div><div class="col-6 col-md-3"><div class="small text-body-secondary">Saldo conciliado</div><b class="text-success">${money(d.saldo_conciliado)}</b></div>
+          <div class="col-6 col-md-3"><div class="small text-body-secondary">Falta conciliar</div><b class="${diff ? 'text-danger' : ''}">${money(diff)}</b></div><div class="col-6 col-md-3"><div class="small text-body-secondary">Movimientos sin conciliar</div><b>${d.sin_conciliar}</b> de ${d.movimientos}</div></div>
+        <div class="d-flex gap-2 mb-2 align-items-center"><select class="form-select form-select-sm w-auto" data-est aria-label="Movimientos"><option value="sin" ${estado === 'sin' ? 'selected' : ''}>Solo por conciliar</option><option value="todos" ${estado === 'todos' ? 'selected' : ''}>Todos los movimientos</option></select></div>
+        ${d.rows.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Fecha</th><th>Pago o movimiento</th><th class="text-end">Valor</th><th class="text-end">Conciliación</th></tr></thead><tbody>${d.rows.map((m) => `<tr>
+          <td>${day(m.date)}</td><td>${esc(m.description || m.category || '—')}${sub(m.counterparty)}</td>
+          <td class="text-end text-nowrap"><b class="${m.kind === 'ingreso' ? 'text-success' : ''}">${m.kind === 'ingreso' ? '+' : '−'}${money(m.amount)}</b>${m.receipt_id ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/receipts/${m.receipt_id}/pdf" target="_blank" rel="noopener" title="Ver el recibo ${esc(m.receipt_number)} (PDF)"><i class="bi bi-filetype-pdf"></i></a>` : ''}${(m.receipt_files || []).map((f) => ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip"></i></a>`).join('')}</td>
+          <td class="text-end">${m.reconciled ? `${chip('ok', 'Conciliado')} ${RO ? '' : `<button class="btn btn-sm btn-light" data-conc-m="${m.id}" data-v="0">Deshacer</button>`}` : RO ? chip('soon', 'Por conciliar') : `<button class="btn btn-sm btn-outline-success" data-conc-m="${m.id}" data-v="1"><i class="bi bi-check2 me-1"></i>Ya salió en el banco</button>`}</td></tr>`).join('')}</tbody></table></div>`
+          : `<p class="text-body-secondary small mb-0">${estado === 'sin' ? 'No hay movimientos por conciliar en esta cuenta.' : 'Esta cuenta aún no tiene movimientos. Asigna la cuenta en Movimientos.'}</p>`}</div>`;
+      $('[data-est]', box).onchange = (e) => conciliar(id, e.target.value);
+      $('[data-cerrar]', box).onclick = () => { box.hidden = true; };
+      $('[data-ir-imp]', box).onclick = () => $('[data-imp]', el).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      box.onclick = async (e) => {
+        const b = e.target.closest('[data-conc-m]'); if (!b) return;
+        b.disabled = true;
+        try { await api(`${B}/movements/${b.dataset.concM}`, { method: 'PATCH', body: { reconciled: b.dataset.v === '1' ? 1 : 0 } }); await conciliar(id, estado); accTable.load(); totales(); } catch (x) { toast(x.message, false); b.disabled = false; }
+      };
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
     accTable.load();
     async function fillAccounts() {
       C.dropRefs(B, 'accounts');
