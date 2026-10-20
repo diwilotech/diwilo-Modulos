@@ -43,8 +43,8 @@ DW.ready.then((me) => {
     recurring: [
       { k: 'name', label: 'Gasto', required: true, placeholder: 'Arriendo, internet, software…' }, { k: 'vendor', label: 'Proveedor' },
       { k: 'category', label: 'Tipo', type: 'select', options: Object.entries(REC_CAT) }, { k: 'currency', label: 'Moneda', type: 'select', options: [['COP', 'Pesos (COP)'], ['USD', 'Dólares (USD)']] },
-      { k: 'amount_usd', label: 'Valor en dólares', type: 'usd', hint: 'solo si es en USD' }, { k: 'amount', label: 'Valor (COP)', type: 'money', hint: 'en USD se calcula con la TRM' },
-      { k: 'cycle', label: 'Ciclo', type: 'select', options: [['mensual', 'Mensual'], ['quincenal', 'Quincenal'], ['semanal', 'Semanal'], ['anual', 'Anual']] }, { k: 'tax_id', label: 'Cédula o NIT', placeholder: 'de a quién se le paga' }, { k: 'next_date', label: 'Próximo cobro', type: 'date', required: true },
+      { k: 'amount_usd', label: 'Valor en dólares', type: 'usd', hint: 'solo si es en USD' }, { k: 'amount', label: 'Valor total (COP)', type: 'money', hint: 'el total de cada ciclo; en USD se calcula con la TRM' },
+      { k: 'cycle', label: 'Cada', type: 'select', options: [['mensual', 'Mes'], ['quincenal', 'Quincena'], ['semanal', 'Semana'], ['anual', 'Año']] }, { k: 'partes', label: 'Cómo se paga', type: 'select', options: [['1', 'Todo de una vez'], ['2', 'En 2 quincenas'], ['4', 'En 4 semanas'], ['12', 'En 12 meses']], default: '1', hint: 'el total se divide en cuotas' }, { k: 'tax_id', label: 'Cédula o NIT', placeholder: 'de a quién se le paga' }, { k: 'next_date', label: 'Próximo cobro', type: 'date', required: true },
       { k: 'cost_center_id', label: 'Centro de costo', ref: 'cost_centers' }, { k: 'account_id', label: 'Se paga desde', ref: 'accounts' },
       { k: 'active', label: 'Estado', type: 'bool', check: 'Activo', default: true }, { k: 'notes', label: 'Notas', type: 'long' }],
     cost_centers: [
@@ -94,16 +94,21 @@ DW.ready.then((me) => {
     if (esNomina && !plan && !(r.amount > 0)) { toast(`Primero arma los ítems de ${r.vendor || r.name} este mes${r.ref ? ' en Equipo' : ''}`, false); return; }
     // Los ítems se pueden cambiar aquí mismo (la app de origen, como Equipo, solo los organiza y los trae)
     const FORMAS = { 1: ['Todo de una vez', 'Total'], 4: ['En cuotas semanales (total del mes ÷ 4)', 'semanas'], 2: ['En cuotas quincenales (total del mes ÷ 2)', 'quincenas'], 12: ['En cuotas mensuales (total del año ÷ 12)', 'meses'] };
-    let de = esNomina ? (r.cycle === 'semanal' ? 4 : r.cycle === 'quincenal' ? 2 : 1) : 1;
+    const legado = esNomina && !(r.partes > 1) && ['semanal', 'quincenal'].includes(r.cycle);   // nóminas viejas: el valor era el de cada cuota
+    let de = r.partes > 1 ? Number(r.partes) : legado ? (r.cycle === 'semanal' ? 4 : 2) : 1;
+    const base = (Number(r.amount) || 0) * (legado ? de : 1);
     const hoy = C.todayCo(), planVale = plan && (r.ref || esNomina);   // un gasto propio de Finanzas parte de su valor, no de un plan viejo
-    let items = planVale ? plan.items.map((x) => ({ ...x })) : [{ concepto: r.vendor && esNomina ? `Nómina de ${monthName(mes)}` : r.name, valor: (Number(r.amount) || 0) * de }];
+    let items = planVale ? plan.items.map((x) => ({ ...x })) : [{ concepto: r.vendor && esNomina ? `Nómina de ${monthName(mes)}` : r.name, valor: base }];
+    // Si los ítems no llegan al valor del gasto, la diferencia queda como ítem para que diga qué es
+    const faltaInicial = planVale ? base - items.reduce((a, x) => a + (Number(x.valor) > 0 ? Number(x.valor) : 0), 0) : 0;
+    if (faltaInicial > 0) items.push({ concepto: '', valor: Math.round(faltaInicial), falta: true });
     const sumaMes = () => items.reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0), parte = () => (de > 1 ? Math.round(sumaMes() / de) : sumaMes());
     let totalMes = sumaMes(), total0 = parte();
     let tot = total0, fu = [{ account_id: r.account_id || cuentas[0]?.id || '', valor: tot }];
     const efectivo = cuentas.find((a) => a.kind === 'efectivo'), banco = cuentas.find((a) => a.kind === 'banco') || cuentas.find((a) => a !== efectivo);
     const { el, m } = window.App.modal(`<div class="modal-header border-0 pb-0"><div><h2 class="modal-title h5 mb-0">Pagar · ${esc(r.vendor || r.name)}</h2><div class="small text-body-secondary">${esc(r.name)}${r.tax_id ? ` · ${esc(r.tax_id)}` : ''}</div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body"><div class="mb-3"><label class="form-label small mb-1">Cómo se paga</label><select class="form-select" data-forma>${Object.entries(FORMAS).map(([n, f]) => `<option value="${n}" ${+n === de ? 'selected' : ''}>${f[0]}</option>`).join('')}</select></div>
-        <ul class="list-group mb-1" data-items></ul>
+        <div data-aviso></div><ul class="list-group mb-1" data-items></ul>
         <button type="button" class="btn btn-sm btn-link px-0 mb-2" data-mas><i class="bi bi-plus-lg me-1"></i>Agregar ítem</button>
         <ul class="list-group mb-3" data-resumen></ul>
         <div class="mb-3"><label class="form-label small mb-1">Fecha del pago</label><input type="date" class="form-control" data-fecha value="${hoy}"></div>
@@ -111,16 +116,19 @@ DW.ready.then((me) => {
         <div data-fuentes></div><button type="button" class="btn btn-sm btn-link px-0" data-otra><i class="bi bi-plus-lg me-1"></i>Agregar otra cuenta</button><div class="small mt-1" data-dif></div></div>
       <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-ok>Registrar pago</button></div>`);
     const pintaItems = () => {
-      el.querySelector('[data-items]').innerHTML = items.map((x, i) => `<li class="list-group-item d-flex gap-2 align-items-center" data-k="${i}"><input class="form-control form-control-sm" data-concepto value="${esc(x.concepto)}" maxlength="200" placeholder="Concepto" aria-label="Concepto"><div class="input-group input-group-sm" style="width:170px;flex:none"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-valor value="${x.valor || ''}" aria-label="Valor"></div>${items.length > 1 ? '<button type="button" class="btn btn-sm btn-light" data-quita aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : '<span style="width:2rem"></span>'}</li>`).join('');
+      el.querySelector('[data-items]').innerHTML = items.map((x, i) => `<li class="list-group-item d-flex gap-2 align-items-center" data-k="${i}"><input class="form-control form-control-sm" data-concepto value="${esc(x.concepto)}" maxlength="200" placeholder="${x.falta ? '¿Qué es esta plata sin detallar?' : 'Concepto'}" aria-label="Concepto"><div class="input-group input-group-sm" style="width:170px;flex:none"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-valor value="${x.valor || ''}" aria-label="Valor"></div>${items.length > 1 ? '<button type="button" class="btn btn-sm btn-light" data-quita aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : '<span style="width:2rem"></span>'}</li>`).join('');
     };
     const resumen = () => {
       totalMes = sumaMes(); tot = parte();
+      const dif0 = base - sumaMes();
+      const sinNombre = items.filter((x) => x.falta && !String(x.concepto || '').trim() && Number(x.valor) > 0).reduce((n, x) => n + Number(x.valor), 0);
+      el.querySelector('[data-aviso]').innerHTML = sinNombre > 0 ? `<div class="alert alert-warning py-2 small mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Los ítems no llegan al valor del gasto (${money(base)}): <b>${money(sinNombre)}</b> sin detallar. Escribe qué son en la última fila o ajusta el valor.</div>` : dif0 > 0 ? `<div class="alert alert-warning py-2 small mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Los ítems suman ${money(sumaMes())} y el gasto es de ${money(base)}: faltan <b>${money(dif0)}</b> por detallar. Dime qué son o ajusta el valor.</div>` : '';
       el.querySelector('[data-resumen]').innerHTML = `${de > 1 ? `<li class="list-group-item d-flex justify-content-between"><span>Total del ${de === 12 ? 'año' : 'mes'}</span><b>${money(totalMes)}</b></li>` : ''}<li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>${de > 1 ? `Este pago · 1 de ${de} ${FORMAS[de][1]}` : 'Total a pagar'}</b><b>${money(tot)}</b></li>`;
       if (fu.length === 1) { fu[0].valor = tot; const v = el.querySelector('[data-j] [data-v]'); if (v) v.value = tot; }
       estado();
     };
     const dif = () => tot - fu.reduce((a, f) => a + (Number(f.valor) || 0), 0);
-    const estado = () => { const d = dif(); el.querySelector('[data-dif]').innerHTML = d === 0 ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Cuadra con el total</span>' : `<span class="text-danger">${d > 0 ? 'Falta' : 'Sobra'} ${money(Math.abs(d))} para llegar a ${money(tot)}</span>`; el.querySelector('[data-ok]').disabled = d !== 0 || !(tot > 0); };
+    const estado = () => { const d = dif(); el.querySelector('[data-dif]').innerHTML = d === 0 ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Cuadra con el total</span>' : `<span class="text-danger">${d > 0 ? 'Falta' : 'Sobra'} ${money(Math.abs(d))} para llegar a ${money(tot)}</span>`; el.querySelector('[data-ok]').disabled = d !== 0 || !(tot > 0) || items.some((x) => Number(x.valor) > 0 && !String(x.concepto || '').trim()); };
     const pinta = () => { el.querySelector('[data-fuentes]').innerHTML = fu.map((f, i) => `<div class="input-group mb-2" data-j="${i}"><select class="form-select" data-c aria-label="Cuenta"><option value="">Sin cuenta</option>${cuentas.map((a) => `<option value="${a.id}" ${a.id === f.account_id ? 'selected' : ''}>${esc(a.name)}${a.kind === 'efectivo' ? ' (efectivo)' : ''}</option>`).join('')}</select><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-v value="${f.valor}" aria-label="Valor">${fu.length > 1 ? '<button type="button" class="btn btn-outline-secondary" data-x aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : ''}</div>`).join(''); estado(); };
     el.addEventListener('input', (e) => {
       if (e.target.matches('[data-forma]')) { de = Number(e.target.value); resumen(); return; }
@@ -167,7 +175,7 @@ DW.ready.then((me) => {
       columns: [
         { label: 'Nombre', main: true, html: (r) => (r.category === 'nomina' && r.vendor ? `${esc(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}` : `${esc(r.name)}${sub(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}`) },
         { label: 'Tipo', html: (r) => `<span class="badge ${r.category === 'nomina' ? 'text-bg-info' : 'text-bg-light'}">${esc(REC_CAT[r.category] || r.category)}</span>` },
-        { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => (r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b> <span class="small text-body-secondary">${esc(CICLO[r.cycle] || r.cycle)}</span>${sub(`≈ ${money(r.amount)} hoy`)}` : `<b>${money(r.amount)}</b>${sub(r.notes && r.category === 'nomina' ? `${CICLO[r.cycle] || r.cycle} · ${r.notes}` : CICLO[r.cycle] || r.cycle)}`) },
+        { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => (r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b> <span class="small text-body-secondary">${esc(CICLO[r.cycle] || r.cycle)}</span>${sub(`≈ ${money(r.amount)} hoy`)}` : `<b>${money(r.amount)}</b>${sub([CICLO[r.cycle] || r.cycle, r.partes > 1 ? `en ${r.partes} ${r.partes === 12 ? 'meses' : r.partes === 4 ? 'semanas' : 'quincenas'}` : 'de una vez', r.category === 'nomina' ? r.notes : ''].filter(Boolean).join(' · '))}`) },
         { label: 'Este mes', html: (r) => { const p = est.pagados.find((x) => x.recurring_id === r.id), x = est.por_pagar.find((y) => y.id === r.id); return p ? `${chip('ok', 'Pagado')}${sub(money(p.pagado))}` : x ? `${chip(x.fecha < C.todayCo() ? 'bad' : 'soon', 'Por pagar')}${sub(`vence ${day(x.fecha)}`)}` : '<span class="text-body-secondary">—</span>'; } },
         { label: 'Próximo cobro', html: (r) => `${day(r.next_date)}${r.active ? '' : ` ${chip('free', 'Pausado')}`}` },
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) }] });

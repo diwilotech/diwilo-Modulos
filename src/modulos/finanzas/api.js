@@ -146,7 +146,7 @@ export const ENTITIES = {
     async afterUpdate(c, id) { await recomputeInvoice(c.env, c.businessId, id); },
     decorate(c, rows) { const t = today(); rows.forEach((r) => { r.state = invoiceState(r, t); }); return rows; } },
   recurring: { table: 'fin_recurring', label: 'el gasto recurrente', title: 'name', search: ['name', 'vendor'], order: 'active DESC, next_date',
-    fields: { name: 'text!', vendor: 'text', category: ['infraestructura', 'software', 'api', 'ia', 'marketing', 'nomina', 'otro'], currency: ['COP', 'USD'], tax_id: 'text', url: 'text', amount_usd: 'usd', amount: 'money!', fx_rate: 'num', cycle: ['mensual', 'anual', 'quincenal', 'semanal'], next_date: 'date!', cost_center_id: 'int', account_id: 'int', active: 'bool+', notes: 'long' },
+    fields: { name: 'text!', vendor: 'text', category: ['infraestructura', 'software', 'api', 'ia', 'marketing', 'nomina', 'otro'], currency: ['COP', 'USD'], tax_id: 'text', url: 'text', amount_usd: 'usd', amount: 'money!', fx_rate: 'num', cycle: ['mensual', 'anual', 'quincenal', 'semanal'], partes: 'int', next_date: 'date!', cost_center_id: 'int', account_id: 'int', active: 'bool+', notes: 'long' },
     async beforeCreate(c, row) { if (row.currency === 'USD') await applyFx(c, 'recurring', row); },
     async beforeUpdate(c, row, before) { if (['currency', 'amount_usd', 'next_date'].some((k) => k in row)) await applyFx(c, 'recurring', row, before); } },
   reports: { table: 'fin_reports', label: 'el informe', title: 'title', search: ['title', 'content'], order: 'created_at DESC', crear: 'manager',
@@ -298,7 +298,7 @@ export async function chargeRecurring(env, r, d, o = {}) {
 // Tarea diaria: los recurrentes que vencen se registran como gasto y la fecha pasa al siguiente cobro.
 export async function daily(env) {
   const t = today();
-  const due = await all(env, 'SELECT * FROM fin_recurring WHERE active = 1 AND ref IS NULL AND next_date <= ?', t);
+  const due = await all(env, 'SELECT * FROM fin_recurring WHERE active = 1 AND ref IS NULL AND COALESCE(partes, 1) = 1 AND next_date <= ?', t);
   for (const r of due) {
     let d = r.next_date, guard = 0;
     while (d <= t && guard++ < 24) { await chargeRecurring(env, r, d); d = siguienteCobro(d, r.cycle); }
@@ -618,19 +618,19 @@ export function routes(r) {
     if (!ref) throw new HttpError(400, 'Falta ref');
     const name = String(b.name || '').trim().slice(0, 200);
     if (!name) throw new HttpError(400, 'Falta el nombre');
-    const amount = cast('valor', 'money', b.amount) || 0, ciclo = ['mensual', 'anual', 'quincenal', 'semanal'].includes(b.cycle) ? b.cycle : 'mensual';
+    const amount = cast('valor', 'money', b.amount) || 0, ciclo = ['mensual', 'anual', 'quincenal', 'semanal'].includes(b.cycle) ? b.cycle : 'mensual', partes = [1, 2, 4, 12].includes(Number(b.partes)) ? Number(b.partes) : 1;
     const category = ['infraestructura', 'software', 'api', 'ia', 'marketing', 'nomina', 'otro'].includes(b.category) ? b.category : 'otro';
     const cc = await centroPorNombre(c, b.centro_costo);
     const vendor = b.vendor ? String(b.vendor).slice(0, 200) : null, taxId = b.tax_id ? String(b.tax_id).slice(0, 60) : null, notes = b.notes ? String(b.notes).slice(0, 300) : null, url = /^\/[\w\-./#:%?=&]{0,300}$/.test(b.url || '') ? b.url : null;
     const prev = await one(c.env, 'SELECT id FROM fin_recurring WHERE business_id = ? AND ref = ?', c.businessId, ref), t = now();
     if (prev) {
-      await c.env.DB.prepare('UPDATE fin_recurring SET name = ?, vendor = ?, tax_id = ?, category = ?, amount = ?, cycle = ?, cost_center_id = ?, notes = ?, url = ?, active = ?, updated_at = ? WHERE id = ? AND business_id = ?')
-        .bind(name, vendor, taxId, category, amount, ciclo, cc, notes, url, b.active === false ? 0 : 1, t, prev.id, c.businessId).run();
+      await c.env.DB.prepare('UPDATE fin_recurring SET name = ?, vendor = ?, tax_id = ?, category = ?, amount = ?, cycle = ?, partes = ?, cost_center_id = ?, notes = ?, url = ?, active = ?, updated_at = ? WHERE id = ? AND business_id = ?')
+        .bind(name, vendor, taxId, category, amount, ciclo, partes, cc, notes, url, b.active === false ? 0 : 1, t, prev.id, c.businessId).run();
       return json({ id: prev.id, nuevo: false });
     }
     const next = DATE.test(b.next_date || '') ? b.next_date : today();
-    const res = await c.env.DB.prepare(`INSERT INTO fin_recurring (business_id, name, vendor, tax_id, category, amount, currency, cycle, next_date, cost_center_id, active, notes, url, ref, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'COP', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, name, vendor, taxId, category, amount, ciclo, next, cc, b.active === false ? 0 : 1, notes, url, ref, t, t).run();
+    const res = await c.env.DB.prepare(`INSERT INTO fin_recurring (business_id, name, vendor, tax_id, category, amount, currency, cycle, partes, next_date, cost_center_id, active, notes, url, ref, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'COP', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, name, vendor, taxId, category, amount, ciclo, partes, next, cc, b.active === false ? 0 : 1, notes, url, ref, t, t).run();
     return json({ id: res.meta.last_row_id, nuevo: true }, 201);
   });
   // Pagos del mes: se arma el pago de UNA persona (nómina) o de UN servicio con sus ítems; cada plan suma al presupuesto del mes (por centro de costo y categoría)
@@ -677,7 +677,7 @@ export function routes(r) {
     if (!b.pagar) { await audit(c, `Armó el pago de ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}`, { modulo: MOD }); return json({ ok: true, total, pagado: false }, 201); }
     // 2) el pago, repartido entre las cuentas elegidas
     // La nómina semanal o quincenal cubre todo el mes: cada pago es el total dividido entre sus semanas (4) o quincenas (2)
-    const de = !rec ? 1 : [1, 2, 4, 12].includes(Number(b.partes)) ? Number(b.partes) : tipo === 'nomina' ? (rec.cycle === 'semanal' ? 4 : rec.cycle === 'quincenal' ? 2 : 1) : 1, pago = de > 1 ? Math.round(total / de) : total;
+    const de = !rec ? 1 : [1, 2, 4, 12].includes(Number(b.partes ?? rec.partes)) && (b.partes != null || rec.partes > 1) ? Number(b.partes ?? rec.partes) : tipo === 'nomina' ? (rec.cycle === 'semanal' ? 4 : rec.cycle === 'quincenal' ? 2 : 1) : 1, pago = de > 1 ? Math.round(total / de) : total;
     const fuentes = (Array.isArray(b.fuentes) && b.fuentes.length ? b.fuentes : [{ account_id: null, valor: pago }]).slice(0, 6).map((f) => ({ account_id: cast('cuenta', 'int', f.account_id) || null, valor: Math.round(Number(f.valor)) }));
     if (fuentes.some((f) => !(f.valor > 0)) || fuentes.reduce((a, f) => a + f.valor, 0) !== pago) throw new HttpError(400, `Lo que sale de las cuentas debe sumar ${'$' + pago.toLocaleString('es-CO')}`);
     for (const f of fuentes) if (f.account_id) await api.get(c, 'accounts', f.account_id);
