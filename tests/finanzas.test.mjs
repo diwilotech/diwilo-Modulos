@@ -16,7 +16,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const s = (await A.app(`${F}/summary`)).data;
   check('Finanzas: resumen del mes (resultado 380.000)', s.totals?.income === 500000 && s.totals.expense === 120000 && s.totals.net === 380000, JSON.stringify(s.totals));
   const lista = (await A.app(`${F}/accounts`)).data.rows.find((a) => a.id === acc.data.id);
-  check('Finanzas: la lista de cuentas trae el saldo según los registros y lo que falta conciliar', lista?.balance === 1500000 && lista.movimientos === 1 && lista.sin_conciliar === 1 && lista.valor_sin_conciliar === 500000, JSON.stringify(lista));
+  check('Finanzas: la lista de cuentas trae el saldo según los registros y lo que falta conciliar', lista?.balance === 1500000 && lista.movimientos === 1 && lista.sin_conciliar === 1 && lista.valor_sin_conciliar === 500000 && lista.saldo_mes_anterior === 1000000 && lista.movimiento_mes === 500000, JSON.stringify(lista));
   const conc = await A.app(`${F}/accounts/${acc.data.id}/conciliacion`);
   check('Finanzas: la conciliación de una cuenta lista sus movimientos por conciliar', conc.status === 200 && conc.data.rows.length === 1 && conc.data.balance === 1500000 && conc.data.sin_conciliar === 1, JSON.stringify(conc.data).slice(0, 200));
   await A.app(`${F}/movements/${ing.data.id}`, { method: 'PATCH', body: { reconciled: 1 } });

@@ -55,7 +55,7 @@ DW.ready.then((me) => {
       { k: 'category', label: 'Categoría', placeholder: 'opcional' }, { k: 'amount', label: 'Presupuesto (COP)', type: 'money', required: true }],
     accounts: [
       { k: 'name', label: 'Nombre', required: true, placeholder: 'Bancolombia ahorros' }, { k: 'kind', label: 'Tipo', type: 'select', options: [['banco', 'Banco'], ['efectivo', 'Efectivo'], ['tarjeta', 'Tarjeta'], ['billetera', 'Billetera (Nequi, Daviplata)']] },
-      { k: 'bank', label: 'Banco' }, { k: 'last4', label: 'Últimos 4 dígitos' }, { k: 'opening_balance', label: 'Saldo inicial (COP)', type: 'money' }],
+      { k: 'bank', label: 'Banco' }, { k: 'last4', label: 'Últimos 4 dígitos' }, { k: 'opening_balance', label: 'Saldo inicial (COP)', type: 'money', hint: 'lo que tenía la cuenta antes de registrar movimientos aquí' }],
   };
 
   let view = (location.hash || '#resumen').slice(1);
@@ -481,8 +481,9 @@ DW.ready.then((me) => {
       rowActions: () => '<button class="btn btn-sm btn-primary" data-act="conciliar"><i class="bi bi-check2-square me-1"></i>Conciliar</button>',
       onAction: (a, r) => { if (a === 'conciliar') conciliar(r.id); },
       columns: [{ label: 'Cuenta', main: true, html: (r) => `${esc(r.name)}${r.last4 ? ` <span class="text-body-secondary">···${esc(r.last4)}</span>` : ''}` },
-        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) },
-        { label: 'Saldo', cls: 'text-end', html: (r) => `<b class="${r.balance < 0 ? 'text-danger' : ''}">${money(r.balance)}</b>${r.sin_conciliar ? `<div class="small text-danger fw-normal">Sin conciliar ${money(r.valor_sin_conciliar)} (${r.sin_conciliar})</div>` : r.movimientos ? '<div class="small text-success fw-normal">Todo conciliado</div>' : '<div class="small text-body-secondary fw-normal">Sin movimientos</div>'}` }] });
+        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo mes anterior', cls: 'text-end', html: (r) => `<b class="${r.saldo_mes_anterior < 0 ? 'text-danger' : ''}">${money(r.saldo_mes_anterior)}</b>${sub('con lo que cerró el mes pasado')}` },
+        { label: 'Movimiento del mes', cls: 'text-end', html: (r) => `<b class="${r.movimiento_mes < 0 ? 'text-danger' : r.movimiento_mes > 0 ? 'text-success' : ''}">${r.movimiento_mes > 0 ? '+' : ''}${money(r.movimiento_mes)}</b>${sub('entró menos salió este mes')}` },
+        { label: 'Total en cuenta', cls: 'text-end', html: (r) => `<b class="${r.balance < 0 ? 'text-danger' : ''}">${money(r.balance)}</b>${r.sin_conciliar ? `<div class="small text-danger fw-normal">Sin conciliar ${money(r.valor_sin_conciliar)} (${r.sin_conciliar})</div>` : r.movimientos ? '<div class="small text-success fw-normal">Todo conciliado</div>' : '<div class="small text-body-secondary fw-normal">Sin movimientos</div>'}` }] });
     // Conciliación de una cuenta en una ventana fija: por mes, con lo que quedó sin conciliar de meses anteriores. «Vi el movimiento» marca y «Guardar» concilia.
     async function conciliar(id) {
       let d; try { d = await api(`${B}/accounts/${id}/conciliacion?estado=todos`); } catch (x) { toast(x.message, false); return; }
