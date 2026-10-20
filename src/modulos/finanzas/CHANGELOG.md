@@ -1,5 +1,8 @@
 # Finanzas — cambios
 
+## 1.10.1 · 2026-10-23
+- **El pago se hace en Finanzas**: el botón «Pagar» de un gasto recurrente (incluida la nómina) muestra el total con sus ítems (los de la nómina vienen de la app), la fecha y de qué cuentas sale, con «Mitad y mitad» y cuentas extra; queda en Movimientos con su documento. La nómina trae además un acceso a sus ítems (`url`). `#pagar:<id>` abre ese pago directo.
+
 ## 1.10.0 · 2026-10-23
 - **Finanzas queda general y liviano**: se quitan de la pantalla el editor de pagos del mes y la tabla de nómina (la nómina se maneja en la app, p. ej. Equipo de CD Academia). Siguen en la API (`/pagos-mes`, documento del pago) para que las apps los usen.
 - **La nómina es un gasto recurrente más**: tipo **Nómina**, con **nombre, cédula o NIT, valor y ciclo** (mensual, quincenal, semanal), este mes, próximo cobro, centro de costo y estado. Las apps lo crean con `POST /api/finanzas/recurring/externo` (por `ref`); el botón de la fila lleva a la app (`url`) donde se paga. Los recurrentes con `ref` no se cobran solos.

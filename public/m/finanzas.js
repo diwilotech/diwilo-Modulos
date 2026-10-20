@@ -58,7 +58,8 @@ DW.ready.then((me) => {
       { k: 'bank', label: 'Banco' }, { k: 'last4', label: 'Últimos 4 dígitos' }, { k: 'opening_balance', label: 'Saldo inicial (COP)', type: 'money', hint: 'lo que tenía la cuenta antes de registrar movimientos aquí' }],
   };
 
-  let view = (location.hash || '#resumen').slice(1);
+  const abrirPagar = /^#pagar:(\d+)$/.exec(location.hash)?.[1] || null;   // desde Equipo: abre el pago de ese gasto
+  let view = abrirPagar ? 'recurrentes' : (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   function render() {
     history.replaceState(null, '', `#${view}`);
@@ -84,6 +85,49 @@ DW.ready.then((me) => {
     $('[data-recibo]', el)?.addEventListener('click', () => nuevoRecibo(() => t.load()));
   }
 
+  // Pagar un gasto recurrente: se ve el total con sus ítems (los de la nómina vienen de Equipo), la fecha y de qué cuentas sale (se puede dividir: efectivo y banco).
+  async function pagarRecurrente(r, despues) {
+    const mes = C.todayCo().slice(0, 7), esNomina = r.category === 'nomina';
+    const key = r.ref ? String(r.ref).replace(/^academia:nomina:/, '') : `r:${r.id}`;
+    const [pm, cuentas] = await Promise.all([api(`${B}/pagos-mes?month=${mes}`).catch(() => ({ planes: [] })), C.refs(B, 'accounts').catch(() => [])]);
+    const plan = pm.planes.find((x) => x.tipo === (esNomina ? 'nomina' : 'servicios') && x.key === key);
+    if (esNomina && !plan && !(r.amount > 0)) { toast(`Primero arma los ítems de ${r.vendor || r.name} este mes${r.url ? ' (botón de ítems)' : ''}`, false); return; }
+    const items = plan ? plan.items : [{ concepto: r.name, valor: r.amount }], editable = !plan;
+    const total0 = items.reduce((a, x) => a + (Number(x.valor) || 0), 0), hoy = C.todayCo();
+    let tot = total0, fu = [{ account_id: r.account_id || cuentas[0]?.id || '', valor: tot }];
+    const efectivo = cuentas.find((a) => a.kind === 'efectivo'), banco = cuentas.find((a) => a.kind === 'banco') || cuentas.find((a) => a !== efectivo);
+    const { el, m } = window.App.modal(`<div class="modal-header border-0 pb-0"><div><h2 class="modal-title h5 mb-0">Pagar · ${esc(r.vendor || r.name)}</h2><div class="small text-body-secondary">${esc(r.name)}${r.tax_id ? ` · ${esc(r.tax_id)}` : ''}</div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body"><ul class="list-group mb-3">${items.map((x, i) => `<li class="list-group-item d-flex gap-2 align-items-center"><span class="flex-grow-1">${esc(x.concepto)}</span>${editable ? `<div class="input-group input-group-sm" style="width:170px"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-valor value="${x.valor}" aria-label="Valor"></div>` : `<b>${money(x.valor)}</b>`}</li>`).join('')}
+          <li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>Total</b><b data-total>${money(total0)}</b></li></ul>
+        <div class="mb-3"><label class="form-label small mb-1">Fecha del pago</label><input type="date" class="form-control" data-fecha value="${hoy}"></div>
+        <div class="d-flex align-items-center mb-1"><label class="form-label small mb-0 flex-grow-1">De dónde sale</label><button type="button" class="btn btn-sm btn-outline-secondary" data-mitad><i class="bi bi-scissors me-1"></i>Mitad y mitad</button></div>
+        <div data-fuentes></div><button type="button" class="btn btn-sm btn-link px-0" data-otra><i class="bi bi-plus-lg me-1"></i>Agregar otra cuenta</button><div class="small mt-1" data-dif></div></div>
+      <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-ok>Registrar pago</button></div>`);
+    const dif = () => tot - fu.reduce((a, f) => a + (Number(f.valor) || 0), 0);
+    const estado = () => { const d = dif(); el.querySelector('[data-dif]').innerHTML = d === 0 ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Cuadra con el total</span>' : `<span class="text-danger">${d > 0 ? 'Falta' : 'Sobra'} ${money(Math.abs(d))} para llegar a ${money(tot)}</span>`; el.querySelector('[data-ok]').disabled = d !== 0 || !(tot > 0); };
+    const pinta = () => { el.querySelector('[data-fuentes]').innerHTML = fu.map((f, i) => `<div class="input-group mb-2" data-j="${i}"><select class="form-select" data-c aria-label="Cuenta"><option value="">Sin cuenta</option>${cuentas.map((a) => `<option value="${a.id}" ${a.id === f.account_id ? 'selected' : ''}>${esc(a.name)}${a.kind === 'efectivo' ? ' (efectivo)' : ''}</option>`).join('')}</select><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-v value="${f.valor}" aria-label="Valor">${fu.length > 1 ? '<button type="button" class="btn btn-outline-secondary" data-x aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : ''}</div>`).join(''); estado(); };
+    el.addEventListener('input', (e) => {
+      if (e.target.matches('[data-valor]')) { tot = Math.max(0, Math.round(Number(e.target.value) || 0)); el.querySelector('[data-total]').textContent = money(tot); if (fu.length === 1) { fu[0].valor = tot; el.querySelector('[data-j] [data-v]').value = tot; } estado(); return; }
+      const j = e.target.closest('[data-j]'); if (!j) return; const f = fu[+j.dataset.j];
+      if (e.target.matches('[data-c]')) f.account_id = e.target.value ? Number(e.target.value) : ''; else f.valor = Math.round(Number(e.target.value) || 0); estado();
+    });
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-mitad]')) { const a = Math.floor(tot / 2); fu = [{ account_id: efectivo?.id || '', valor: a }, { account_id: banco?.id || '', valor: tot - a }]; pinta(); }
+      if (e.target.closest('[data-otra]')) { fu.push({ account_id: '', valor: 0 }); pinta(); }
+      const x = e.target.closest('[data-x]'); if (x) { fu.splice(+x.closest('[data-j]').dataset.j, 1); pinta(); }
+    });
+    el.querySelector('[data-ok]').addEventListener('click', async (e) => {
+      const btn = e.currentTarget; btn.disabled = true;
+      const lista = editable ? [{ concepto: r.name, valor: tot }] : items;
+      try {
+        const x = await api(`${B}/pagos-mes`, { method: 'POST', body: { month: mes, tipo: esNomina ? 'nomina' : 'servicios', key, tercero: r.vendor || r.name, tax_id: r.tax_id || '', cost_center_id: r.cost_center_id || null, recurring_id: r.id, items: lista,
+          pagar: true, fecha: el.querySelector('[data-fecha]').value, fuentes: fu.map((f) => ({ account_id: f.account_id || null, valor: f.valor })) } });
+        toast(`Pago registrado en Movimientos${x.movimientos > 1 ? ` (${x.movimientos} cuentas)` : ''}`); m.hide(); despues?.();
+      } catch (ex) { toast(ex.message, false); btn.disabled = false; }
+    });
+    pinta();
+  }
+
   function recurrentes(el) {
     el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software, servicios y la nómina. Los que crea otra app (como la nómina de Equipo) se pagan allá; los demás se cobran solos cada día a las 3:00 a. m. o con el botón «Pagar».</div><div data-t></div>';
     let est = { pagados: [], por_pagar: [] };
@@ -96,18 +140,9 @@ DW.ready.then((me) => {
     };
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
-      // Los que gestiona otra app (nómina) tienen su enlace; los demás se pagan aquí
-      rowActions: (r) => (!r.active || RO ? '' : r.url ? `<a class="btn btn-sm btn-outline-primary" href="${esc(r.url)}"><i class="bi bi-box-arrow-up-right me-1"></i>Pagar en ${esc(r.category === 'nomina' ? 'Equipo' : 'su app')}</a>`
-        : `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>`),
-      onAction: async (a, r) => {
-        if (a !== 'pagar') return;
-        const out = await C.form({ title: `Pagar · ${r.name}`, base: B, okText: 'Registrar pago',
-          fields: [{ k: 'vendor', label: 'Proveedor', placeholder: 'A quién se le paga' }, { k: 'date', label: 'Fecha del pago', type: 'date', required: true }, { k: 'amount', label: `Valor (COP)${r.currency === 'USD' ? ` · ${usd(r.amount_usd)} ≈ hoy` : ''}`, type: 'money', required: true },
-            { k: 'account_id', label: 'Se paga desde', ref: 'accounts' }],
-          values: { vendor: r.vendor || '', date: C.todayCo(), amount: r.amount, account_id: r.account_id } });
-        if (!out) return;
-        try { const x = await api(`${B}/recurring/${r.id}/pagar`, { method: 'POST', body: out }); toast(`Pago registrado: queda en Movimientos. Próximo cobro ${day(x.siguiente)}`); await cargaEstado(); t.load(); } catch (e) { toast(e.message, false); }
-      },
+      // Todo se paga aquí; los que gestiona otra app (nómina) tienen además el enlace a sus ítems
+      rowActions: (r) => (!r.active || RO ? '' : `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>${r.url ? ` <a class="btn btn-sm btn-outline-secondary" href="${esc(r.url)}" title="Ver o editar sus ítems" aria-label="Ítems"><i class="bi bi-list-check"></i></a>` : ''}`),
+      onAction: (a, r) => { if (a === 'pagar') pagarRecurrente(r, () => cargaEstado().then(() => t.load())); },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
         { label: 'Nombre', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}` },
@@ -119,6 +154,9 @@ DW.ready.then((me) => {
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
         { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Pausado')) }] });
     cargaEstado().then(() => t.load());
+    // Desde Equipo: «Pagar» de una persona abre aquí su pago (#pagar:<id del gasto>)
+    const abrirId = abrirPagar;
+    if (abrirId && !RO) { api(`${B}/recurring?limit=500`).then((x) => { const r = x.rows.find((y) => y.id === Number(abrirId)); if (r) pagarRecurrente(r, () => cargaEstado().then(() => t.load())); }).catch(() => {}); }
   }
 
   function centros(el) {
