@@ -71,8 +71,6 @@ DW.ready.then((me) => {
     const t = C.table({ el, base: B, entity: 'movements', title: 'movimiento', newText: 'Nuevo movimiento', refs: ['cost_centers', 'accounts'], fields: F.movements,
       filters: [{ k: 'kind', options: [['', 'Todos los movimientos'], ['ingreso', 'Ingresos'], ['gasto', 'Gastos']] }], defaults: () => ({ kind: 'gasto', date: C.todayCo() }),
       extraButtons: RO ? '' : '<button class="btn btn-outline-primary" data-recibo><i class="bi bi-receipt me-1"></i>Recibo de caja</button>',
-      rowActions: (r) => (r.receipt_id ? `<button class="btn btn-sm btn-outline-secondary" data-act="recibo"><i class="bi bi-filetype-pdf me-1"></i>Recibo ${esc(r.receipt_number)}</button> ${archivos(r.receipt_files)}` : ''),
-      onAction: (a, r) => { if (a === 'recibo') window.open(`${B}/receipts/${r.receipt_id}/pdf`, '_blank', 'noopener'); },
       empty: 'Sin movimientos. Los gastos recurrentes y los cobros los crean solos.', emptyIcon: 'bi-arrow-down-up',
       columns: [
         { label: 'Fecha', html: (r) => day(r.date) },
@@ -80,7 +78,7 @@ DW.ready.then((me) => {
         { label: 'Categoría', html: (r) => (r.category ? `<span class="badge text-bg-light">${esc(r.category)}</span>` : '—') },
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
         { label: 'Cuenta', html: (r, R) => C.refName(R, 'accounts', r.account_id) },
-        { label: 'Monto', cls: 'text-end text-nowrap', html: (r) => `<b class="${r.kind === 'ingreso' ? 'text-success' : ''}">${r.kind === 'ingreso' ? '+' : '−'}${money(r.amount)}</b>${usdLine(r)}` },
+        { label: 'Monto', cls: 'text-end text-nowrap', html: (r) => `<b class="${r.kind === 'ingreso' ? 'text-success' : ''}">${r.kind === 'ingreso' ? '+' : '−'}${money(r.amount)}</b>${r.receipt_id ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/receipts/${r.receipt_id}/pdf" target="_blank" rel="noopener" title="Ver el recibo ${esc(r.receipt_number)} (PDF)" aria-label="Ver el recibo (PDF)"><i class="bi bi-filetype-pdf"></i></a>${(r.receipt_files || []).map((f) => ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}" aria-label="${esc(f.nombre)}"><i class="bi bi-paperclip"></i></a>`).join('')}` : ''}${usdLine(r)}` },
         { label: 'Conciliado', html: (r) => (r.reconciled ? '<i class="bi bi-check-circle text-success" title="Conciliado"></i>' : '') }] });
     t.load();
     $('[data-recibo]', el)?.addEventListener('click', () => nuevoRecibo(() => t.load()));
@@ -199,18 +197,8 @@ DW.ready.then((me) => {
         { label: 'Emisión', html: (r) => day(r.issue_date) }, { label: 'Vence', html: (r) => day(r.due_date) },
         { label: 'Total', cls: 'text-end', html: (r) => money(r.total) }, { label: 'Saldo', cls: 'text-end', html: (r) => money(Math.max(0, r.total - r.paid)) },
         { label: 'Estado', html: (r) => chip(...(INV_STATE[r.state] || ['free', r.state])) }],
-      rowActions: (r) => `<button class="btn btn-sm btn-outline-primary" data-act="ver"><i class="bi bi-eye me-1"></i>Ver</button> ${r.kind === 'emitida' ? '<button class="btn btn-sm btn-outline-secondary" data-act="pdf"><i class="bi bi-filetype-pdf me-1"></i>PDF</button> ' : ''}${['pendiente', 'vencida'].includes(r.state) && !RO ? `<button class="btn btn-sm btn-outline-primary" data-act="pay"><i class="bi bi-cash me-1"></i>${r.kind === 'emitida' ? 'Registrar cobro' : 'Registrar pago'}</button>` : ''}`,
-      onAction: async (a, r) => {
-        if (a === 'ver') return detalleCuenta(r.id, () => t.load());
-        if (a === 'pdf') return openPdf(r.id);
-        if (a !== 'pay') return;
-        if (r.kind === 'emitida') return payReceipt(r, () => t.load());
-        const out = await C.form({ title: `Pago de ${r.number || '#' + r.id}`, base: B,
-          fields: [{ k: 'date', label: 'Fecha', type: 'date', required: true }, { k: 'amount', label: 'Monto (COP)', type: 'money', required: true }, { k: 'account_id', label: 'Cuenta', ref: 'accounts' }],
-          values: { date: C.todayCo(), amount: r.total - r.paid } });
-        if (!out) return;
-        try { await api(`${B}/invoices/${r.id}/pay`, { method: 'POST', body: out }); toast('Registrado: queda como movimiento ligado a la factura'); t.load(); } catch (x) { toast(x.message, false); }
-      } });
+      rowActions: () => '<button class="btn btn-sm btn-outline-primary" data-act="ver"><i class="bi bi-eye me-1"></i>Ver</button>',
+      onAction: (a, r) => { if (a === 'ver') detalleCuenta(r.id, () => t.load()); } });
     t.load();
     $('[data-recibida]', el)?.addEventListener('click', () => simpleInvoice(null, () => t.load()));
     const openPdf = (id) => window.open(`${B}/invoices/${id}/pdf`, '_blank', 'noopener');
@@ -234,7 +222,7 @@ DW.ready.then((me) => {
           <div class="modal-body"><div class="row g-2 mb-3"><div class="col-4"><div class="small text-body-secondary">Total</div><b>${money(f.total)}</b></div><div class="col-4"><div class="small text-body-secondary">${cobro ? 'Cobrado' : 'Pagado'}</div><b class="text-success">${money(f.paid)}</b></div>
             <div class="col-4"><div class="small text-body-secondary">Saldo</div><b class="${saldo ? 'text-danger' : ''}">${money(saldo)}</b> ${chip(...(INV_STATE[f.state] || ['free', f.state]))}</div></div>
             <div class="d-flex flex-wrap gap-2 mb-3">${cobro ? '<button class="btn btn-sm btn-outline-secondary" data-cuenta><i class="bi bi-filetype-pdf me-1"></i>Ver la cuenta de cobro (PDF)</button>' : ''}
-              ${!RO && ['pendiente', 'vencida'].includes(f.state) && cobro ? '<button class="btn btn-sm btn-primary" data-cobrar><i class="bi bi-cash me-1"></i>Registrar cobro</button>' : ''}</div>
+              ${!RO && ['pendiente', 'vencida'].includes(f.state) ? `<button class="btn btn-sm btn-primary" data-cobrar><i class="bi bi-cash me-1"></i>${cobro ? 'Registrar cobro' : 'Registrar pago'}</button>` : ''}</div>
             <h3 class="h6">${cobro ? 'Pagos recibidos' : 'Pagos registrados'}</h3>
             ${cobro ? (d.recibos.length ? `<ul class="list-group">${d.recibos.map((x) => `<li class="list-group-item d-flex flex-wrap gap-2 align-items-center ${x.voided ? 'opacity-50' : ''}"><div class="flex-grow-1"><b>${esc(x.number)}</b>${x.voided ? ' ' + chip('free', 'Anulado') : ''}
                 <div class="small text-body-secondary">${day(x.date)} · ${esc(x.method || '—')}${x.concept ? ` · ${esc(x.concept)}` : ''}</div></div><b class="${x.voided ? 'text-decoration-line-through' : ''}">${money(x.amount)}</b>
@@ -242,7 +230,7 @@ DW.ready.then((me) => {
                 ${me.canManage && !x.voided && !RO ? `<button class="btn btn-sm btn-outline-danger" data-void="${x.id}" data-n="${esc(x.number)}" aria-label="Anular recibo"><i class="bi bi-x-circle"></i></button>` : ''}</li>`).join('')}</ul>` : '<p class="small text-body-secondary mb-0">Aún no hay pagos.</p>')
             : (d.pagos.length ? `<ul class="list-group">${d.pagos.map((x) => `<li class="list-group-item d-flex gap-2"><div class="flex-grow-1">${day(x.date)}<div class="small text-body-secondary">${esc(x.description || '')}</div></div><b>${money(x.amount)}</b></li>`).join('')}</ul>` : '<p class="small text-body-secondary mb-0">Aún no hay pagos.</p>')}</div>`;
         mo.querySelector('[data-cuenta]')?.addEventListener('click', () => openPdf(f.id));
-        mo.querySelector('[data-cobrar]')?.addEventListener('click', async () => { await payReceipt({ ...f }, async () => { await pinta(); changed?.(); }); });
+        mo.querySelector('[data-cobrar]')?.addEventListener('click', async () => { await (cobro ? payReceipt : payInvoice)({ ...f }, async () => { await pinta(); changed?.(); }); });
         mo.querySelectorAll('[data-recibo]').forEach((b) => b.addEventListener('click', () => window.open(`${B}/receipts/${b.dataset.recibo}/pdf`, '_blank', 'noopener')));
         mo.querySelectorAll('[data-void]').forEach((b) => b.addEventListener('click', async () => {
           if (!(await confirm({ title: `¿Anular el recibo ${b.dataset.n}?`, text: 'El ingreso se quita y la cuenta de cobro vuelve a deber ese valor.', ok: 'Anular', danger: true }))) return;
@@ -250,6 +238,15 @@ DW.ready.then((me) => {
         }));
       };
       pinta();
+    }
+
+    // Pago de una factura recibida (por pagar): queda como gasto ligado a la factura.
+    async function payInvoice(inv, after) {
+      const out = await C.form({ title: `Pago de ${inv.number || '#' + inv.id}`, base: B,
+        fields: [{ k: 'date', label: 'Fecha', type: 'date', required: true }, { k: 'amount', label: 'Monto (COP)', type: 'money', required: true }, { k: 'account_id', label: 'Cuenta', ref: 'accounts' }],
+        values: { date: C.todayCo(), amount: inv.total - inv.paid } });
+      if (!out) return;
+      try { await api(`${B}/invoices/${inv.id}/pay`, { method: 'POST', body: out }); toast('Registrado: queda como movimiento ligado a la factura'); await after?.(); } catch (x) { toast(x.message, false); }
     }
 
     // Ventana para pagar una cuenta por cobrar: genera un recibo de caja (se pueden hacer varios hasta cubrir el saldo).
