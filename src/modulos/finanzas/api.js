@@ -524,7 +524,7 @@ export function routes(r) {
     const acc = await one(c.env, 'SELECT * FROM fin_accounts WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
     if (!acc) throw new HttpError(404, 'No encontrada');
     const solo = c.url.searchParams.get('estado') !== 'todos';
-    const rows = await all(c.env, `SELECT * FROM fin_movements WHERE business_id = ? AND account_id = ? ${solo ? 'AND reconciled = 0' : ''} ORDER BY date DESC, id DESC LIMIT 300`, c.businessId, acc.id);
+    const rows = await all(c.env, `SELECT * FROM fin_movements WHERE business_id = ? AND account_id = ? ${solo ? 'AND reconciled = 0' : ''} ORDER BY date DESC, id DESC LIMIT 1500`, c.businessId, acc.id);
     await ENTITIES.movements.decorate(c, rows);
     const t = await one(c.env, `SELECT SUM(CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) n, COUNT(*) total, COALESCE(SUM(reconciled = 0), 0) sin, COALESCE(SUM(CASE WHEN reconciled = 1 THEN (CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) END), 0) conc FROM fin_movements WHERE business_id = ? AND account_id = ?`, c.businessId, acc.id);
     const l = await one(c.env, 'SELECT COUNT(*) n FROM fin_bank_lines WHERE business_id = ? AND account_id = ? AND movement_id IS NULL', c.businessId, acc.id);

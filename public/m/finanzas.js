@@ -482,18 +482,21 @@ DW.ready.then((me) => {
       onAction: (a, r) => { if (a === 'conciliar') conciliar(r.id); },
       columns: [{ label: 'Cuenta', main: true, html: (r) => `${esc(r.name)}${r.last4 ? ` <span class="text-body-secondary">···${esc(r.last4)}</span>` : ''}` },
         { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) }] });
-    // Conciliación de una cuenta en una ventana fija: se marcan los pagos que ya salieron en el banco y, abajo, «Guardar» los concilia.
-    // Los ya conciliados bajan al final de la lista.
+    // Conciliación de una cuenta en una ventana fija: por mes, con lo que quedó sin conciliar de meses anteriores. «Vi el movimiento» marca y «Guardar» concilia.
     async function conciliar(id) {
       let d; try { d = await api(`${B}/accounts/${id}/conciliacion?estado=todos`); } catch (x) { toast(x.message, false); return; }
       $('[data-acct]', el).value = String(id); $('[data-filter]', el).value = String(id); loadLines();
-      let rows = d.rows.map((m) => ({ ...m, marca: !!m.reconciled })), ocultar = false, guardando = false;   // marca = lo que se ve marcado; reconciled = lo ya guardado
+      let rows = d.rows.map((m) => ({ ...m, marca: !!m.reconciled })), ocultar = false, guardando = false, mes = C.todayCo().slice(0, 7);   // marca = lo que se ve marcado; reconciled = lo ya guardado
+      const hoyMes = C.todayCo().slice(0, 7);
+      const moverMes = (m, n) => { const [y, mm] = m.split('-').map(Number), t = y * 12 + mm - 1 + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
       const mo = document.createElement('div');
       mo.className = 'modal fade'; mo.tabIndex = -1;
       mo.innerHTML = `<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg"><div class="modal-content">
-        <div class="modal-header"><div><h2 class="modal-title h5 mb-0">Conciliar · ${esc(d.cuenta.name)}</h2><div class="small text-body-secondary">Marca los pagos que ya salieron en tu extracto del banco y toca «Guardar».</div></div><button type="button" class="btn-close" data-cerrar aria-label="Cerrar"></button></div>
-        <div class="modal-body"><div class="row g-2 mb-3" data-resumen></div>
-          <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="soloPend" data-solo><label class="form-check-label small" for="soloPend">Ocultar los ya conciliados</label></div>
+        <div class="modal-header"><div><h2 class="modal-title h5 mb-0">Conciliar · ${esc(d.cuenta.name)}</h2><div class="small text-body-secondary">Toca «Vi el movimiento» en los pagos que ya salieron en tu extracto del banco y luego «Guardar».</div></div><button type="button" class="btn-close" data-cerrar aria-label="Cerrar"></button></div>
+        <div class="modal-body"><div class="d-flex align-items-center gap-2 mb-3"><button type="button" class="btn btn-light" data-mes="-1" aria-label="Mes anterior"><i class="bi bi-chevron-left"></i></button><b class="flex-grow-1 text-center text-capitalize" data-mes-nombre></b>
+            <button type="button" class="btn btn-light" data-mes="1" aria-label="Mes siguiente"><i class="bi bi-chevron-right"></i></button><button type="button" class="btn btn-light" data-mes="hoy">Este mes</button></div>
+          <div class="row g-2 mb-3" data-resumen></div><div data-anteriores></div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h3 class="h6 mb-0 flex-grow-1 text-capitalize" data-titulo-mes></h3><div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="soloPend" data-solo><label class="form-check-label small" for="soloPend">Ocultar los ya conciliados</label></div></div>
           <div class="table-responsive"><table class="table table-sm align-middle mb-0"><tbody data-filas></tbody></table></div></div>
         <div class="modal-footer justify-content-between"><span class="small text-body-secondary" data-estado></span><span class="d-flex gap-2"><button type="button" class="btn btn-light" data-cerrar>Cerrar</button>${RO ? '' : '<button type="button" class="btn btn-primary" data-guardar disabled><i class="bi bi-check2-square me-1"></i>Guardar conciliación</button>'}</span></div></div></div>`;
       document.body.appendChild(mo);
@@ -501,24 +504,39 @@ DW.ready.then((me) => {
       mo.addEventListener('hidden.bs.modal', () => mo.remove());
       const cambios = () => rows.filter((m) => m.marca !== !!m.reconciled);
       const signed = (m) => (m.kind === 'ingreso' ? m.amount : -m.amount);
-      const orden = () => [...rows].sort((p, q) => (p.reconciled ? 1 : 0) - (q.reconciled ? 1 : 0) || q.date.localeCompare(p.date) || q.id - p.id);
+      const suma = (l) => l.reduce((a, m) => a + signed(m), 0);
+      const nombreMes = (m) => monthName(m);
+      const orden = (l) => [...l].sort((p, q) => (p.reconciled ? 1 : 0) - (q.reconciled ? 1 : 0) || q.date.localeCompare(p.date) || q.id - p.id);
       const fila = (m) => `<tr data-m="${m.id}" class="${m.marca !== !!m.reconciled ? 'table-warning' : m.reconciled ? 'table-success' : ''}">
-        <td style="width:2.2rem"><input class="form-check-input" type="checkbox" data-marca="${m.id}" ${m.marca ? 'checked' : ''} ${RO ? 'disabled' : ''} aria-label="Ya salió en el banco"></td>
         <td class="text-nowrap">${day(m.date)}</td><td>${esc(m.description || m.category || '—')}${sub(m.counterparty)}</td>
         <td class="text-end text-nowrap"><b class="${m.kind === 'ingreso' ? 'text-success' : ''}">${m.kind === 'ingreso' ? '+' : '−'}${money(m.amount)}</b>${m.receipt_id ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/receipts/${m.receipt_id}/pdf" target="_blank" rel="noopener" title="Ver el recibo ${esc(m.receipt_number)} (PDF)"><i class="bi bi-filetype-pdf"></i></a>` : ''}${(m.receipt_files || []).map((f) => ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip"></i></a>`).join('')}</td>
-        <td class="text-end" style="width:9rem">${m.marca !== !!m.reconciled ? '<span class="badge text-bg-warning">Sin guardar</span>' : m.reconciled ? '<span class="text-success small fw-semibold"><i class="bi bi-check-circle-fill me-1"></i>Conciliado</span>' : ''}</td></tr>`;
+        <td class="text-end text-nowrap" style="width:11rem">${m.marca !== !!m.reconciled ? '<span class="badge text-bg-warning me-1">Sin guardar</span>' : m.reconciled ? '<span class="text-success small fw-semibold me-1"><i class="bi bi-check-circle-fill"></i></span>' : ''}${RO ? '' : `<button type="button" class="btn btn-sm ${m.marca ? 'btn-success' : 'btn-outline-secondary'}" data-marca="${m.id}" aria-pressed="${m.marca}">${m.marca ? '<i class="bi bi-check2 me-1"></i>Visto' : 'Vi el movimiento'}</button>`}</td></tr>`;
       const pinta = () => {
-        const lista = orden().filter((m) => !ocultar || !m.reconciled), sin = rows.filter((m) => !m.reconciled);
-        $('[data-resumen]', mo).innerHTML = `<div class="col-6"><div class="small text-body-secondary">Conciliado con el banco</div><b class="text-success">${money(rows.filter((m) => m.reconciled).reduce((a, m) => a + signed(m), 0))}</b></div>
-          <div class="col-6"><div class="small text-body-secondary">Por conciliar</div><b class="${sin.length ? 'text-danger' : ''}">${money(sin.reduce((a, m) => a + signed(m), 0))}</b> <span class="small text-body-secondary">(${sin.length} de ${rows.length})</span></div>`;
-        $('[data-filas]', mo).innerHTML = lista.length ? lista.map(fila).join('') : '<tr><td class="text-body-secondary small">No hay movimientos por conciliar en esta cuenta.</td></tr>';
+        const ant = moverMes(mes, -1), delMes = (m) => rows.filter((x) => x.date.slice(0, 7) === m);
+        const esteMes = delMes(mes), mesAnt = delMes(ant), sinAnteriores = rows.filter((x) => x.date.slice(0, 7) < mes && !x.reconciled);
+        const sinDe = (l) => l.filter((x) => !x.reconciled), tarjeta = (titulo, l) => `<div class="col-6"><div class="dw-card py-2"><div class="small text-body-secondary text-capitalize">${titulo}</div><b class="fs-5 ${suma(l) < 0 ? 'text-danger' : ''}">${money(suma(l))}</b>
+          <div class="small ${sinDe(l).length ? 'text-danger' : 'text-body-secondary'}">${sinDe(l).length ? `Sin conciliar ${money(suma(sinDe(l)))} (${sinDe(l).length})` : l.length ? 'Todo conciliado' : 'Sin movimientos'}</div></div></div>`;
+        $('[data-mes-nombre]', mo).textContent = nombreMes(mes);
+        mo.querySelector('[data-mes="1"]').disabled = mes >= hoyMes;
+        $('[data-resumen]', mo).innerHTML = tarjeta(`Total ${mes === hoyMes ? 'mes anterior' : nombreMes(ant)}`, mesAnt) + tarjeta(mes === hoyMes ? 'Total este mes' : `Total ${nombreMes(mes)}`, esteMes);
+        $('[data-anteriores]', mo).innerHTML = sinAnteriores.length ? `<div class="alert alert-warning py-2 mb-3"><div class="d-flex flex-wrap gap-2 align-items-center"><div class="flex-grow-1"><b><i class="bi bi-exclamation-triangle me-1"></i>Sin conciliar de meses anteriores: ${money(suma(sinAnteriores))}</b>
+            <span class="small">(${sinAnteriores.length} movimiento${sinAnteriores.length === 1 ? '' : 's'})</span></div><button type="button" class="btn btn-sm btn-outline-dark" data-ver-ant>${verAnt ? 'Ocultar' : 'Verlos aquí'}</button></div>
+            ${verAnt ? `<div class="table-responsive mt-2 bg-body rounded"><table class="table table-sm align-middle mb-0"><tbody>${orden(sinAnteriores).map(fila).join('')}</tbody></table></div>` : ''}</div>` : '';
+        const lista = orden(esteMes).filter((m) => !ocultar || !m.reconciled);
+        $('[data-titulo-mes]', mo).textContent = `Movimientos de ${nombreMes(mes)}`;
+        $('[data-filas]', mo).innerHTML = lista.length ? lista.map(fila).join('') : `<tr><td class="text-body-secondary small">${esteMes.length ? 'Todo lo de este mes ya está conciliado.' : 'No hay movimientos de esta cuenta en este mes.'}</td></tr>`;
         const n = cambios().length, g = $('[data-guardar]', mo);
         $('[data-estado]', mo).textContent = n ? `${n} cambio${n === 1 ? '' : 's'} sin guardar` : '';
         if (g) { g.disabled = !n || guardando; g.innerHTML = guardando ? '<span class="spinner-border spinner-border-sm me-1"></span>Guardando…' : `<i class="bi bi-check2-square me-1"></i>Guardar conciliación${n ? ` (${n})` : ''}`; }
       };
-      mo.addEventListener('change', (e) => {
-        const c = e.target.closest('[data-marca]'); if (c) { rows.find((x) => x.id === Number(c.dataset.marca)).marca = c.checked; pinta(); }
-        if (e.target.matches('[data-solo]')) { ocultar = e.target.checked; pinta(); }
+      let verAnt = false;
+      mo.addEventListener('change', (e) => { if (e.target.matches('[data-solo]')) { ocultar = e.target.checked; pinta(); } });
+      mo.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-marca]');
+        if (b) { const m = rows.find((x) => x.id === Number(b.dataset.marca)); m.marca = !m.marca; return pinta(); }   // «Vi el movimiento»: marca o desmarca (se guarda abajo)
+        const nav = e.target.closest('[data-mes]');
+        if (nav) { mes = nav.dataset.mes === 'hoy' ? hoyMes : moverMes(mes, Number(nav.dataset.mes)); if (mes > hoyMes) mes = hoyMes; return pinta(); }
+        if (e.target.closest('[data-ver-ant]')) { verAnt = !verAnt; pinta(); }
       });
       const cerrar = async () => { if (cambios().length && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cierras, se pierden las marcas que no guardaste.', ok: 'Cerrar sin guardar', danger: true }))) return; modal.hide(); };
       mo.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', cerrar));

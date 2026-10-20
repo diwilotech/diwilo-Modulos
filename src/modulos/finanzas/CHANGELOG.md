@@ -2,7 +2,7 @@
 
 ## 1.5.2 · 2026-10-21
 - Bancos y conciliación: la lista de cuentas vuelve a ser simple (nombre, tipo, banco, saldo inicial y el botón «Conciliar»); sin saldos ni totales.
-- «Conciliar» abre una ventana fija (no se cierra sin querer): marcas los pagos que ya salieron en el banco, los cambios quedan resaltados «Sin guardar» y el botón «Guardar conciliación» de abajo los concilia; al guardar, los conciliados bajan al final. Opción para ocultar los ya conciliados.
+- «Conciliar» abre una ventana fija (no se cierra sin querer): tocas «Vi el movimiento» en los pagos que ya salieron en el banco, los cambios quedan resaltados «Sin guardar» y el botón «Guardar conciliación» de abajo los concilia; al guardar, los conciliados bajan al final. Opción para ocultar los ya conciliados. La ventana va por meses (flechas y «Este mes»): «Total mes anterior» y «Total este mes» con lo que falta conciliar de cada uno, y un aviso con lo sin conciliar de meses anteriores que se puede ver y conciliar ahí mismo.
 
 ## 1.5.1 · 2026-10-21
 - **Bancos y conciliación**: la lista de cuentas muestra el «Saldo según registros» (saldo inicial + movimientos de la cuenta) y lo que falta por conciliar, con el total en cuentas arriba.
