@@ -59,6 +59,17 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
     && (await A.app(`${F}/recurring`)).data.rows.find((x) => x.id === recArr.data.id).next_date > hoy);
   check('Finanzas: pagos del mes no acepta un tipo ni un recurrente ajeno', (await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'otro', key: 'x', items: [{ concepto: 'a', valor: 1 }] } })).status === 400
     && (await B.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'servicios', key: 'r:1', recurring_id: recArr.data.id, items: [{ concepto: 'a', valor: 1 }] } })).status === 404);
+  // La nómina de otra app se registra como gasto recurrente: nombre, cédula, tipo nómina, valor y ciclo; no se cobra sola
+  const ex1 = await A.app(`${F}/recurring/externo`, { method: 'POST', body: { ref: 'academia:nomina:u:9', name: 'Nómina · Ana', vendor: 'Ana Gómez', tax_id: 'CC 1020304050', category: 'nomina', amount: 1500000, cycle: 'quincenal', next_date: hoy, centro_costo: 'Administración', notes: 'Sueldo', url: '/staff/equipo.html#pago:u:9' } });
+  const exFila = () => A.app(`${F}/recurring`).then((r) => r.data.rows.find((x) => x.ref === 'academia:nomina:u:9'));
+  const f1 = await exFila();
+  check('Finanzas: una app registra la nómina como gasto recurrente con cédula, ciclo y centro de costo', ex1.status === 201 && f1?.category === 'nomina' && f1.tax_id === 'CC 1020304050' && f1.cycle === 'quincenal' && f1.url === '/staff/equipo.html#pago:u:9' && f1.cost_center_id > 0, JSON.stringify(f1));
+  const ex2 = await A.app(`${F}/recurring/externo`, { method: 'POST', body: { ref: 'academia:nomina:u:9', name: 'Nómina · Ana', vendor: 'Ana María Gómez', tax_id: 'CC 1020304050', category: 'nomina', amount: 1600000, cycle: 'quincenal', next_date: '2030-01-01' } });
+  const f2 = await exFila();
+  check('Finanzas: actualizar la nómina cambia el valor pero no la fecha del próximo cobro ni duplica', ex2.status === 200 && f2.amount === 1600000 && f2.vendor === 'Ana María Gómez' && f2.next_date === f1.next_date && (await A.app(`${F}/recurring`)).data.rows.filter((x) => x.ref === 'academia:nomina:u:9').length === 1);
+  const pagoRec = await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'nomina', key: 'u:9', tercero: 'Ana Gómez', tax_id: 'CC 1020304050', recurring_id: f1.id, cost_center_id: f1.cost_center_id, items: [{ concepto: 'Pago quincenal', valor: 800000 }], pagar: true, fuentes: [{ account_id: acc.data.id, valor: 800000 }] } });
+  const f3 = await exFila(), movAna = (await A.app(`${F}/movements?limit=100`)).data.rows.find((m) => m.recurring_id === f1.id);
+  check('Finanzas: pagar la nómina de una persona la registra y pasa al siguiente cobro (quincena)', pagoRec.status === 201 && movAna?.category === 'Nómina' && movAna.tax_id === 'CC 1020304050' && f3.next_date > f1.next_date, JSON.stringify([pagoRec.data, movAna?.category, f1.next_date, f3.next_date]));
   check('Finanzas: saldo de la cuenta suma el ingreso', s.accounts?.find((a) => a.id === acc.data.id)?.balance === 1500000);
   check('Finanzas: flujo de caja de 9 meses', s.cash_flow?.length === 9);
 

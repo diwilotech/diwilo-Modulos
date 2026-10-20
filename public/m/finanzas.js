@@ -16,7 +16,7 @@ DW.ready.then((me) => {
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const RO = me.business.readOnly;
-  const REC_CAT = { infraestructura: 'Infraestructura', software: 'Software', api: 'API', ia: 'IA', marketing: 'Marketing', otro: 'Otro' };
+  const REC_CAT = { infraestructura: 'Infraestructura', software: 'Software', api: 'API', ia: 'IA', marketing: 'Marketing', nomina: 'Nómina', otro: 'Otro' };
   const CC_KIND = { proyecto: 'Proyecto', app: 'App', cliente: 'Cliente', departamento: 'Departamento' };
   const INV_STATE = { pendiente: ['soon', 'Pendiente'], vencida: ['bad', 'Vencida'], pagada: ['ok', 'Pagada'], anulada: ['free', 'Anulada'] };
   const usd = (n) => `US$${Number(n || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -44,7 +44,7 @@ DW.ready.then((me) => {
       { k: 'name', label: 'Gasto', required: true, placeholder: 'Arriendo, internet, software…' }, { k: 'vendor', label: 'Proveedor' },
       { k: 'category', label: 'Tipo', type: 'select', options: Object.entries(REC_CAT) }, { k: 'currency', label: 'Moneda', type: 'select', options: [['COP', 'Pesos (COP)'], ['USD', 'Dólares (USD)']] },
       { k: 'amount_usd', label: 'Valor en dólares', type: 'usd', hint: 'solo si es en USD' }, { k: 'amount', label: 'Valor (COP)', type: 'money', hint: 'en USD se calcula con la TRM' },
-      { k: 'cycle', label: 'Ciclo', type: 'select', options: [['mensual', 'Mensual'], ['anual', 'Anual']] }, { k: 'next_date', label: 'Próximo cobro', type: 'date', required: true },
+      { k: 'cycle', label: 'Ciclo', type: 'select', options: [['mensual', 'Mensual'], ['quincenal', 'Quincenal'], ['semanal', 'Semanal'], ['anual', 'Anual']] }, { k: 'tax_id', label: 'Cédula o NIT', placeholder: 'de a quién se le paga' }, { k: 'next_date', label: 'Próximo cobro', type: 'date', required: true },
       { k: 'cost_center_id', label: 'Centro de costo', ref: 'cost_centers' }, { k: 'account_id', label: 'Se paga desde', ref: 'accounts' },
       { k: 'active', label: 'Estado', type: 'bool', check: 'Activo', default: true }, { k: 'notes', label: 'Notas', type: 'long' }],
     cost_centers: [
@@ -58,9 +58,7 @@ DW.ready.then((me) => {
       { k: 'bank', label: 'Banco' }, { k: 'last4', label: 'Últimos 4 dígitos' }, { k: 'opening_balance', label: 'Saldo inicial (COP)', type: 'money', hint: 'lo que tenía la cuenta antes de registrar movimientos aquí' }],
   };
 
-  // Desde Equipo: «Pago» de una persona abre Finanzas con su pago listo para armar (#pagos:<persona>)
-  const irAPago = /^#pagos:(.+)$/.exec(location.hash) ? decodeURIComponent(RegExp.$1) : null;
-  let view = irAPago ? 'recurrentes' : (location.hash || '#resumen').slice(1);
+  let view = (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   function render() {
     history.replaceState(null, '', `#${view}`);
@@ -87,8 +85,9 @@ DW.ready.then((me) => {
   }
 
   function recurrentes(el) {
-    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software y servicios que se cobran solos. Cada día, a las 3:00 a. m., los que vencen se registran como gasto en su centro de costo y la fecha pasa al siguiente cobro.</div><div class="d-flex align-items-center gap-2 mb-2"><i class="bi bi-receipt fs-5"></i><h2 class="h5 mb-0">Servicios</h2><span class="small text-body-secondary">arriendo, internet, software…</span></div><div data-t></div><div data-nomina class="mt-5 pt-4 border-top"></div>';
+    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software, servicios y la nómina. Los que crea otra app (como la nómina de Equipo) se pagan allá; los demás se cobran solos cada día a las 3:00 a. m. o con el botón «Pagar».</div><div data-t></div>';
     let est = { pagados: [], por_pagar: [] };
+    const CICLO = { mensual: 'mensual', anual: 'anual', quincenal: 'quincenal', semanal: 'semanal' };
     const cargaEstado = async () => {
       est = await api(`${B}/recurring/estado`).catch(() => est);
       C.kpis($('[data-tot]', el), [['Este mes', money((est.total_pagado || 0) + (est.total_por_pagar || 0)), `${monthName(est.mes || C.todayCo().slice(0, 7))}: lo pagado más lo que falta`, 'bi-calendar-month'],
@@ -97,64 +96,29 @@ DW.ready.then((me) => {
     };
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
-      extraButtons: RO ? '' : '<button class="btn btn-outline-primary" data-pago-suelto><i class="bi bi-cash-coin me-1"></i>Pago de otro servicio</button>',
-      rowActions: (r) => (r.active && !RO ? `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>` : ''),
-      onAction: (a, r) => { if (a === 'pagar') pagosMes({ foco: r.id, despues: refrescar }); },
+      // Los que gestiona otra app (nómina) tienen su enlace; los demás se pagan aquí
+      rowActions: (r) => (!r.active || RO ? '' : r.url ? `<a class="btn btn-sm btn-outline-primary" href="${esc(r.url)}"><i class="bi bi-box-arrow-up-right me-1"></i>Pagar en ${esc(r.category === 'nomina' ? 'Equipo' : 'su app')}</a>`
+        : `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>`),
+      onAction: async (a, r) => {
+        if (a !== 'pagar') return;
+        const out = await C.form({ title: `Pagar · ${r.name}`, base: B, okText: 'Registrar pago',
+          fields: [{ k: 'vendor', label: 'Proveedor', placeholder: 'A quién se le paga' }, { k: 'date', label: 'Fecha del pago', type: 'date', required: true }, { k: 'amount', label: `Valor (COP)${r.currency === 'USD' ? ` · ${usd(r.amount_usd)} ≈ hoy` : ''}`, type: 'money', required: true },
+            { k: 'account_id', label: 'Se paga desde', ref: 'accounts' }],
+          values: { vendor: r.vendor || '', date: C.todayCo(), amount: r.amount, account_id: r.account_id } });
+        if (!out) return;
+        try { const x = await api(`${B}/recurring/${r.id}/pagar`, { method: 'POST', body: out }); toast(`Pago registrado: queda en Movimientos. Próximo cobro ${day(x.siguiente)}`); await cargaEstado(); t.load(); } catch (e) { toast(e.message, false); }
+      },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
-        { label: 'Gasto', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}` },
-        { label: 'Tipo', html: (r) => `<span class="badge text-bg-light">${esc(REC_CAT[r.category] || r.category)}</span>` },
-        { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => (r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b> <span class="small text-body-secondary">${esc(r.cycle)}</span>${sub(`≈ ${money(r.amount)} hoy`)}` : `${money(r.amount)}${sub(r.cycle)}`) },
+        { label: 'Nombre', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}` },
+        { label: 'Cédula o NIT', html: (r) => (r.tax_id ? esc(r.tax_id) : '<span class="text-body-secondary">—</span>') },
+        { label: 'Tipo', html: (r) => `<span class="badge ${r.category === 'nomina' ? 'text-bg-info' : 'text-bg-light'}">${esc(REC_CAT[r.category] || r.category)}</span>` },
+        { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => (r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b> <span class="small text-body-secondary">${esc(CICLO[r.cycle] || r.cycle)}</span>${sub(`≈ ${money(r.amount)} hoy`)}` : `<b>${money(r.amount)}</b>${sub(r.notes && r.category === 'nomina' ? `${CICLO[r.cycle] || r.cycle} · ${r.notes}` : CICLO[r.cycle] || r.cycle)}`) },
         { label: 'Este mes', html: (r) => { const p = est.pagados.find((x) => x.recurring_id === r.id), x = est.por_pagar.find((y) => y.id === r.id); return p ? `${chip('ok', 'Pagado')}${sub(money(p.pagado))}` : x ? `${chip(x.fecha < C.todayCo() ? 'bad' : 'soon', 'Por pagar')}${sub(`vence ${day(x.fecha)}`)}` : '<span class="text-body-secondary">—</span>'; } },
         { label: 'Próximo cobro', html: (r) => day(r.next_date) },
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
         { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Pausado')) }] });
-    // Nómina del mes: cada persona con lo que se aproxima a pagar; «Armar pago» abre su editor (sus ítems) y «Ver pago» el ya pagado
-    const nomEl = $('[data-nomina]', el);
-    async function cargaNomina() {
-      const mesN = C.todayCo().slice(0, 7);
-      let personas, aprox, pm;
-      try { [personas, aprox, pm] = await Promise.all([api('/api/team/nomina/personas').then((r) => r.personas), api(`/api/team/nomina/aproximado?month=${mesN}`).then((r) => r.rows).catch(() => []), api(`${B}/pagos-mes?month=${mesN}`)]); }
-      catch (_) { nomEl.innerHTML = ''; return; }   // la app no tiene nómina
-      const rk = (k) => String(k || '').replace(/[^\w.-]/g, '_').slice(0, 60);
-      const hoyD = C.todayCo(), diaHoy = Number(hoyD.slice(8)), ultimoDia = new Date(Date.UTC(Number(mesN.slice(0, 4)), Number(mesN.slice(5, 7)), 0)).getUTCDate();
-      // Cómo se paga en el mes: cuántos pagos son, de cuánto cada uno y cuántos faltan
-      const calendario = (p, a, pagado) => {
-        if (!a?.definido) return { total: null, texto: 'Sin pago definido', falta: '' };
-        const per = p.periodicidad, v = money(p.valor);
-        if (per === 'mensual') return { total: a.estimado, texto: `1 pago de ${v} · cada mes`, falta: pagado ? 'Pagado' : 'Falta 1 de 1' };
-        if (per === 'quincenal') return { total: a.estimado, texto: `2 pagos de ${v} · cada quincena`, falta: pagado ? 'Pagados' : `Faltan ${diaHoy <= 15 ? 2 : 1} de 2` };
-        if (per === 'semanal') { const f = Math.min(4, Math.max(0, Math.ceil((ultimoDia - diaHoy + 1) / 7))); return { total: a.estimado, texto: `4 pagos de ${v} · cada semana`, falta: pagado ? 'Pagados' : `Faltan ${f} de 4` }; }
-        if (per === 'clase') return { total: a.estimado, texto: `${a.clases} clase${a.clases === 1 ? '' : 's'} × ${v}`, falta: pagado ? 'Pagado' : `Faltan ${a.clases_faltan} de ${a.clases}` };
-        return { total: a.estimado, texto: `${a.horas} h × ${v}`, falta: pagado ? 'Pagado' : `Faltan ${a.horas_faltan} h de ${a.horas}` };
-      };
-      nomEl.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><i class="bi bi-people fs-5"></i><h2 class="h5 mb-0 flex-grow-1">Nómina de ${esc(monthName(mesN))}</h2></div>
-        ${personas.length ? `<div class="dw-card p-0 p-md-2"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Persona</th><th>Cédula o NIT</th><th class="text-end">Valor</th><th>Estado</th><th></th></tr></thead><tbody>
-        ${personas.map((p, i) => {
-          const a = aprox.find((x) => x.key === p.key), pl = pm.planes.find((x) => x.tipo === 'nomina' && x.key === p.key), pg = pm.pagados.find((x) => x.tipo === 'nomina' && x.key === rk(p.key));
-          const cal = calendario(p, a, !!pg);
-          return `<tr><td><b>${esc(p.nombre)}</b>${sub(p.detalle)}</td><td>${p.documento ? esc(p.documento) : '<span class="text-body-secondary small" title="Se pone desde Equipo">Falta · en Equipo</span>'}</td>
-            <td class="text-end">${cal.total === null ? '<span class="text-body-secondary small">Sin pago definido</span>' : `<b>${money(cal.total)}</b>`}${RO || !me.canManage ? '' : ` <button type="button" class="btn btn-sm btn-link py-0" data-def-pago="${i}" title="Definir cuánto se le paga"><i class="bi bi-pencil"></i></button>`}
-              <div class="small text-body-secondary fw-normal">${esc(cal.texto)}</div>${cal.falta ? `<div class="small fw-normal ${pg ? 'text-success' : 'text-danger'}">${esc(cal.falta)}</div>` : ''}</td>
-            <td>${pg ? chip('ok', `Pagado ${money(pg.total)}`) : pl ? chip('soon', `Armado ${money(pl.amount)}`) : '<span class="text-body-secondary small">Sin armar</span>'}</td>
-            <td class="text-end"><button type="button" class="btn btn-sm ${pg ? 'btn-outline-secondary' : 'btn-primary'}" data-pago-persona="${i}">${pg ? 'Ver pago' : RO ? 'Ver' : 'Armar y pagar'}</button></td></tr>`; }).join('')}</tbody></table></div></div>`
-          : '<div class="dw-card text-body-secondary">Aún no hay nadie en el equipo.</div>'}`;
-      nomEl.onclick = async (e) => {
-        const b = e.target.closest('[data-pago-persona]'); if (b) return pagosMes({ persona: personas[+b.dataset.pagoPersona].key, despues: refrescar });
-        const d = e.target.closest('[data-def-pago]'); if (!d) return;
-        const p = personas[+d.dataset.defPago];   // lo que se le paga normalmente y su cédula (se guarda en el equipo de la app)
-        const out = await C.form({ title: `Pago de ${p.nombre}`, okText: 'Guardar', base: B,
-          fields: [{ k: 'valor', label: 'Cuánto se le paga (COP)', type: 'money' },
-            { k: 'periodicidad', label: 'Cada', type: 'select', options: [['mensual', 'Mes'], ['quincenal', 'Quincena'], ['semanal', 'Semana'], ['clase', 'Clase dictada'], ['hora', 'Hora']] }],
-          values: { valor: p.valor || 0, periodicidad: p.periodicidad || 'mensual' } });
-        if (!out) return;
-        try { await api(`/api/team/nomina/${encodeURIComponent(p.key)}`, { method: 'PUT', body: { valor: Number(out.valor) || 0, periodicidad: out.periodicidad, centro_costo: p.centro_costo, notas: p.notas } }); toast('Pago guardado'); cargaNomina(); }
-        catch (x) { toast(x.message, false); }
-      };
-    }
-    const refrescar = () => cargaEstado().then(() => { t.load(); cargaNomina(); });
-    refrescar();
-    $('[data-pago-suelto]', el)?.addEventListener('click', () => pagosMes({ nuevo: true, despues: refrescar }));
+    cargaEstado().then(() => t.load());
   }
 
   function centros(el) {
@@ -226,162 +190,6 @@ DW.ready.then((me) => {
       values: { date: C.todayCo(), method: 'Efectivo' } });
     if (!out) return;
     try { const r = await api(`${B}/receipts`, { method: 'POST', body: out }); toast(`Recibo de caja ${r.receipt.number} generado`); window.open(`${B}/receipts/${r.receipt.id}/pdf`, '_blank', 'noopener'); after?.(); } catch (x) { toast(x.message, false); }
-  }
-  // Pagos del mes. Se arma el pago de UNA persona (nómina) o de UN servicio, con sus ítems (las clases del profesional, el sueldo, un bono…): cada plan suma al presupuesto del mes
-  // y «Pagar» lo registra en Movimientos, desde una o varias cuentas (p. ej. mitad en efectivo y mitad en el banco).
-  async function pagosMes({ foco = null, persona = null, nuevo = false, despues } = {}) {
-    let mes = C.todayCo().slice(0, 7);
-    const cuentas = await C.refs(B, 'accounts').catch(() => []), centros = await C.refs(B, 'cost_centers').catch(() => []);
-    let personas = null;
-    try { personas = (await api('/api/team/nomina/personas')).personas; } catch (_) { personas = null; }   // la app no tiene nómina: solo servicios
-    const mo = document.createElement('div');
-    mo.className = 'modal fade'; mo.tabIndex = -1;
-    mo.innerHTML = `<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl"><div class="modal-content">
-      <div class="modal-header"><div class="flex-grow-1"><h2 class="modal-title h5 mb-0" data-titulo>Pago</h2><div class="small text-body-secondary" data-sub>Edita los ítems: «Guardar presupuesto» lo suma al presupuesto del mes y «Pagar» lo registra en Movimientos.</div></div><button type="button" class="btn-close" data-cerrar aria-label="Cerrar"></button></div>
-      <div class="modal-body" data-cuerpo><p class="text-body-secondary">Cargando…</p></div><div class="modal-footer justify-content-between" data-pie></div></div></div>`;
-    document.body.appendChild(mo);
-    const modal_ = new bootstrap.Modal(mo, { backdrop: 'static', keyboard: false });
-    mo.addEventListener('hidden.bs.modal', () => { mo.remove(); despues?.(); });
-    const cuerpo = mo.querySelector('[data-cuerpo]'), pie = mo.querySelector('[data-pie]'), titulo = mo.querySelector('[data-titulo]');
-    const rk = (k) => String(k || '').replace(/[^\w.-]/g, '_').slice(0, 60);
-    const PER = { mensual: 'mensual', quincenal: 'quincenal', semanal: 'semanal', clase: 'por clase', hora: 'por hora' }, FACTOR = { mensual: 1, quincenal: 2, semanal: 4 };
-    const BASE = { mensual: 'Sueldo mensual', quincenal: 'Pago de 2 quincenas', semanal: 'Pago de 4 semanas' };
-    let datos = null, cur = null, sucio = false;
-    const cargar = async () => { datos = await api(`${B}/pagos-mes?month=${mes}`); };
-    const plan = (t, k) => datos.planes.find((x) => x.tipo === t && x.key === k);
-    const pagado = (t, k) => datos.pagados.find((x) => x.tipo === t && x.key === rk(k));
-    const centroNombre = (id) => centros.find((x) => x.id === id)?.name || null;
-
-    /* ---- armar el pago de una persona o servicio ---- */
-    async function armar(def) {   // def: { tipo, key, tercero, recurring_id?, centroId?, items?, tercero editable? }
-      const t = def.tipo, k = def.key, pl = plan(t, k), pg = pagado(t, k);
-      let items = (pl?.items || def.items || []).map((x) => ({ ...x }));
-      let centro = pl ? pl.cost_center_id : (def.centroId ?? null), tercero = pl?.tercero ?? def.tercero ?? '', taxId = pl?.tax_id ?? def.taxId ?? '';
-      if (!pl && def.sugerir) items = await def.sugerir();
-      cur = { def, pagado: pg }; sucio = false;
-      titulo.textContent = `${t === 'nomina' ? 'Pago de nómina' : 'Pago de servicio'} · ${tercero || 'nuevo'}`;
-      const total = () => items.reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0);
-      // Los ítems se ven por grupos: sueldo, clases y otros (en servicios, lo que se paga)
-      const GRUPOS = { Sueldo: ['bi-wallet2', 'Sueldo definido'], Clases: ['bi-journal-bookmark', 'Clases que dicta'], Otros: ['bi-plus-circle', 'Otros ítems (bonos, auxilios…)'], Servicio: ['bi-receipt', 'Lo que se paga'] };
-      const GRUPOS_ORDEN = ['Sueldo', 'Clases', 'Otros', 'Servicio'], grupoNuevo = t === 'nomina' ? 'Otros' : 'Servicio';
-      const grupoDe = (x) => x.grupo || (x.fijo || /^(Sueldo mensual|Pago de \d+ (quincenas|semanas))$/.test(x.concepto || '') ? 'Sueldo' : /^Clase \d+/.test(x.concepto || '') ? 'Clases' : grupoNuevo);
-      const dibuja = () => {
-        const bloqueado = !!pg;
-        // Lo que ya escribiste (cédula, centro de costo, proveedor) se conserva al volver a dibujar (agregar o quitar un ítem)
-        if (cuerpo.querySelector('[data-taxid]')) {
-          taxId = cuerpo.querySelector('[data-taxid]').value;
-          if (t !== 'nomina') tercero = cuerpo.querySelector('[data-tercero]').value;
-          centro = cuerpo.querySelector('[data-centro]').value ? Number(cuerpo.querySelector('[data-centro]').value) : null;
-        }
-        cuerpo.innerHTML = `<div class="d-flex align-items-center gap-2 mb-3"><span class="small text-body-secondary">Mes del pago</span><input type="month" class="form-control form-control-sm w-auto" data-mes value="${mes}" ${bloqueado ? '' : ''} aria-label="Mes"></div>
-          ${pg ? `<div class="alert alert-success py-2"><i class="bi bi-check-circle-fill me-1"></i><b>Pagado ${money(pg.total)}</b> ${pg.fuentes.map((f) => `<span class="small ms-2">${esc(cuentas.find((a) => a.id === f.account_id)?.name || 'Sin cuenta')}: ${money(f.valor)}</span>`).join('')}</div>` : ''}
-          <div class="row g-2 mb-3"><div class="col-md-4"><label class="form-label small mb-1">${t === 'nomina' ? 'Persona' : 'Proveedor o servicio'}</label><input class="form-control" data-tercero value="${esc(tercero)}" maxlength="200" ${t === 'nomina' || bloqueado ? 'disabled' : ''} placeholder="Ej.: Claro, Inmobiliaria…"></div>
-            <div class="col-md-4"><label class="form-label small mb-1">Cédula o NIT</label><input class="form-control" data-taxid value="${esc(taxId)}" maxlength="40" ${bloqueado || t === 'nomina' ? 'disabled' : ''} placeholder="Para el documento del pago">${t === 'nomina' ? '<div class="form-text">Se pone desde Equipo.</div>' : ''}</div>
-            <div class="col-md-4"><label class="form-label small mb-1">Centro de costo</label><select class="form-select" data-centro ${bloqueado ? 'disabled' : ''}><option value="">Sin centro de costo</option>${centros.map((x) => `<option value="${x.id}" ${x.id === centro ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div></div>
-          <div class="d-flex align-items-baseline gap-2 mb-2"><h3 class="h6 mb-0">Ítems que se pagan</h3><span class="small text-body-secondary">Ponle valor a los que quieras pagar; los que dejes vacíos no cuentan.</span></div>
-          ${GRUPOS_ORDEN.filter((g) => items.some((x) => grupoDe(x) === g) || g === grupoNuevo).map((g) => {
-            const its = items.map((x, i) => ({ x, i })).filter((o) => grupoDe(o.x) === g), [ico, nom] = GRUPOS[g], conValor = its.filter((o) => Number(o.x.valor) > 0).length;
-            return `<div class="card mb-3"><div class="card-header bg-body-tertiary d-flex align-items-center gap-2 py-2"><i class="bi ${ico}"></i><b>${nom}</b>${its.length > 1 ? `<span class="small text-body-secondary">${conValor} de ${its.length} con valor</span>` : ''}<span class="ms-auto fw-semibold" data-sub="${g}">${money(its.reduce((a, o) => a + (Number(o.x.valor) > 0 ? Math.round(Number(o.x.valor)) : 0), 0))}</span></div>
-              <ul class="list-group list-group-flush">${its.map(({ x, i }) => `<li class="list-group-item d-flex flex-wrap align-items-center gap-2 ${Number(x.valor) > 0 ? '' : 'opacity-75'}" data-i="${i}">
-                <div class="flex-grow-1" style="min-width:180px">${x.fijo || x.detalle ? `<div class="fw-semibold">${esc(x.concepto)}</div>${x.detalle ? `<div class="small text-body-secondary">${esc(x.detalle)}</div>` : ''}` : `<input class="form-control form-control-sm" data-f="concepto" value="${esc(x.concepto)}" maxlength="200" ${bloqueado ? 'disabled' : ''} placeholder="${t === 'nomina' ? 'Bono, auxilio…' : 'Qué se paga'}" aria-label="Concepto">`}</div>
-                <div class="input-group input-group-sm" style="width:170px"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-f="valor" value="${x.valor || ''}" placeholder="Sin valor" ${bloqueado ? 'disabled' : ''} aria-label="Valor"></div>
-                ${bloqueado || x.fijo ? '<span style="width:2rem"></span>' : '<button type="button" class="btn btn-sm btn-light" data-quitar aria-label="Quitar"><i class="bi bi-x-lg"></i></button>'}</li>`).join('') || '<li class="list-group-item text-body-secondary small">Aún no hay ítems aquí.</li>'}</ul>
-              ${g === grupoNuevo && !bloqueado ? '<div class="card-footer bg-transparent py-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-mas><i class="bi bi-plus-lg me-1"></i>Agregar ítem</button></div>' : ''}</div>`; }).join('')}`;
-        pie.innerHTML = `<span>Total: <b data-total>${money(total())}</b>${sucio ? ' <span class="badge text-bg-warning ms-1">Sin guardar</span>' : ''}</span><span class="d-flex gap-2"><button type="button" class="btn btn-light" data-cerrar>Cerrar</button>${bloqueado || RO ? '' : '<button type="button" class="btn btn-outline-primary" data-guardar>Guardar presupuesto</button><button type="button" class="btn btn-primary" data-pagar><i class="bi bi-cash-coin me-1"></i>Pagar</button>'}</span>`;
-      };
-      dibuja();
-      cur.leer = () => ({ items: items.filter((x) => x.concepto && Number(x.valor) > 0).map((x) => ({ concepto: x.concepto, valor: Math.round(Number(x.valor)) })), tercero: mo.querySelector('[data-tercero]')?.value.trim() || tercero, taxId: mo.querySelector('[data-taxid]')?.value.trim() || '', centro: mo.querySelector('[data-centro]')?.value || null, total: total() });
-      cur.items = items; cur.ref = () => { const v = cur.leer(); return { month: mes, tipo: t, key: k, tercero: v.tercero, tax_id: v.taxId, cost_center_id: v.centro || null, recurring_id: def.recurring_id || null, items: v.items }; };
-      cur.add = () => { items.push({ concepto: '', valor: '', grupo: grupoNuevo }); sucio = true; dibuja(); };
-      cur.quitar = (i) => { items.splice(i, 1); sucio = true; dibuja(); };
-      cur.editar = (i, f, v) => {
-        items[i][f] = v; sucio = true; const tt = mo.querySelector('[data-total]'); if (tt) tt.textContent = money(total());
-        for (const g of GRUPOS_ORDEN) { const el_ = mo.querySelector(`[data-sub="${g}"]`); if (el_) el_.textContent = money(items.filter((x) => grupoDe(x) === g).reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0)); }
-        const li = mo.querySelector(`li[data-i="${i}"]`); if (li) li.classList.toggle('opacity-75', !(Number(items[i].valor) > 0));
-      };
-      cur.total = total;
-    }
-    async function guardar(pagar, extra = {}) {
-      const body = { ...cur.ref(), ...extra, pagar };
-      if (!body.items.length) { toast('Ponle valor a al menos un ítem', false); return false; }
-      try { const r = await api(`${B}/pagos-mes`, { method: 'POST', body }); toast(pagar ? `Pago registrado en Movimientos${r.movimientos > 1 ? ` (${r.movimientos} cuentas)` : ''}` : 'Presupuesto del mes guardado'); await cargar(); return true; }
-      catch (x) { toast(x.message, false); return false; }
-    }
-    // Ventana de pago: fecha y de qué cuentas sale (se puede dividir: p. ej. mitad efectivo y mitad banco)
-    function ventanaPago() {
-      const tot = cur.total();
-      if (!(tot > 0)) return toast('Ponle valor a al menos un ítem', false);
-      const efectivo = cuentas.find((a) => a.kind === 'efectivo'), banco = cuentas.find((a) => a.kind === 'banco') || cuentas.find((a) => a !== efectivo);
-      let fuentes = [{ account_id: cuentas[0]?.id || '', valor: tot }];
-      const { el, m } = window.App.modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Pagar ${money(tot)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
-        <div class="modal-body"><div class="mb-3"><label class="form-label small mb-1">Fecha del pago</label><input type="date" class="form-control" data-fecha value="${C.todayCo()}"></div>
-          <div class="d-flex align-items-center mb-1"><label class="form-label small mb-0 flex-grow-1">De dónde sale</label><button type="button" class="btn btn-sm btn-outline-secondary" data-mitad><i class="bi bi-scissors me-1"></i>Mitad y mitad</button></div>
-          <div data-fuentes></div><button type="button" class="btn btn-sm btn-link px-0" data-otra><i class="bi bi-plus-lg me-1"></i>Agregar otra cuenta</button><div class="small mt-1" data-dif></div></div>
-        <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-ok>Registrar pago</button></div>`);
-      const pinta = () => {
-        el.querySelector('[data-fuentes]').innerHTML = fuentes.map((f, i) => `<div class="input-group mb-2" data-j="${i}"><select class="form-select" data-c aria-label="Cuenta"><option value="">Sin cuenta</option>${cuentas.map((a) => `<option value="${a.id}" ${a.id === f.account_id ? 'selected' : ''}>${esc(a.name)}${a.kind === 'efectivo' ? ' (efectivo)' : ''}</option>`).join('')}</select>
-          <span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-v value="${f.valor}" aria-label="Valor">${fuentes.length > 1 ? '<button type="button" class="btn btn-outline-secondary" data-x aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : ''}</div>`).join('');
-        const dif = tot - fuentes.reduce((a, f) => a + (Number(f.valor) || 0), 0);
-        el.querySelector('[data-dif]').innerHTML = dif === 0 ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Cuadra con el total</span>' : `<span class="text-danger">${dif > 0 ? 'Falta' : 'Sobra'} ${money(Math.abs(dif))} para llegar a ${money(tot)}</span>`;
-        el.querySelector('[data-ok]').disabled = dif !== 0;
-      };
-      el.addEventListener('input', (e) => { const j = e.target.closest('[data-j]'); if (!j) return; const f = fuentes[+j.dataset.j]; if (e.target.matches('[data-c]')) f.account_id = e.target.value ? Number(e.target.value) : ''; else f.valor = Math.round(Number(e.target.value) || 0); if (e.target.matches('[data-v]')) { const dif = tot - fuentes.reduce((a, g) => a + (Number(g.valor) || 0), 0); el.querySelector('[data-dif]').innerHTML = dif === 0 ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Cuadra con el total</span>' : `<span class="text-danger">${dif > 0 ? 'Falta' : 'Sobra'} ${money(Math.abs(dif))} para llegar a ${money(tot)}</span>`; el.querySelector('[data-ok]').disabled = dif !== 0; } });
-      el.addEventListener('change', (e) => { if (e.target.matches('[data-c]')) { const j = e.target.closest('[data-j]'); fuentes[+j.dataset.j].account_id = e.target.value ? Number(e.target.value) : ''; } });
-      el.addEventListener('click', (e) => {
-        if (e.target.closest('[data-mitad]')) { const a = Math.floor(tot / 2); fuentes = [{ account_id: efectivo?.id || '', valor: a }, { account_id: banco?.id || '', valor: tot - a }]; pinta(); }
-        if (e.target.closest('[data-otra]')) { fuentes.push({ account_id: '', valor: 0 }); pinta(); }
-        const x = e.target.closest('[data-x]'); if (x) { fuentes.splice(+x.closest('[data-j]').dataset.j, 1); pinta(); }
-      });
-      el.querySelector('[data-ok]').addEventListener('click', async (e) => {
-        e.currentTarget.disabled = true;
-        const ok = await guardar(true, { fecha: el.querySelector('[data-fecha]').value, fuentes: fuentes.map((f) => ({ account_id: f.account_id || null, valor: f.valor })) });
-        if (ok) { m.hide(); sucio = false; modal_.hide(); } else e.currentTarget.disabled = false;
-      });
-      pinta();
-    }
-
-    /* ---- eventos ---- */
-    mo.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-mas]')) return cur.add();
-      const q = e.target.closest('[data-quitar]'); if (q) return cur.quitar(+q.closest('[data-i]').dataset.i);
-      if (e.target.closest('[data-guardar]')) { if (await guardar(false)) { sucio = false; modal_.hide(); } return; }
-      if (e.target.closest('[data-pagar]')) return ventanaPago();
-    });
-    mo.addEventListener('input', (e) => {
-      const tr = e.target.closest('[data-i]'), f = e.target.dataset?.f;
-      if (tr && f && cur) cur.editar(+tr.dataset.i, f, e.target.value);
-      else if (e.target.matches('[data-tercero],[data-centro],[data-taxid]') && cur) { sucio = true; const tt = mo.querySelector('[data-total]'); if (tt && !pie.querySelector('.badge')) tt.insertAdjacentHTML('afterend', ' <span class="badge text-bg-warning ms-1">Sin guardar</span>'); }
-    });
-    mo.addEventListener('change', async (e) => {
-      if (e.target.matches('[data-mes]')) { if (sucio && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cambias de mes, se pierden.', ok: 'Cambiar de mes' }))) { e.target.value = mes; return; } mes = e.target.value || mes; sucio = false; await cargar(); await armar(cur.def); }
-    });
-    const cerrar = async () => { if (sucio && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cierras, se pierden.', ok: 'Cerrar sin guardar' }))) return; modal_.hide(); };
-    mo.addEventListener('click', (e) => { if (e.target.closest('[data-cerrar]')) cerrar(); });
-
-    // Nómina: el sueldo definido en Equipo + (si es profesional) las clases que dicta ese mes, cada una con su valor opcional
-    async function armarNomina(p) {
-      return armar({ tipo: 'nomina', key: p.key, tercero: p.nombre, taxId: p.documento || '', centroId: centros.find((x) => x.name.toLowerCase() === String(p.centro_costo || '').toLowerCase())?.id ?? null,
-        sugerir: async () => {
-          const it = [];
-          if (p.valor && FACTOR[p.periodicidad]) it.push({ concepto: BASE[p.periodicidad], valor: p.valor * FACTOR[p.periodicidad], fijo: true, grupo: 'Sueldo' });
-          if (p.profesional_id) {
-            const cl = await api(`/api/team/nomina/clases?profesional=${p.profesional_id}&month=${mes}`).then((r) => r.clases).catch(() => []);
-            for (const c_ of cl) it.push({ grupo: 'Clases', concepto: `Clase ${c_.n} · ${c_.curso}`, detalle: `${day(c_.fecha)}${c_.ini ? ` · ${c_.ini}` : ''}`, valor: p.periodicidad === 'clase' && p.valor ? p.valor : '' });
-          }
-          if (!it.length) it.push({ concepto: '', valor: '' });
-          return it;
-        } });
-    }
-    async function armarServicio(x) {
-      return armar({ tipo: 'servicios', key: `r:${x.id}`, tercero: x.vendor || x.name, recurring_id: x.id, centroId: x.cost_center_id, items: [{ concepto: x.name, valor: x.amount }] });
-    }
-
-    modal_.show();
-    try { await cargar(); } catch (x) { cuerpo.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    if (foco) { const x = datos.servicios.find((y) => y.id === foco); if (x) return armarServicio(x); }
-    if (persona && personas) { const x = personas.find((y) => y.key === persona || `p:${y.profesional_id}` === persona); if (x) return armarNomina(x); }
-    if (nuevo) return armar({ tipo: 'servicios', key: `s:${Date.now().toString(36)}`, tercero: '', items: [{ concepto: '', valor: '' }] });
-    modal_.hide();
   }
   // Enlaces a los archivos de un recibo (comprobantes que subió el cliente en la app)
   const archivos = (files) => (files || []).map((f) => `<a class="btn btn-sm btn-outline-secondary" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip me-1"></i>${esc(f.nombre.length > 18 ? f.nombre.slice(0, 16) + '…' : f.nombre)}</a>`).join(' ');
@@ -852,5 +660,4 @@ DW.ready.then((me) => {
 
   segBtn($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
   render();
-  if (irAPago && !RO) { history.replaceState(null, '', '#recurrentes'); pagosMes({ persona: irAPago, despues: () => location.reload() }); }
 });

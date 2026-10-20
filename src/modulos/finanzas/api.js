@@ -146,7 +146,7 @@ export const ENTITIES = {
     async afterUpdate(c, id) { await recomputeInvoice(c.env, c.businessId, id); },
     decorate(c, rows) { const t = today(); rows.forEach((r) => { r.state = invoiceState(r, t); }); return rows; } },
   recurring: { table: 'fin_recurring', label: 'el gasto recurrente', title: 'name', search: ['name', 'vendor'], order: 'active DESC, next_date',
-    fields: { name: 'text!', vendor: 'text', category: ['infraestructura', 'software', 'api', 'ia', 'marketing', 'otro'], currency: ['COP', 'USD'], amount_usd: 'usd', amount: 'money!', fx_rate: 'num', cycle: ['mensual', 'anual'], next_date: 'date!', cost_center_id: 'int', account_id: 'int', active: 'bool+', notes: 'long' },
+    fields: { name: 'text!', vendor: 'text', category: ['infraestructura', 'software', 'api', 'ia', 'marketing', 'nomina', 'otro'], currency: ['COP', 'USD'], tax_id: 'text', url: 'text', amount_usd: 'usd', amount: 'money!', fx_rate: 'num', cycle: ['mensual', 'anual', 'quincenal', 'semanal'], next_date: 'date!', cost_center_id: 'int', account_id: 'int', active: 'bool+', notes: 'long' },
     async beforeCreate(c, row) { if (row.currency === 'USD') await applyFx(c, 'recurring', row); },
     async beforeUpdate(c, row, before) { if (['currency', 'amount_usd', 'next_date'].some((k) => k in row)) await applyFx(c, 'recurring', row, before); } },
   reports: { table: 'fin_reports', label: 'el informe', title: 'title', search: ['title', 'content'], order: 'created_at DESC', crear: 'manager',
@@ -225,7 +225,7 @@ export async function financeSummary(c, monthParam) {
       const mFirst = `${m}-01`, mNext = addMonths(mFirst, 1);
       for (const r of recurring) {
         let d = r.next_date, guard = 0;
-        while (d < mNext && guard++ < 40) { if (d >= mFirst && (k > 0 || d >= t)) row.expense += r.amount; d = addMonths(d, r.cycle === 'anual' ? 12 : 1); }
+        while (d < mNext && guard++ < 40) { if (d >= mFirst && (k > 0 || d >= t)) row.expense += r.amount; d = siguienteCobro(d, r.cycle); }
       }
       for (const i of invoices) {
         const due = i.total - i.paid; if (due <= 0 || !i.due_date) continue;
@@ -241,7 +241,7 @@ export async function financeSummary(c, monthParam) {
   for (const r of byCc) centers[r.id ?? 0] = { id: r.id, name: r.id ? ccName[r.id] || `#${r.id}` : 'Sin centro de costo', expense: r.expense, income: r.income, budget: 0 };
   for (const b of budgets) { const k = b.id ?? 0; centers[k] ||= { id: b.id, name: b.id ? ccName[b.id] || `#${b.id}` : 'General', expense: 0, income: 0, budget: 0 }; centers[k].budget += b.amount; }
   const recurringMonthly = {};
-  for (const r of recurring) recurringMonthly[r.category] = (recurringMonthly[r.category] || 0) + (r.cycle === 'anual' ? Math.round(r.amount / 12) : r.amount);
+  for (const r of recurring) recurringMonthly[r.category] = (recurringMonthly[r.category] || 0) + aMes(r);
   const bal = Object.fromEntries(accMov.map((a) => [a.id, a.n]));
   return {
     month, today: t,
@@ -279,21 +279,29 @@ async function autoMatch(c, accountId) {
 }
 
 /* ---------------- gastos recurrentes ---------------- */
+// Siguiente fecha de cobro de un gasto recurrente: mensual, anual, quincenal (15 y fin de mes) o semanal (cada 7 días).
+export function siguienteCobro(date, ciclo) {
+  if (ciclo === 'anual') return addMonths(date, 12);
+  if (ciclo === 'semanal') return addDays(date, 7);
+  if (ciclo === 'quincenal') { const d = Number(String(date).slice(8)); return d < 15 ? `${String(date).slice(0, 7)}-15` : d === 15 ? addDays(addMonths(`${String(date).slice(0, 7)}-01`, 1), -1) : `${addMonths(`${String(date).slice(0, 7)}-01`, 1).slice(0, 7)}-15`; }
+  return addMonths(date, 1);
+}
+const aMes = (r) => (r.cycle === 'anual' ? Math.round(r.amount / 12) : r.cycle === 'semanal' ? Math.round(r.amount * 4.33) : r.cycle === 'quincenal' ? r.amount * 2 : r.amount);
 // `o` (pago manual): periodo (fecha de vencimiento que se paga; evita duplicar), amount (COP), vendor, accountId.
 export async function chargeRecurring(env, r, d, o = {}) {
   const manual = o.amount > 0, usd = !manual && r.currency === 'USD' && r.amount_usd > 0, rate = usd ? await trm(env, d).catch(() => r.fx_rate || null) : null;
   const t = now();
   return env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, currency, amount_usd, fx_rate, category, description, counterparty, tax_id, cost_center_id, account_id, recurring_id, ref, created_at, updated_at)
     VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(r.business_id, d, manual ? o.amount : usd && rate ? Math.round(r.amount_usd * rate) : r.amount, usd ? 'USD' : 'COP', usd ? r.amount_usd : null, rate,
-    r.category, r.name, o.vendor ?? r.vendor, o.taxId ?? null, o.costCenterId === undefined ? r.cost_center_id : o.costCenterId, o.accountId ?? r.account_id, r.id, `rec:${r.id}:${o.periodo || d}`, t, t).run();
+    o.category ?? r.category, r.name, o.vendor ?? r.vendor, o.taxId ?? r.tax_id ?? null, o.costCenterId === undefined ? r.cost_center_id : o.costCenterId, o.accountId ?? r.account_id, r.id, `rec:${r.id}:${o.periodo || d}`, t, t).run();
 }
 // Tarea diaria: los recurrentes que vencen se registran como gasto y la fecha pasa al siguiente cobro.
 export async function daily(env) {
   const t = today();
-  const due = await all(env, 'SELECT * FROM fin_recurring WHERE active = 1 AND next_date <= ?', t);
+  const due = await all(env, 'SELECT * FROM fin_recurring WHERE active = 1 AND ref IS NULL AND next_date <= ?', t);
   for (const r of due) {
     let d = r.next_date, guard = 0;
-    while (d <= t && guard++ < 24) { await chargeRecurring(env, r, d); d = addMonths(d, r.cycle === 'anual' ? 12 : 1); }
+    while (d <= t && guard++ < 24) { await chargeRecurring(env, r, d); d = siguienteCobro(d, r.cycle); }
     await env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ?').bind(d, now(), r.id).run();
   }
   return due.length;
@@ -594,6 +602,37 @@ export function routes(r) {
     return json({ ok: true, movement_id: movementId });
   });
 
+  // Centro de costo por nombre (se crea si no existe): lo usan los gastos que llegan de otras apps
+  const centroPorNombre = async (c, nombre) => {
+    const n = String(nombre || '').trim().slice(0, 120);
+    if (!n) return null;
+    const hit = await one(c.env, 'SELECT id FROM fin_cost_centers WHERE business_id = ? AND lower(name) = lower(?)', c.businessId, n);
+    if (hit) return hit.id;
+    const t0 = now();
+    return (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'area', 1, ?, ?)").bind(c.businessId, n, t0, t0).run()).meta.last_row_id;
+  };
+  // Gasto recurrente que crea otra app (p. ej. la nómina de Equipo). Se identifica por `ref`: si existe se actualiza (la fecha del próximo cobro no se toca) y no se cobra solo.
+  //   POST /api/finanzas/recurring/externo { ref, name, vendor?, tax_id?, category?, amount, cycle?, next_date?, centro_costo?, notes?, url?, active? }
+  r.post(`${B}/recurring/externo`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);
+    if (!ref) throw new HttpError(400, 'Falta ref');
+    const name = String(b.name || '').trim().slice(0, 200);
+    if (!name) throw new HttpError(400, 'Falta el nombre');
+    const amount = cast('valor', 'money', b.amount) || 0, ciclo = ['mensual', 'anual', 'quincenal', 'semanal'].includes(b.cycle) ? b.cycle : 'mensual';
+    const category = ['infraestructura', 'software', 'api', 'ia', 'marketing', 'nomina', 'otro'].includes(b.category) ? b.category : 'otro';
+    const cc = await centroPorNombre(c, b.centro_costo);
+    const vendor = b.vendor ? String(b.vendor).slice(0, 200) : null, taxId = b.tax_id ? String(b.tax_id).slice(0, 60) : null, notes = b.notes ? String(b.notes).slice(0, 300) : null, url = /^\/[\w\-./#:%?=&]{0,300}$/.test(b.url || '') ? b.url : null;
+    const prev = await one(c.env, 'SELECT id FROM fin_recurring WHERE business_id = ? AND ref = ?', c.businessId, ref), t = now();
+    if (prev) {
+      await c.env.DB.prepare('UPDATE fin_recurring SET name = ?, vendor = ?, tax_id = ?, category = ?, amount = ?, cycle = ?, cost_center_id = ?, notes = ?, url = ?, active = ?, updated_at = ? WHERE id = ? AND business_id = ?')
+        .bind(name, vendor, taxId, category, amount, ciclo, cc, notes, url, b.active === false ? 0 : 1, t, prev.id, c.businessId).run();
+      return json({ id: prev.id, nuevo: false });
+    }
+    const next = DATE.test(b.next_date || '') ? b.next_date : today();
+    const res = await c.env.DB.prepare(`INSERT INTO fin_recurring (business_id, name, vendor, tax_id, category, amount, currency, cycle, next_date, cost_center_id, active, notes, url, ref, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'COP', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, name, vendor, taxId, category, amount, ciclo, next, cc, b.active === false ? 0 : 1, notes, url, ref, t, t).run();
+    return json({ id: res.meta.last_row_id, nuevo: true }, 201);
+  });
   // Pagos del mes: se arma el pago de UNA persona (nómina) o de UN servicio con sus ítems; cada plan suma al presupuesto del mes (por centro de costo y categoría)
   // y «pagar» lo registra en Movimientos, repartido entre una o varias cuentas (p. ej. mitad efectivo y mitad banco).
   //   GET  /api/finanzas/pagos-mes?month=AAAA-MM  → planes guardados, pagos hechos y servicios recurrentes por pagar
@@ -650,7 +689,7 @@ export function routes(r) {
       const f = fuentes[i], nombreCuenta = f.account_id ? (await one(c.env, 'SELECT name FROM fin_accounts WHERE id = ? AND business_id = ?', f.account_id, c.businessId))?.name : null;
       const desc = `${titulo}${fuentes.length > 1 && nombreCuenta ? ` (${nombreCuenta})` : ''}`.slice(0, 300), t = now();
       if (rec) {   // servicio recurrente: queda ligado al gasto y este pasa al siguiente cobro
-        const res = await chargeRecurring(c.env, rec, fecha, { periodo: i ? `${rec.next_date}:${i + 1}` : rec.next_date, amount: f.valor, vendor: tercero ?? undefined, accountId: f.account_id, costCenterId: cc, taxId });
+        const res = await chargeRecurring(c.env, rec, fecha, { periodo: i ? `${rec.next_date}:${i + 1}` : rec.next_date, amount: f.valor, vendor: tercero ?? undefined, accountId: f.account_id, costCenterId: cc, taxId, category: categoria });
         if (res.meta.changes) hechos++;
         await c.env.DB.prepare('UPDATE fin_movements SET description = ? WHERE business_id = ? AND ref = ?').bind(desc, c.businessId, `rec:${rec.id}:${i ? `${rec.next_date}:${i + 1}` : rec.next_date}`).run();
       } else {
@@ -659,7 +698,7 @@ export function routes(r) {
         if (res.meta.changes) hechos++;
       }
     }
-    if (rec) await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1), now(), rec.id, c.businessId).run();
+    if (rec) await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(siguienteCobro(rec.next_date, rec.cycle), now(), rec.id, c.businessId).run();
     await audit(c, `Pagó ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}${fuentes.length > 1 ? ` en ${fuentes.length} cuentas` : ''}`, { modulo: MOD });
     return json({ ok: true, total, pagado: true, movimientos: hechos }, 201);
   });
@@ -686,9 +725,9 @@ export function routes(r) {
     const vendor = b.vendor === undefined ? undefined : String(b.vendor || '').trim().slice(0, 200) || null;
     const res = await chargeRecurring(c.env, rec, date, { periodo: rec.next_date, amount: amount || 0, vendor, accountId });
     if (!res.meta.changes) throw new HttpError(409, 'Ese cobro ya está registrado');
-    await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1), now(), rec.id, c.businessId).run();
+    await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(siguienteCobro(rec.next_date, rec.cycle), now(), rec.id, c.businessId).run();
     await audit(c, `Pagó «${rec.name}»${vendor ?? rec.vendor ? ` a ${vendor ?? rec.vendor}` : ''} por $${(amount || rec.amount).toLocaleString('es-CO')}`, { modulo: MOD });
-    return json({ ok: true, movimiento: res.meta.last_row_id, siguiente: addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1) }, 201);
+    return json({ ok: true, movimiento: res.meta.last_row_id, siguiente: siguienteCobro(rec.next_date, rec.cycle) }, 201);
   });
   r.post(`${B}/recurring/:id/charges`, `tenant:${MOD}`, async (c) => {
     const rec = await api.get(c, 'recurring', Number(c.params.id));
