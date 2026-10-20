@@ -470,50 +470,68 @@ DW.ready.then((me) => {
 
   /* ---------- bancos y conciliación ---------- */
   async function banks(el) {
-    el.innerHTML = `<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div data-acc></div><div data-conc class="mt-3" hidden></div>
+    el.innerHTML = `<div data-acc></div>
       <div class="dw-card mt-3" data-imp><h2 class="h6">Importar extracto (CSV)</h2>
         <p class="small text-body-secondary">Descarga el extracto de tu banco en CSV (o guárdalo como CSV desde Excel). Elige la cuenta y el archivo, y marca qué columna es cada dato. Se concilia solo lo que coincide en valor, sentido y fecha (±3 días).</p>
         <div class="d-flex flex-wrap gap-2"><select class="form-select w-auto" data-acct aria-label="Cuenta"></select><input class="form-control w-auto" type="file" accept=".csv,text/csv" data-file aria-label="Archivo CSV" ${RO || !me.canManage ? 'disabled' : ''}></div>
         <div data-map class="mt-3"></div></div>
       <div class="dw-card mt-3"><div class="d-flex flex-wrap gap-2 align-items-center mb-2"><h2 class="h6 mb-0 flex-grow-1">Líneas del extracto</h2><select class="form-select w-auto" data-filter aria-label="Cuenta"></select></div><div data-lines></div></div>`;
-    const accTable = C.table({ el: $('[data-acc]', el), base: B, entity: 'accounts', title: 'cuenta', newText: 'Nueva cuenta', fields: F.accounts, onChanged: () => { fillAccounts(); totales(); },
+    const accTable = C.table({ el: $('[data-acc]', el), base: B, entity: 'accounts', title: 'cuenta', newText: 'Nueva cuenta', fields: F.accounts, onChanged: fillAccounts,
       empty: 'Agrega tus cuentas bancarias, de efectivo o billeteras.', emptyIcon: 'bi-bank',
       rowActions: () => '<button class="btn btn-sm btn-primary" data-act="conciliar"><i class="bi bi-check2-square me-1"></i>Conciliar</button>',
       onAction: (a, r) => { if (a === 'conciliar') conciliar(r.id); },
-      columns: [{ label: 'Cuenta', main: true, html: (r) => `<button type="button" class="btn btn-link p-0 fw-semibold text-start" data-act="conciliar" title="Empezar la conciliación">${esc(r.name)}</button>${r.last4 ? ` <span class="text-body-secondary">···${esc(r.last4)}</span>` : ''}` },
-        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) },
-        { label: 'Saldo según registros', cls: 'text-end', html: (r) => `<b>${money(r.balance)}</b>${sub(`${r.movimientos} movimiento${r.movimientos === 1 ? '' : 's'}`)}` },
-        { label: 'Por conciliar', cls: 'text-end', html: (r) => (r.sin_conciliar || r.lineas_sin_conciliar ? `${chip('soon', `${r.sin_conciliar} mov.`)}${r.lineas_sin_conciliar ? ` ${chip('soon', `${r.lineas_sin_conciliar} del extracto`)}` : ''}` : (r.movimientos ? chip('ok', 'Al día') : '—')) }] });
-    const totales = () => api(`${B}/accounts`).then(({ rows }) => C.kpis($('[data-tot]', el), [['Total en cuentas', money(rows.reduce((a, r) => a + r.balance, 0)), 'según los movimientos registrados', 'bi-bank'],
-      ['Movimientos por conciliar', String(rows.reduce((a, r) => a + r.sin_conciliar, 0)), 'sin marcar como conciliados', 'bi-hourglass-split'], ['Líneas del extracto sin conciliar', String(rows.reduce((a, r) => a + r.lineas_sin_conciliar, 0)), 'importadas del banco', 'bi-file-earmark-spreadsheet']])).catch(() => {});
-    totales();
-    // Empezar la conciliación de una cuenta: sus movimientos (marcar los que ya salieron en el banco) y su extracto
-    async function conciliar(id, estado = 'sin') {
-      const box = $('[data-conc]', el); box.hidden = false;
-      box.innerHTML = '<div class="dw-card text-body-secondary">Cargando…</div>';
-      let d; try { d = await api(`${B}/accounts/${id}/conciliacion?estado=${estado}`); } catch (x) { box.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; return; }
+      columns: [{ label: 'Cuenta', main: true, html: (r) => `${esc(r.name)}${r.last4 ? ` <span class="text-body-secondary">···${esc(r.last4)}</span>` : ''}` },
+        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) }] });
+    // Conciliación de una cuenta en una ventana fija: se marcan los pagos que ya salieron en el banco y, abajo, «Guardar» los concilia.
+    // Los ya conciliados bajan al final de la lista.
+    async function conciliar(id) {
+      let d; try { d = await api(`${B}/accounts/${id}/conciliacion?estado=todos`); } catch (x) { toast(x.message, false); return; }
       $('[data-acct]', el).value = String(id); $('[data-filter]', el).value = String(id); loadLines();
-      const diff = d.balance - d.saldo_conciliado;
-      box.innerHTML = `<div class="dw-card"><div class="d-flex flex-wrap gap-2 align-items-start mb-2"><div class="flex-grow-1"><h2 class="h5 mb-0">Conciliación · ${esc(d.cuenta.name)}</h2>
-          <div class="small text-body-secondary">Marca cada pago que ya salió en tu extracto del banco, o importa el extracto y se concilia solo lo que coincide.</div></div>
-          <button class="btn btn-sm btn-outline-secondary" data-ir-imp><i class="bi bi-upload me-1"></i>Importar extracto</button><button class="btn btn-sm btn-light" data-cerrar aria-label="Cerrar">Cerrar</button></div>
-        <div class="row g-2 mb-3"><div class="col-6 col-md-3"><div class="small text-body-secondary">Saldo según registros</div><b>${money(d.balance)}</b></div><div class="col-6 col-md-3"><div class="small text-body-secondary">Saldo conciliado</div><b class="text-success">${money(d.saldo_conciliado)}</b></div>
-          <div class="col-6 col-md-3"><div class="small text-body-secondary">Falta conciliar</div><b class="${diff ? 'text-danger' : ''}">${money(diff)}</b></div><div class="col-6 col-md-3"><div class="small text-body-secondary">Movimientos sin conciliar</div><b>${d.sin_conciliar}</b> de ${d.movimientos}</div></div>
-        <div class="d-flex gap-2 mb-2 align-items-center"><select class="form-select form-select-sm w-auto" data-est aria-label="Movimientos"><option value="sin" ${estado === 'sin' ? 'selected' : ''}>Solo por conciliar</option><option value="todos" ${estado === 'todos' ? 'selected' : ''}>Todos los movimientos</option></select></div>
-        ${d.rows.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Fecha</th><th>Pago o movimiento</th><th class="text-end">Valor</th><th class="text-end">Conciliación</th></tr></thead><tbody>${d.rows.map((m) => `<tr>
-          <td>${day(m.date)}</td><td>${esc(m.description || m.category || '—')}${sub(m.counterparty)}</td>
-          <td class="text-end text-nowrap"><b class="${m.kind === 'ingreso' ? 'text-success' : ''}">${m.kind === 'ingreso' ? '+' : '−'}${money(m.amount)}</b>${m.receipt_id ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/receipts/${m.receipt_id}/pdf" target="_blank" rel="noopener" title="Ver el recibo ${esc(m.receipt_number)} (PDF)"><i class="bi bi-filetype-pdf"></i></a>` : ''}${(m.receipt_files || []).map((f) => ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip"></i></a>`).join('')}</td>
-          <td class="text-end">${m.reconciled ? `${chip('ok', 'Conciliado')} ${RO ? '' : `<button class="btn btn-sm btn-light" data-conc-m="${m.id}" data-v="0">Deshacer</button>`}` : RO ? chip('soon', 'Por conciliar') : `<button class="btn btn-sm btn-outline-success" data-conc-m="${m.id}" data-v="1"><i class="bi bi-check2 me-1"></i>Ya salió en el banco</button>`}</td></tr>`).join('')}</tbody></table></div>`
-          : `<p class="text-body-secondary small mb-0">${estado === 'sin' ? 'No hay movimientos por conciliar en esta cuenta.' : 'Esta cuenta aún no tiene movimientos. Asigna la cuenta en Movimientos.'}</p>`}</div>`;
-      $('[data-est]', box).onchange = (e) => conciliar(id, e.target.value);
-      $('[data-cerrar]', box).onclick = () => { box.hidden = true; };
-      $('[data-ir-imp]', box).onclick = () => $('[data-imp]', el).scrollIntoView({ behavior: 'smooth', block: 'start' });
-      box.onclick = async (e) => {
-        const b = e.target.closest('[data-conc-m]'); if (!b) return;
-        b.disabled = true;
-        try { await api(`${B}/movements/${b.dataset.concM}`, { method: 'PATCH', body: { reconciled: b.dataset.v === '1' ? 1 : 0 } }); await conciliar(id, estado); accTable.load(); totales(); } catch (x) { toast(x.message, false); b.disabled = false; }
+      let rows = d.rows.map((m) => ({ ...m, marca: !!m.reconciled })), ocultar = false, guardando = false;   // marca = lo que se ve marcado; reconciled = lo ya guardado
+      const mo = document.createElement('div');
+      mo.className = 'modal fade'; mo.tabIndex = -1;
+      mo.innerHTML = `<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg"><div class="modal-content">
+        <div class="modal-header"><div><h2 class="modal-title h5 mb-0">Conciliar · ${esc(d.cuenta.name)}</h2><div class="small text-body-secondary">Marca los pagos que ya salieron en tu extracto del banco y toca «Guardar».</div></div><button type="button" class="btn-close" data-cerrar aria-label="Cerrar"></button></div>
+        <div class="modal-body"><div class="row g-2 mb-3" data-resumen></div>
+          <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="soloPend" data-solo><label class="form-check-label small" for="soloPend">Ocultar los ya conciliados</label></div>
+          <div class="table-responsive"><table class="table table-sm align-middle mb-0"><tbody data-filas></tbody></table></div></div>
+        <div class="modal-footer justify-content-between"><span class="small text-body-secondary" data-estado></span><span class="d-flex gap-2"><button type="button" class="btn btn-light" data-cerrar>Cerrar</button>${RO ? '' : '<button type="button" class="btn btn-primary" data-guardar disabled><i class="bi bi-check2-square me-1"></i>Guardar conciliación</button>'}</span></div></div></div>`;
+      document.body.appendChild(mo);
+      const modal = new bootstrap.Modal(mo, { backdrop: 'static', keyboard: false });   // no se cierra por error: hay cambios sin guardar
+      mo.addEventListener('hidden.bs.modal', () => mo.remove());
+      const cambios = () => rows.filter((m) => m.marca !== !!m.reconciled);
+      const signed = (m) => (m.kind === 'ingreso' ? m.amount : -m.amount);
+      const orden = () => [...rows].sort((p, q) => (p.reconciled ? 1 : 0) - (q.reconciled ? 1 : 0) || q.date.localeCompare(p.date) || q.id - p.id);
+      const fila = (m) => `<tr data-m="${m.id}" class="${m.marca !== !!m.reconciled ? 'table-warning' : m.reconciled ? 'table-success' : ''}">
+        <td style="width:2.2rem"><input class="form-check-input" type="checkbox" data-marca="${m.id}" ${m.marca ? 'checked' : ''} ${RO ? 'disabled' : ''} aria-label="Ya salió en el banco"></td>
+        <td class="text-nowrap">${day(m.date)}</td><td>${esc(m.description || m.category || '—')}${sub(m.counterparty)}</td>
+        <td class="text-end text-nowrap"><b class="${m.kind === 'ingreso' ? 'text-success' : ''}">${m.kind === 'ingreso' ? '+' : '−'}${money(m.amount)}</b>${m.receipt_id ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/receipts/${m.receipt_id}/pdf" target="_blank" rel="noopener" title="Ver el recibo ${esc(m.receipt_number)} (PDF)"><i class="bi bi-filetype-pdf"></i></a>` : ''}${(m.receipt_files || []).map((f) => ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip"></i></a>`).join('')}</td>
+        <td class="text-end" style="width:9rem">${m.marca !== !!m.reconciled ? '<span class="badge text-bg-warning">Sin guardar</span>' : m.reconciled ? '<span class="text-success small fw-semibold"><i class="bi bi-check-circle-fill me-1"></i>Conciliado</span>' : ''}</td></tr>`;
+      const pinta = () => {
+        const lista = orden().filter((m) => !ocultar || !m.reconciled), sin = rows.filter((m) => !m.reconciled);
+        $('[data-resumen]', mo).innerHTML = `<div class="col-6"><div class="small text-body-secondary">Conciliado con el banco</div><b class="text-success">${money(rows.filter((m) => m.reconciled).reduce((a, m) => a + signed(m), 0))}</b></div>
+          <div class="col-6"><div class="small text-body-secondary">Por conciliar</div><b class="${sin.length ? 'text-danger' : ''}">${money(sin.reduce((a, m) => a + signed(m), 0))}</b> <span class="small text-body-secondary">(${sin.length} de ${rows.length})</span></div>`;
+        $('[data-filas]', mo).innerHTML = lista.length ? lista.map(fila).join('') : '<tr><td class="text-body-secondary small">No hay movimientos por conciliar en esta cuenta.</td></tr>';
+        const n = cambios().length, g = $('[data-guardar]', mo);
+        $('[data-estado]', mo).textContent = n ? `${n} cambio${n === 1 ? '' : 's'} sin guardar` : '';
+        if (g) { g.disabled = !n || guardando; g.innerHTML = guardando ? '<span class="spinner-border spinner-border-sm me-1"></span>Guardando…' : `<i class="bi bi-check2-square me-1"></i>Guardar conciliación${n ? ` (${n})` : ''}`; }
       };
-      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      mo.addEventListener('change', (e) => {
+        const c = e.target.closest('[data-marca]'); if (c) { rows.find((x) => x.id === Number(c.dataset.marca)).marca = c.checked; pinta(); }
+        if (e.target.matches('[data-solo]')) { ocultar = e.target.checked; pinta(); }
+      });
+      const cerrar = async () => { if (cambios().length && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cierras, se pierden las marcas que no guardaste.', ok: 'Cerrar sin guardar', danger: true }))) return; modal.hide(); };
+      mo.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', cerrar));
+      $('[data-guardar]', mo)?.addEventListener('click', async () => {
+        const lote = cambios(); guardando = true; pinta();
+        const fallos = [];
+        for (const m of lote) {
+          try { await api(`${B}/movements/${m.id}`, { method: 'PATCH', body: { reconciled: m.marca ? 1 : 0 } }); m.reconciled = m.marca ? 1 : 0; } catch (x) { fallos.push(x.message); }
+        }
+        guardando = false; pinta();   // los conciliados bajan al final
+        if (fallos.length) toast(`No se pudieron guardar ${fallos.length}: ${fallos[0]}`, false); else toast(`${lote.length} movimiento${lote.length === 1 ? '' : 's'} conciliado${lote.length === 1 ? '' : 's'}`);
+      });
+      pinta(); modal.show();
     }
     accTable.load();
     async function fillAccounts() {
