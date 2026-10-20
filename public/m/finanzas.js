@@ -158,10 +158,11 @@ DW.ready.then((me) => {
 
   function recurrentes(el) {
     el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software, servicios y la nómina. Los que crea otra app (como la nómina de Equipo) se pagan allá; los demás se cobran solos cada día a las 3:00 a. m. o con el botón «Pagar».</div><div data-t></div>';
-    let est = { pagados: [], por_pagar: [] };
+    let est = { pagados: [], por_pagar: [] }, ccs = {};
     const CICLO = { mensual: 'mensual', anual: 'anual', quincenal: 'quincenal', semanal: 'semanal' };
     const cargaEstado = async () => {
       est = await api(`${B}/recurring/estado`).catch(() => est);
+      ccs = Object.fromEntries((await C.refs(B, 'cost_centers').catch(() => [])).map((x) => [x.id, x.name]));
       C.kpis($('[data-tot]', el), [['Este mes', money((est.total_pagado || 0) + (est.total_por_pagar || 0)), `${monthName(est.mes || C.todayCo().slice(0, 7))}: lo pagado más lo que falta`, 'bi-calendar-month'],
         ['Pagado', money(est.total_pagado || 0), `${est.pagados.length} gasto${est.pagados.length === 1 ? '' : 's'} ya registrado${est.pagados.length === 1 ? '' : 's'}`, 'bi-check-circle'],
         ['Por pagar', `<span class="${est.total_por_pagar ? 'text-danger' : ''}">${money(est.total_por_pagar || 0)}</span>`, `${est.por_pagar.length} que vence${est.por_pagar.length === 1 ? '' : 'n'} antes de que acabe el mes`, 'bi-hourglass-split']]);
@@ -169,17 +170,16 @@ DW.ready.then((me) => {
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
       // Todo se paga aquí; los que gestiona otra app (nómina) tienen además el enlace a sus ítems
-      rowActions: (r) => (!r.active || RO ? '' : `<button class="btn btn-sm btn-outline-primary" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>`),
+      rowActions: (r) => (!r.active || RO ? '' : `${r.cost_center_id && ccs[r.cost_center_id] ? `<div class="small text-body-secondary mb-1"><i class="bi bi-diagram-3 me-1"></i>${esc(ccs[r.cost_center_id])}</div>` : ''}<button class="btn btn-sm btn-outline-primary" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>`),
       onAction: (a, r) => { if (a === 'pagar') pagarRecurrente(r, () => cargaEstado().then(() => t.load())); },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
         { label: 'Nombre', main: true, html: (r) => (r.category === 'nomina' && r.vendor ? `${esc(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}` : `${esc(r.name)}${sub(r.vendor)}${r.tax_id ? sub(r.tax_id) : ''}`) },
         { label: 'Tipo', html: (r) => `<span class="badge ${r.category === 'nomina' ? 'text-bg-info' : 'text-bg-light'}">${esc(REC_CAT[r.category] || r.category)}</span>` },
-        { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => { const como = [CICLO[r.cycle] || r.cycle, r.partes > 1 ? `en ${r.partes} ${r.partes === 12 ? 'meses' : r.partes === 4 ? 'semanas' : 'quincenas'}` : 'de una vez'];
-          return r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b>${sub(`${como.join(' · ')} · ≈ ${money(r.amount)} hoy`)}` : `<b>${money(r.amount)}</b>${sub([...como, r.category === 'nomina' ? r.notes : ''].filter(Boolean).join(' · '))}`; } },
+        { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => { const cuotas = r.partes > 1 ? `en ${r.partes} ${r.partes === 12 ? 'meses' : r.partes === 4 ? 'semanas' : 'quincenas'}` : 'de una vez';
+          return `<b>${r.currency === 'USD' ? usd(r.amount_usd) : money(r.amount)}</b>${sub(`${CICLO[r.cycle] || r.cycle} · ${cuotas}`)}${r.currency === 'USD' ? sub(`≈ ${money(r.amount)} hoy`) : r.category === 'nomina' && r.notes ? sub(r.notes) : ''}`; } },
         { label: 'Este mes', html: (r) => { const p = est.pagados.find((x) => x.recurring_id === r.id), x = est.por_pagar.find((y) => y.id === r.id); return p ? `${chip('ok', 'Pagado')}${sub(money(p.pagado))}` : x ? `${chip(x.fecha < C.todayCo() ? 'bad' : 'soon', 'Por pagar')}${sub(`vence ${day(x.fecha)}`)}` : '<span class="text-body-secondary">—</span>'; } },
-        { label: 'Próximo cobro', html: (r) => `${day(r.next_date)}${r.active ? '' : ` ${chip('free', 'Pausado')}`}` },
-        { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) }] });
+        { label: 'Próximo cobro', html: (r) => `${day(r.next_date)}${r.active ? '' : ` ${chip('free', 'Pausado')}`}` }] });
     cargaEstado().then(() => t.load());
     // Desde Equipo: «Pagar» de una persona abre aquí su pago (#pagar:<id del gasto>)
     const abrirId = abrirPagar;
