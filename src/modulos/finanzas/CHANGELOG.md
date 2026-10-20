@@ -1,7 +1,13 @@
 # Finanzas — cambios
 
+## 1.8.0 · 2026-10-22
+- **Pagos del mes por separado**: se arma el pago de UNA persona (nómina) o de UN servicio. Ítems: el sueldo definido en Equipo, las **clases que dicta el profesional** ese mes (cada una con valor opcional: las vacías no cuentan), bonos o lo que se agregue; en servicios, los ítems del recibo.
+- El **centro de costo** se escoge en Finanzas al armar el pago. Cada plan suma al **presupuesto del mes** (por centro de costo y categoría); `fin_pagos_plan` (migración 0011).
+- **Pagar** (como en Gastos recurrentes): fecha y **de qué cuentas sale**, con «Mitad y mitad» y cuentas extra (p. ej. efectivo + banco); crea un gasto en Movimientos por cuenta y los servicios recurrentes pasan al siguiente cobro. No se paga dos veces el mismo mes.
+- Servicios sueltos («Pago de otro servicio») además de los gastos recurrentes. `GET/POST /api/finanzas/pagos-mes`.
+
 ## 1.7.0 · 2026-10-21
-- **Pagos del mes** (Gastos recurrentes): una ventana con «Pago de servicios» y «Pago de nómina». Se lista lo del mes, se marcan los pagados y al guardar: (1) se crea el **presupuesto del mes** por centro de costo y categoría y (2) lo pagado queda como gasto en **Movimientos**.
+- (Reemplazado por 1.8.0) **Pagos del mes**: una ventana con «Pago de servicios» y «Pago de nómina». Se lista lo del mes, se marcan los pagados y al guardar: (1) se crea el **presupuesto del mes** por centro de costo y categoría y (2) lo pagado queda como gasto en **Movimientos**.
   - Servicios: los gastos recurrentes que vencen en el mes (valor y proveedor editables); al pagar, pasan al siguiente cobro.
   - Nómina: las personas con pago definido en Equipo (si la app lo tiene), con cantidad (clases, horas…), centro de costo y ítems extra (bonos, auxilios).
   - `GET/POST /api/finanzas/pagos-mes`. Guardar de nuevo no duplica pagos ni presupuesto.

@@ -1,7 +1,7 @@
 {
   "id": "finanzas",
   "nombre": "Finanzas",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "descripcion": "Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), facturas y cuentas de cobro en PDF con QR de validación, cartera, gastos recurrentes, centros de costo, presupuestos, conciliación bancaria y exportación para el contador, informes del analista de IA.",
   "icono": "bi-cash-coin",
   "menu": {

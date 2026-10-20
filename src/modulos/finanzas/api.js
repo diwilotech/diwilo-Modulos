@@ -278,7 +278,7 @@ export async function chargeRecurring(env, r, d, o = {}) {
   const t = now();
   return env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, currency, amount_usd, fx_rate, category, description, counterparty, cost_center_id, account_id, recurring_id, ref, created_at, updated_at)
     VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(r.business_id, d, manual ? o.amount : usd && rate ? Math.round(r.amount_usd * rate) : r.amount, usd ? 'USD' : 'COP', usd ? r.amount_usd : null, rate,
-    r.category, r.name, o.vendor ?? r.vendor, r.cost_center_id, o.accountId ?? r.account_id, r.id, `rec:${r.id}:${o.periodo || d}`, t, t).run();
+    r.category, r.name, o.vendor ?? r.vendor, o.costCenterId === undefined ? r.cost_center_id : o.costCenterId, o.accountId ?? r.account_id, r.id, `rec:${r.id}:${o.periodo || d}`, t, t).run();
 }
 // Tarea diaria: los recurrentes que vencen se registran como gasto y la fecha pasa al siguiente cobro.
 export async function daily(env) {
@@ -587,70 +587,74 @@ export function routes(r) {
     return json({ ok: true, movement_id: movementId });
   });
 
-  // Pagos del mes: servicios (gastos recurrentes) o nómina. Lo que se lista crea el presupuesto del mes (por centro de costo y categoría) y lo marcado como pagado
-  // queda como gasto en Movimientos.
-  //   GET  /api/finanzas/pagos-mes?month=AAAA-MM  → servicios por pagar o pagados del mes y las claves de nómina ya pagadas
-  //   POST /api/finanzas/pagos-mes { month, tipo: 'servicios'|'nomina', account_id?, items: [{ key, recurring_id?, concepto, tercero, valor, centro_costo, pagado, ya? }] }
-  const centroPorNombre = async (c, nombre) => {
-    const n = String(nombre || '').trim().slice(0, 120);
-    if (!n) return null;
-    const hit = await one(c.env, 'SELECT id FROM fin_cost_centers WHERE business_id = ? AND lower(name) = lower(?)', c.businessId, n);
-    if (hit) return hit.id;
-    const t0 = now();
-    return (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'area', 1, ?, ?)").bind(c.businessId, n, t0, t0).run()).meta.last_row_id;
+  // Pagos del mes: se arma el pago de UNA persona (nómina) o de UN servicio con sus ítems; cada plan suma al presupuesto del mes (por centro de costo y categoría)
+  // y «pagar» lo registra en Movimientos, repartido entre una o varias cuentas (p. ej. mitad efectivo y mitad banco).
+  //   GET  /api/finanzas/pagos-mes?month=AAAA-MM  → planes guardados, pagos hechos y servicios recurrentes por pagar
+  //   POST /api/finanzas/pagos-mes { month, tipo: 'nomina'|'servicios', key, tercero, cost_center_id?, recurring_id?, items: [{ concepto, valor }], pagar?: true, fecha?, fuentes?: [{ account_id, valor }] }
+  const refKey = (k) => String(k || '').replace(/[^\w.-]/g, '_').slice(0, 60);
+  const reconstruirPresupuesto = async (c, month, cc, categoria) => {
+    const filtro = cc === null ? 'cost_center_id IS NULL' : 'cost_center_id = ?', args = cc === null ? [] : [cc];
+    const total = (await one(c.env, `SELECT COALESCE(SUM(amount), 0) n FROM fin_pagos_plan WHERE business_id = ? AND month = ? AND category = ? AND ${filtro}`, c.businessId, month, categoria, ...args)).n;
+    await c.env.DB.prepare(`DELETE FROM fin_budgets WHERE business_id = ? AND month = ? AND category = ? AND ${filtro}`).bind(c.businessId, month, categoria, ...args).run();
+    if (total > 0) { const t = now(); await c.env.DB.prepare('INSERT INTO fin_budgets (business_id, month, cost_center_id, category, amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(c.businessId, month, cc, categoria, total, t, t).run(); }
   };
   r.get(`${B}/pagos-mes`, `tenant:${MOD}`, async (c) => {
     const month = MONTH.test(c.url.searchParams.get('month') || '') ? c.url.searchParams.get('month') : today().slice(0, 7), fin = `${month}-31`;
-    const servicios = await all(c.env, `SELECT r.id, r.name, r.vendor, r.category, r.amount, r.next_date, r.account_id, cc.name AS centro FROM fin_recurring r LEFT JOIN fin_cost_centers cc ON cc.id = r.cost_center_id AND cc.business_id = r.business_id
-      WHERE r.business_id = ? AND r.active = 1 AND r.next_date <= ? ORDER BY r.next_date, r.name`, c.businessId, fin);
-    const pagadosRec = await all(c.env, `SELECT m.recurring_id, m.amount, m.counterparty, r.name, r.vendor, r.category, cc.name AS centro FROM fin_movements m JOIN fin_recurring r ON r.id = m.recurring_id AND r.business_id = m.business_id
-      LEFT JOIN fin_cost_centers cc ON cc.id = r.cost_center_id AND cc.business_id = r.business_id WHERE m.business_id = ? AND m.recurring_id IS NOT NULL AND m.date BETWEEN ? AND ?`, c.businessId, `${month}-01`, fin);
-    const nomina = (await all(c.env, 'SELECT ref, amount FROM fin_movements WHERE business_id = ? AND ref LIKE ?', c.businessId, `pago:nomina:${month}:%`)).map((x) => ({ key: x.ref.slice(`pago:nomina:${month}:`.length), valor: x.amount }));
-    return json({ month, servicios, pagados_servicios: pagadosRec.map((x) => ({ recurring_id: x.recurring_id, name: x.name, vendor: x.counterparty || x.vendor, category: x.category, centro: x.centro, valor: x.amount })), pagados_nomina: nomina });
+    const planes = (await all(c.env, 'SELECT tipo, key, tercero, cost_center_id, category, amount, items, recurring_id FROM fin_pagos_plan WHERE business_id = ? AND month = ?', c.businessId, month)).map((x) => ({ ...x, items: parseFiles(x.items) }));
+    const movs = await all(c.env, 'SELECT ref, amount, account_id FROM fin_movements WHERE business_id = ? AND ref LIKE ?', c.businessId, `pago:%:${month}:%`);
+    const pagados = {};
+    for (const m of movs) { const [, tipo, , k] = m.ref.split(':'); const id = `${tipo}:${k}`; (pagados[id] ||= { tipo, key: k, total: 0, fuentes: [] }); pagados[id].total += m.amount; pagados[id].fuentes.push({ account_id: m.account_id, valor: m.amount }); }
+    const servicios = await all(c.env, `SELECT r.id, r.name, r.vendor, r.category, r.amount, r.next_date, r.cost_center_id, r.account_id FROM fin_recurring r WHERE r.business_id = ? AND r.active = 1 AND r.next_date <= ? ORDER BY r.next_date, r.name`, c.businessId, fin);
+    const pagadosRec = await all(c.env, 'SELECT m.recurring_id, r.name, r.vendor, SUM(m.amount) AS valor FROM fin_movements m JOIN fin_recurring r ON r.id = m.recurring_id AND r.business_id = m.business_id WHERE m.business_id = ? AND m.recurring_id IS NOT NULL AND m.date BETWEEN ? AND ? GROUP BY m.recurring_id', c.businessId, `${month}-01`, fin);
+    return json({ month, planes, pagados: Object.values(pagados), servicios, pagados_servicios: pagadosRec });
   });
   r.post(`${B}/pagos-mes`, `tenant:${MOD}`, async (c) => {
     const b = await readJson(c.req);
-    const month = MONTH.test(b.month || '') ? b.month : null, tipo = b.tipo === 'nomina' ? 'nomina' : b.tipo === 'servicios' ? 'servicios' : null;
-    if (!month || !tipo) throw new HttpError(400, 'Elige el mes y el tipo de pago');
-    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 300);
-    if (!items.length) throw new HttpError(400, 'No hay nada que guardar');
-    const accountId = cast('cuenta', 'int', b.account_id) || null;
-    if (accountId) await api.get(c, 'accounts', accountId);
-    const hoy = today(), fecha = hoy.slice(0, 7) === month ? hoy : `${month}-${String(Math.min(28, Number(hoy.slice(8)))).padStart(2, '0')}`;
-    const grupos = new Map();   // presupuesto: (centro, categoría) → total
-    let pagados = 0;
-    for (const it of items) {
-      const valor = Math.round(Number(it.valor));
-      if (!Number.isFinite(valor) || valor <= 0) continue;
-      let cc = null, categoria = 'Nómina', rec = null;
-      if (tipo === 'servicios') {
-        rec = await one(c.env, 'SELECT * FROM fin_recurring WHERE id = ? AND business_id = ?', Number(it.recurring_id), c.businessId);
-        if (!rec) throw new HttpError(404, 'Uno de los gastos recurrentes no existe');
-        cc = rec.cost_center_id; categoria = rec.category || 'Servicios';
-      } else cc = await centroPorNombre(c, it.centro_costo);
-      const k = `${cc ?? ''}|${categoria}`; grupos.set(k, { cc, categoria, total: (grupos.get(k)?.total || 0) + valor });
-      if (!it.pagado || it.ya) continue;
-      if (tipo === 'servicios') {
-        if (!rec.active) continue;
-        const res = await chargeRecurring(c.env, rec, fecha, { periodo: rec.next_date, amount: valor, vendor: String(it.tercero || '').trim().slice(0, 200) || undefined, accountId });
-        if (res.meta.changes) { pagados++; await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1), now(), rec.id, c.businessId).run(); }
+    const month = MONTH.test(b.month || '') ? b.month : null, tipo = b.tipo === 'nomina' ? 'nomina' : b.tipo === 'servicios' ? 'servicios' : null, key = String(b.key || '').slice(0, 60);
+    if (!month || !tipo || !key) throw new HttpError(400, 'Falta el mes, el tipo o a quién se le paga');
+    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 200).map((x) => ({ concepto: String(x.concepto || '').trim().slice(0, 200), valor: Math.round(Number(x.valor)) })).filter((x) => x.concepto && Number.isFinite(x.valor) && x.valor > 0);
+    const total = items.reduce((a, x) => a + x.valor, 0);
+    if (!(total > 0)) throw new HttpError(400, 'Ponle valor a al menos un ítem');
+    const cc = cast('centro de costo', 'int', b.cost_center_id) || null;
+    if (cc) await api.get(c, 'cost_centers', cc);
+    const tercero = String(b.tercero || '').trim().slice(0, 200) || null;
+    let rec = null;
+    if (b.recurring_id) { rec = await one(c.env, 'SELECT * FROM fin_recurring WHERE id = ? AND business_id = ?', Number(b.recurring_id), c.businessId); if (!rec) throw new HttpError(404, 'El gasto recurrente no existe'); }
+    const categoria = tipo === 'nomina' ? 'Nómina' : (rec?.category || 'Servicios');
+    // 1) el plan y el presupuesto del mes
+    const antes = await one(c.env, 'SELECT cost_center_id, category FROM fin_pagos_plan WHERE business_id = ? AND month = ? AND tipo = ? AND key = ?', c.businessId, month, tipo, key);
+    await c.env.DB.prepare(`INSERT INTO fin_pagos_plan (business_id, month, tipo, key, tercero, cost_center_id, category, amount, items, recurring_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(business_id, month, tipo, key) DO UPDATE SET tercero = excluded.tercero, cost_center_id = excluded.cost_center_id, category = excluded.category, amount = excluded.amount, items = excluded.items, recurring_id = excluded.recurring_id, updated_at = excluded.updated_at`)
+      .bind(c.businessId, month, tipo, key, tercero, cc, categoria, total, JSON.stringify(items), rec?.id || null, now()).run();
+    await reconstruirPresupuesto(c, month, cc, categoria);
+    if (antes && (antes.cost_center_id !== cc || antes.category !== categoria)) await reconstruirPresupuesto(c, month, antes.cost_center_id, antes.category);
+    if (!b.pagar) { await audit(c, `Armó el pago de ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}`, { modulo: MOD }); return json({ ok: true, total, pagado: false }, 201); }
+    // 2) el pago, repartido entre las cuentas elegidas
+    const fuentes = (Array.isArray(b.fuentes) && b.fuentes.length ? b.fuentes : [{ account_id: null, valor: total }]).slice(0, 6).map((f) => ({ account_id: cast('cuenta', 'int', f.account_id) || null, valor: Math.round(Number(f.valor)) }));
+    if (fuentes.some((f) => !(f.valor > 0)) || fuentes.reduce((a, f) => a + f.valor, 0) !== total) throw new HttpError(400, `Lo que sale de las cuentas debe sumar ${'$' + total.toLocaleString('es-CO')}`);
+    for (const f of fuentes) if (f.account_id) await api.get(c, 'accounts', f.account_id);
+    const fecha = DATE.test(b.fecha || '') ? b.fecha : today(), rk = refKey(key);
+    const yaPagado = rec ? await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND recurring_id = ? AND date BETWEEN ? AND ?', c.businessId, rec.id, `${month}-01`, `${month}-31`)
+      : await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND ref LIKE ?', c.businessId, `pago:${tipo}:${month}:${rk}:%`);
+    if (yaPagado) throw new HttpError(409, 'Este pago ya está registrado este mes');
+    const titulo = `${tipo === 'nomina' ? 'Nómina' : 'Pago'} ${month}${tercero ? ` · ${tercero}` : ''}`;
+    let hechos = 0;
+    for (let i = 0; i < fuentes.length; i++) {
+      const f = fuentes[i], nombreCuenta = f.account_id ? (await one(c.env, 'SELECT name FROM fin_accounts WHERE id = ? AND business_id = ?', f.account_id, c.businessId))?.name : null;
+      const desc = `${titulo}${fuentes.length > 1 && nombreCuenta ? ` (${nombreCuenta})` : ''}`.slice(0, 300), t = now();
+      if (rec) {   // servicio recurrente: queda ligado al gasto y este pasa al siguiente cobro
+        const res = await chargeRecurring(c.env, rec, fecha, { periodo: i ? `${rec.next_date}:${i + 1}` : rec.next_date, amount: f.valor, vendor: tercero ?? undefined, accountId: f.account_id, costCenterId: cc });
+        if (res.meta.changes) hechos++;
+        await c.env.DB.prepare('UPDATE fin_movements SET description = ? WHERE business_id = ? AND ref = ?').bind(desc, c.businessId, `rec:${rec.id}:${i ? `${rec.next_date}:${i + 1}` : rec.next_date}`).run();
       } else {
-        const key = String(it.key || '').replace(/[^\w:.-]/g, '').slice(0, 60);
-        if (!key) continue;
-        const t = now();
         const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, account_id, ref, created_at, updated_at)
-          VALUES (?, 'gasto', ?, ?, 'Nómina', ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, fecha, valor, String(it.concepto || 'Pago de nómina').slice(0, 300), String(it.tercero || '').slice(0, 200) || null, cc, accountId, `pago:nomina:${month}:${key}`, t, t).run();
-        if (res.meta.changes) pagados++;
+          VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, fecha, f.valor, categoria, desc, tercero, cc, f.account_id, `pago:${tipo}:${month}:${rk}:${i + 1}`, t, t).run();
+        if (res.meta.changes) hechos++;
       }
     }
-    // Presupuesto del mes: lo que se va a pagar (pagado o no) por centro de costo y categoría; reemplaza el de ese mismo centro y categoría
-    const t = now();
-    for (const g of grupos.values()) {
-      await c.env.DB.prepare(`DELETE FROM fin_budgets WHERE business_id = ? AND month = ? AND category = ? AND ${g.cc === null ? 'cost_center_id IS NULL' : 'cost_center_id = ?'}`).bind(c.businessId, month, g.categoria, ...(g.cc === null ? [] : [g.cc])).run();
-      await c.env.DB.prepare('INSERT INTO fin_budgets (business_id, month, cost_center_id, category, amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(c.businessId, month, g.cc, g.categoria, g.total, t, t).run();
-    }
-    await audit(c, `Pagos del mes ${month} (${tipo === 'nomina' ? 'nómina' : 'servicios'}): ${pagados} pagados, presupuesto de ${grupos.size} línea${grupos.size === 1 ? '' : 's'}`, { modulo: MOD });
-    return json({ ok: true, pagados, presupuesto: [...grupos.values()].map((g) => ({ centro_id: g.cc, categoria: g.categoria, total: g.total })) }, 201);
+    if (rec) await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1), now(), rec.id, c.businessId).run();
+    await audit(c, `Pagó ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}${fuentes.length > 1 ? ` en ${fuentes.length} cuentas` : ''}`, { modulo: MOD });
+    return json({ ok: true, total, pagado: true, movimientos: hechos }, 201);
   });
   // Pagar un gasto recurrente cuando se acerca (o cuando se quiera): registra el pago al proveedor como gasto en Movimientos y pasa al siguiente cobro.
   //   POST /api/finanzas/recurring/:id/pagar { date?, amount?, vendor?, account_id? }
