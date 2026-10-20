@@ -156,9 +156,9 @@ export const ENTITIES = {
     // Saldo según los registros (saldo inicial + ingresos − gastos de la cuenta) y cuánto falta por conciliar
     async decorate(c, rows) {
       if (!rows.length) return rows;
-      const m = await all(c.env, `SELECT account_id id, SUM(CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) n, COUNT(*) total, SUM(reconciled = 0) sin FROM fin_movements WHERE business_id = ? AND account_id IS NOT NULL GROUP BY account_id`, c.businessId);
+      const m = await all(c.env, `SELECT account_id id, SUM(CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) n, COUNT(*) total, SUM(reconciled = 0) sin, COALESCE(SUM(CASE WHEN reconciled = 0 THEN (CASE WHEN kind = 'ingreso' THEN amount ELSE -amount END) END), 0) valor_sin FROM fin_movements WHERE business_id = ? AND account_id IS NOT NULL GROUP BY account_id`, c.businessId);
       const l = await all(c.env, 'SELECT account_id id, COUNT(*) n FROM fin_bank_lines WHERE business_id = ? AND movement_id IS NULL GROUP BY account_id', c.businessId);
-      rows.forEach((r) => { const x = m.find((y) => y.id === r.id); r.balance = (r.opening_balance || 0) + (x?.n || 0); r.movimientos = x?.total || 0; r.sin_conciliar = x?.sin || 0; r.lineas_sin_conciliar = l.find((y) => y.id === r.id)?.n || 0; });
+      rows.forEach((r) => { const x = m.find((y) => y.id === r.id); r.balance = (r.opening_balance || 0) + (x?.n || 0); r.movimientos = x?.total || 0; r.sin_conciliar = x?.sin || 0; r.valor_sin_conciliar = x?.valor_sin || 0; r.lineas_sin_conciliar = l.find((y) => y.id === r.id)?.n || 0; });
       return rows;
     } },
   budgets: { table: 'fin_budgets', label: 'el presupuesto', title: 'month', search: ['category'], order: 'month DESC, id DESC',

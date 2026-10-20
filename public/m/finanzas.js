@@ -481,7 +481,8 @@ DW.ready.then((me) => {
       rowActions: () => '<button class="btn btn-sm btn-primary" data-act="conciliar"><i class="bi bi-check2-square me-1"></i>Conciliar</button>',
       onAction: (a, r) => { if (a === 'conciliar') conciliar(r.id); },
       columns: [{ label: 'Cuenta', main: true, html: (r) => `${esc(r.name)}${r.last4 ? ` <span class="text-body-secondary">···${esc(r.last4)}</span>` : ''}` },
-        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) }] });
+        { label: 'Tipo', html: (r) => esc(r.kind) }, { label: 'Banco', html: (r) => esc(r.bank || '—') }, { label: 'Saldo inicial', cls: 'text-end', html: (r) => money(r.opening_balance) },
+        { label: 'Saldo', cls: 'text-end', html: (r) => `<b class="${r.balance < 0 ? 'text-danger' : ''}">${money(r.balance)}</b>${r.sin_conciliar ? `<div class="small text-danger fw-normal">Sin conciliar ${money(r.valor_sin_conciliar)} (${r.sin_conciliar})</div>` : r.movimientos ? '<div class="small text-success fw-normal">Todo conciliado</div>' : '<div class="small text-body-secondary fw-normal">Sin movimientos</div>'}` }] });
     // Conciliación de una cuenta en una ventana fija: por mes, con lo que quedó sin conciliar de meses anteriores. «Vi el movimiento» marca y «Guardar» concilia.
     async function conciliar(id) {
       let d; try { d = await api(`${B}/accounts/${id}/conciliacion?estado=todos`); } catch (x) { toast(x.message, false); return; }
@@ -546,7 +547,7 @@ DW.ready.then((me) => {
         for (const m of lote) {
           try { await api(`${B}/movements/${m.id}`, { method: 'PATCH', body: { reconciled: m.marca ? 1 : 0 } }); m.reconciled = m.marca ? 1 : 0; } catch (x) { fallos.push(x.message); }
         }
-        guardando = false; pinta();   // los conciliados bajan al final
+        guardando = false; pinta(); accTable.load();   // los conciliados bajan al final y el saldo de la cuenta se actualiza
         if (fallos.length) toast(`No se pudieron guardar ${fallos.length}: ${fallos[0]}`, false); else toast(`${lote.length} movimiento${lote.length === 1 ? '' : 's'} conciliado${lote.length === 1 ? '' : 's'}`);
       });
       pinta(); modal.show();
