@@ -1,5 +1,12 @@
 # Finanzas — cambios
 
+## 1.9.2 · 2026-10-22
+- En la tabla «Nómina de <mes>» de Gastos recurrentes, el lápiz junto al pago definido de cada persona abre un formulario pequeño para definir cuánto se le paga (por mes, quincena, semana, clase u hora) y su cédula o NIT; Equipo ya no tiene el modal de nómina, solo un botón que lleva aquí.
+
+## 1.9.1 · 2026-10-22
+- **Gastos recurrentes** ahora trae la tabla **«Nómina de <mes>»** (persona, cédula o NIT, pago definido, lo que se aproxima a pagar este mes y su estado) con «Armar pago» / «Ver pago». La ventana de pagos queda solo para **editar** el pago (ítems, centro de costo, cédula, cuentas); el botón «Pago de otro servicio» abre uno suelto.
+- Arreglo: al agregar o quitar un ítem ya no se borran la cédula o NIT, el proveedor ni el centro de costo escritos.
+
 ## 1.9.0 · 2026-10-22
 - Al armar un pago se pide la **cédula o NIT** de a quién se le paga (la nómina la trae de Equipo). Queda en cada movimiento (columna en la descripción: «CC/NIT …») y en el pago.
 - **Documento del pago**: cada movimiento de «Pagos del mes» tiene un botón con el documento (nombre, cédula o NIT, el **total con sus ítems**, centro de costo y de qué cuentas salió) para imprimir o guardar como PDF, con la marca del negocio y N.º `PG-AAAAMM-…`. `GET /api/finanzas/pagos-mes/documento?tipo=&month=&key=`. Migración 0012.

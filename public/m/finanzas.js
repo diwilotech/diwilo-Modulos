@@ -87,7 +87,7 @@ DW.ready.then((me) => {
   }
 
   function recurrentes(el) {
-    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software y servicios que se cobran solos. Cada día, a las 3:00 a. m., los que vencen se registran como gasto en su centro de costo y la fecha pasa al siguiente cobro.</div><div data-t></div>';
+    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software y servicios que se cobran solos. Cada día, a las 3:00 a. m., los que vencen se registran como gasto en su centro de costo y la fecha pasa al siguiente cobro.</div><div data-t></div><div data-nomina class="mt-4"></div>';
     let est = { pagados: [], por_pagar: [] };
     const cargaEstado = async () => {
       est = await api(`${B}/recurring/estado`).catch(() => est);
@@ -97,9 +97,9 @@ DW.ready.then((me) => {
     };
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
-      extraButtons: RO ? '' : '<button class="btn btn-primary" data-pagos-mes><i class="bi bi-cash-coin me-1"></i>Pagos del mes</button>',
+      extraButtons: RO ? '' : '<button class="btn btn-outline-primary" data-pago-suelto><i class="bi bi-cash-coin me-1"></i>Pago de otro servicio</button>',
       rowActions: (r) => (r.active && !RO ? `<button class="btn btn-sm ${est.por_pagar.some((x) => x.id === r.id) ? 'btn-primary' : 'btn-outline-primary'}" data-act="pagar"><i class="bi bi-cash-coin me-1"></i>Pagar</button>` : ''),
-      onAction: (a, r) => { if (a === 'pagar') pagosMes({ foco: r.id, despues: () => cargaEstado().then(() => t.load()) }); },
+      onAction: (a, r) => { if (a === 'pagar') pagosMes({ foco: r.id, despues: refrescar }); },
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
         { label: 'Gasto', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}` },
@@ -109,8 +109,41 @@ DW.ready.then((me) => {
         { label: 'Próximo cobro', html: (r) => day(r.next_date) },
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
         { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Pausado')) }] });
-    cargaEstado().then(() => t.load());
-    $('[data-pagos-mes]', el)?.addEventListener('click', () => pagosMes({ despues: () => cargaEstado().then(() => t.load()) }));
+    // Nómina del mes: cada persona con lo que se aproxima a pagar; «Armar pago» abre su editor (sus ítems) y «Ver pago» el ya pagado
+    const nomEl = $('[data-nomina]', el);
+    async function cargaNomina() {
+      const mesN = C.todayCo().slice(0, 7);
+      let personas, aprox, pm;
+      try { [personas, aprox, pm] = await Promise.all([api('/api/team/nomina/personas').then((r) => r.personas), api(`/api/team/nomina/aproximado?month=${mesN}`).then((r) => r.rows).catch(() => []), api(`${B}/pagos-mes?month=${mesN}`)]); }
+      catch (_) { nomEl.innerHTML = ''; return; }   // la app no tiene nómina
+      const rk = (k) => String(k || '').replace(/[^\w.-]/g, '_').slice(0, 60);
+      nomEl.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h5 mb-0 flex-grow-1">Nómina de ${esc(monthName(mesN))}</h2></div>
+        ${personas.length ? `<div class="dw-card p-0 p-md-2"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Persona</th><th>Cédula o NIT</th><th>Pago definido</th><th class="text-end">Por pagar este mes</th><th>Estado</th><th></th></tr></thead><tbody>
+        ${personas.map((p, i) => {
+          const a = aprox.find((x) => x.key === p.key), pl = pm.planes.find((x) => x.tipo === 'nomina' && x.key === p.key), pg = pm.pagados.find((x) => x.tipo === 'nomina' && x.key === rk(p.key));
+          const det = a?.periodicidad === 'clase' ? `${a.clases} clase${a.clases === 1 ? '' : 's'}` : a?.periodicidad === 'hora' ? `${a.horas} h` : a?.clases ? `+ ${a.clases} clase${a.clases === 1 ? '' : 's'}` : '';
+          return `<tr><td><b>${esc(p.nombre)}</b>${sub(p.detalle)}</td><td>${esc(p.documento || '—')}</td>
+            <td>${p.valor ? `${money(p.valor)} <span class="small text-body-secondary">${({ mensual: 'mensual', quincenal: 'quincenal', semanal: 'semanal', clase: 'por clase', hora: 'por hora' })[p.periodicidad]}</span>` : '<span class="text-body-secondary small">Sin definir</span>'}${RO || !me.canManage ? '' : ` <button type="button" class="btn btn-sm btn-link py-0" data-def-pago="${i}" title="Definir cuánto se le paga y su cédula"><i class="bi bi-pencil"></i></button>`}</td>
+            <td class="text-end">${a?.definido ? `<b>${money(a.estimado)}</b>${det ? sub(det) : ''}` : '—'}</td>
+            <td>${pg ? chip('ok', `Pagado ${money(pg.total)}`) : pl ? chip('soon', `Armado ${money(pl.amount)}`) : '<span class="text-body-secondary small">Sin armar</span>'}</td>
+            <td class="text-end"><button type="button" class="btn btn-sm ${pg ? 'btn-outline-secondary' : 'btn-primary'}" data-pago-persona="${i}">${pg ? 'Ver pago' : RO ? 'Ver' : 'Armar pago'}</button></td></tr>`; }).join('')}</tbody></table></div></div>`
+          : '<div class="dw-card text-body-secondary">Aún no hay nadie en el equipo.</div>'}`;
+      nomEl.onclick = async (e) => {
+        const b = e.target.closest('[data-pago-persona]'); if (b) return pagosMes({ persona: personas[+b.dataset.pagoPersona].key, despues: refrescar });
+        const d = e.target.closest('[data-def-pago]'); if (!d) return;
+        const p = personas[+d.dataset.defPago];   // lo que se le paga normalmente y su cédula (se guarda en el equipo de la app)
+        const out = await C.form({ title: `Pago de ${p.nombre}`, okText: 'Guardar', base: B,
+          fields: [{ k: 'documento', label: 'Cédula o NIT', placeholder: 'Para su documento de pago' }, { k: 'valor', label: 'Cuánto se le paga (COP)', type: 'money' },
+            { k: 'periodicidad', label: 'Cada', type: 'select', options: [['mensual', 'Mes'], ['quincenal', 'Quincena'], ['semanal', 'Semana'], ['clase', 'Clase dictada'], ['hora', 'Hora']] }],
+          values: { documento: p.documento || '', valor: p.valor || 0, periodicidad: p.periodicidad || 'mensual' } });
+        if (!out) return;
+        try { await api(`/api/team/nomina/${encodeURIComponent(p.key)}`, { method: 'PUT', body: { valor: Number(out.valor) || 0, periodicidad: out.periodicidad, documento: out.documento, centro_costo: p.centro_costo, notas: p.notas } }); toast('Pago guardado'); cargaNomina(); }
+        catch (x) { toast(x.message, false); }
+      };
+    }
+    const refrescar = () => cargaEstado().then(() => { t.load(); cargaNomina(); });
+    refrescar();
+    $('[data-pago-suelto]', el)?.addEventListener('click', () => pagosMes({ nuevo: true, despues: refrescar }));
   }
 
   function centros(el) {
@@ -185,15 +218,15 @@ DW.ready.then((me) => {
   }
   // Pagos del mes. Se arma el pago de UNA persona (nómina) o de UN servicio, con sus ítems (las clases del profesional, el sueldo, un bono…): cada plan suma al presupuesto del mes
   // y «Pagar» lo registra en Movimientos, desde una o varias cuentas (p. ej. mitad en efectivo y mitad en el banco).
-  async function pagosMes({ foco = null, persona = null, despues } = {}) {
-    let mes = C.todayCo().slice(0, 7), tipo = foco ? 'servicios' : 'nomina';
+  async function pagosMes({ foco = null, persona = null, nuevo = false, despues } = {}) {
+    let mes = C.todayCo().slice(0, 7);
     const cuentas = await C.refs(B, 'accounts').catch(() => []), centros = await C.refs(B, 'cost_centers').catch(() => []);
     let personas = null;
-    try { personas = (await api('/api/team/nomina/personas')).personas; } catch (_) { personas = null; tipo = 'servicios'; }   // la app no tiene nómina: solo servicios
+    try { personas = (await api('/api/team/nomina/personas')).personas; } catch (_) { personas = null; }   // la app no tiene nómina: solo servicios
     const mo = document.createElement('div');
     mo.className = 'modal fade'; mo.tabIndex = -1;
     mo.innerHTML = `<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl"><div class="modal-content">
-      <div class="modal-header"><div class="flex-grow-1"><h2 class="modal-title h5 mb-0" data-titulo>Pagos del mes</h2><div class="small text-body-secondary" data-sub>Arma el pago de cada persona o servicio: suma al presupuesto del mes y, al pagar, queda en Movimientos.</div></div><button type="button" class="btn-close" data-cerrar aria-label="Cerrar"></button></div>
+      <div class="modal-header"><div class="flex-grow-1"><h2 class="modal-title h5 mb-0" data-titulo>Pago</h2><div class="small text-body-secondary" data-sub>Edita los ítems: «Guardar presupuesto» lo suma al presupuesto del mes y «Pagar» lo registra en Movimientos.</div></div><button type="button" class="btn-close" data-cerrar aria-label="Cerrar"></button></div>
       <div class="modal-body" data-cuerpo><p class="text-body-secondary">Cargando…</p></div><div class="modal-footer justify-content-between" data-pie></div></div></div>`;
     document.body.appendChild(mo);
     const modal_ = new bootstrap.Modal(mo, { backdrop: 'static', keyboard: false });
@@ -208,29 +241,6 @@ DW.ready.then((me) => {
     const pagado = (t, k) => datos.pagados.find((x) => x.tipo === t && x.key === rk(k));
     const centroNombre = (id) => centros.find((x) => x.id === id)?.name || null;
 
-    /* ---- lista ---- */
-    function lista() {
-      cur = null; sucio = false; titulo.textContent = 'Pagos del mes';
-      pie.innerHTML = '<span></span><button type="button" class="btn btn-light" data-cerrar>Cerrar</button>';
-      const bar = `<div class="d-flex flex-wrap align-items-center gap-2 mb-3"><div class="btn-group" role="group" aria-label="Tipo de pago"><button type="button" class="btn btn-sm btn-outline-secondary ${tipo === 'servicios' ? 'active' : ''}" data-tipo="servicios">Pago de servicios</button>${personas ? `<button type="button" class="btn btn-sm btn-outline-secondary ${tipo === 'nomina' ? 'active' : ''}" data-tipo="nomina">Pago de nómina</button>` : ''}</div>
-        <input type="month" class="form-control form-control-sm w-auto" data-mes value="${mes}" aria-label="Mes"></div>`;
-      const estado = (t, k, extra = 0) => { const p = pagado(t, k), pl = plan(t, k); return p ? chip('ok', `Pagado ${money(p.total)}`) : pl ? chip('soon', `Armado ${money(pl.amount)}`) : '<span class="text-body-secondary small">Sin armar</span>'; };
-      if (tipo === 'nomina') {
-        cuerpo.innerHTML = `${bar}${personas.length ? `<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Persona</th><th>Pago definido en Equipo</th><th>Este mes</th><th></th></tr></thead><tbody>${personas.map((p, i) => `<tr><td><b>${esc(p.nombre)}</b>${sub(p.detalle)}</td>
-          <td>${p.valor ? `${money(p.valor)} <span class="small text-body-secondary">${PER[p.periodicidad]}</span>` : '<span class="text-body-secondary small">Sin definir</span>'}</td><td>${estado('nomina', p.key)}</td>
-          <td class="text-end"><button type="button" class="btn btn-sm ${pagado('nomina', p.key) ? 'btn-outline-secondary' : 'btn-primary'}" data-persona="${i}">${pagado('nomina', p.key) ? 'Ver pago' : 'Armar pago'}</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="text-body-secondary">Aún no hay nadie en el equipo.</p>'}`;
-      } else {
-        const sueltos = datos.planes.filter((x) => x.tipo === 'servicios' && !x.recurring_id);
-        cuerpo.innerHTML = `${bar}<div class="d-flex justify-content-end mb-2"><button type="button" class="btn btn-sm btn-outline-primary" data-nuevo-serv><i class="bi bi-plus-lg me-1"></i>Pago de otro servicio</button></div>
-          ${datos.servicios.length || sueltos.length || datos.pagados_servicios.length ? `<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Servicio</th><th>Vence</th><th>Valor</th><th>Este mes</th><th></th></tr></thead><tbody>
-          ${datos.servicios.map((x, i) => `<tr class="${x.id === foco ? 'table-warning' : ''}"><td><b>${esc(x.name)}</b>${sub(x.vendor)}</td><td>${day(x.next_date)}</td><td>${money(x.amount)}</td><td>${estado('servicios', `r:${x.id}`)}</td>
-            <td class="text-end"><button type="button" class="btn btn-sm btn-primary" data-serv="${i}">Pagar</button></td></tr>`).join('')}
-          ${datos.pagados_servicios.filter((x) => !datos.servicios.some((y) => y.id === x.recurring_id)).map((x) => `<tr><td><b>${esc(x.name)}</b>${sub(x.vendor)}</td><td>—</td><td>${money(x.valor)}</td><td>${chip('ok', `Pagado ${money(x.valor)}`)}</td><td></td></tr>`).join('')}
-          ${sueltos.map((x) => `<tr><td><b>${esc(x.tercero || 'Servicio')}</b>${sub('pago suelto')}</td><td>—</td><td>${money(x.amount)}</td><td>${estado('servicios', x.key)}</td><td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-suelto="${esc(x.key)}">${pagado('servicios', x.key) ? 'Ver pago' : 'Abrir'}</button></td></tr>`).join('')}</tbody></table></div>`
-          : '<p class="text-body-secondary mb-0">No hay servicios por pagar este mes. Usa «Pago de otro servicio» para uno suelto.</p>'}`;
-      }
-    }
-
     /* ---- armar el pago de una persona o servicio ---- */
     async function armar(def) {   // def: { tipo, key, tercero, recurring_id?, centroId?, items?, tercero editable? }
       const t = def.tipo, k = def.key, pl = plan(t, k), pg = pagado(t, k);
@@ -242,7 +252,13 @@ DW.ready.then((me) => {
       const total = () => items.reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0);
       const dibuja = () => {
         const bloqueado = !!pg;
-        cuerpo.innerHTML = `<button type="button" class="btn btn-light btn-sm mb-3" data-volver><i class="bi bi-arrow-left me-1"></i>Volver</button>
+        // Lo que ya escribiste (cédula, centro de costo, proveedor) se conserva al volver a dibujar (agregar o quitar un ítem)
+        if (cuerpo.querySelector('[data-taxid]')) {
+          taxId = cuerpo.querySelector('[data-taxid]').value;
+          if (t !== 'nomina') tercero = cuerpo.querySelector('[data-tercero]').value;
+          centro = cuerpo.querySelector('[data-centro]').value ? Number(cuerpo.querySelector('[data-centro]').value) : null;
+        }
+        cuerpo.innerHTML = `<div class="d-flex align-items-center gap-2 mb-3"><span class="small text-body-secondary">Mes del pago</span><input type="month" class="form-control form-control-sm w-auto" data-mes value="${mes}" ${bloqueado ? '' : ''} aria-label="Mes"></div>
           ${pg ? `<div class="alert alert-success py-2"><i class="bi bi-check-circle-fill me-1"></i><b>Pagado ${money(pg.total)}</b> ${pg.fuentes.map((f) => `<span class="small ms-2">${esc(cuentas.find((a) => a.id === f.account_id)?.name || 'Sin cuenta')}: ${money(f.valor)}</span>`).join('')}</div>` : ''}
           <div class="row g-2 mb-3"><div class="col-md-4"><label class="form-label small mb-1">${t === 'nomina' ? 'Persona' : 'Proveedor o servicio'}</label><input class="form-control" data-tercero value="${esc(tercero)}" maxlength="200" ${t === 'nomina' || bloqueado ? 'disabled' : ''} placeholder="Ej.: Claro, Inmobiliaria…"></div>
             <div class="col-md-4"><label class="form-label small mb-1">Cédula o NIT</label><input class="form-control" data-taxid value="${esc(taxId)}" maxlength="40" ${bloqueado ? 'disabled' : ''} placeholder="Para el documento del pago"></div>
@@ -252,7 +268,7 @@ DW.ready.then((me) => {
             <td><div class="input-group input-group-sm"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-f="valor" value="${x.valor || ''}" placeholder="Valor" ${bloqueado ? 'disabled' : ''} aria-label="Valor"></div></td>
             <td>${bloqueado || x.fijo ? '' : '<button type="button" class="btn btn-sm btn-light" data-quitar aria-label="Quitar"><i class="bi bi-x-lg"></i></button>'}</td></tr>`).join('') || '<tr><td colspan="3" class="text-body-secondary small">Aún no hay ítems. Agrega el primero.</td></tr>'}</tbody></table></div>
           ${bloqueado ? '' : '<button type="button" class="btn btn-sm btn-outline-secondary" data-mas><i class="bi bi-plus-lg me-1"></i>Agregar ítem</button>'}`;
-        pie.innerHTML = `<span>Total: <b data-total>${money(total())}</b>${sucio ? ' <span class="badge text-bg-warning ms-1">Sin guardar</span>' : ''}</span><span class="d-flex gap-2"><button type="button" class="btn btn-light" data-volver>Volver</button>${bloqueado || RO ? '' : '<button type="button" class="btn btn-outline-primary" data-guardar>Guardar presupuesto</button><button type="button" class="btn btn-primary" data-pagar><i class="bi bi-cash-coin me-1"></i>Pagar</button>'}</span>`;
+        pie.innerHTML = `<span>Total: <b data-total>${money(total())}</b>${sucio ? ' <span class="badge text-bg-warning ms-1">Sin guardar</span>' : ''}</span><span class="d-flex gap-2"><button type="button" class="btn btn-light" data-cerrar>Cerrar</button>${bloqueado || RO ? '' : '<button type="button" class="btn btn-outline-primary" data-guardar>Guardar presupuesto</button><button type="button" class="btn btn-primary" data-pagar><i class="bi bi-cash-coin me-1"></i>Pagar</button>'}</span>`;
       };
       dibuja();
       cur.leer = () => ({ items: items.filter((x) => x.concepto && Number(x.valor) > 0).map((x) => ({ concepto: x.concepto, valor: Math.round(Number(x.valor)) })), tercero: mo.querySelector('[data-tercero]')?.value.trim() || tercero, taxId: mo.querySelector('[data-taxid]')?.value.trim() || '', centro: mo.querySelector('[data-centro]')?.value || null, total: total() });
@@ -296,23 +312,17 @@ DW.ready.then((me) => {
       el.querySelector('[data-ok]').addEventListener('click', async (e) => {
         e.currentTarget.disabled = true;
         const ok = await guardar(true, { fecha: el.querySelector('[data-fecha]').value, fuentes: fuentes.map((f) => ({ account_id: f.account_id || null, valor: f.valor })) });
-        if (ok) { m.hide(); lista(); } else e.currentTarget.disabled = false;
+        if (ok) { m.hide(); sucio = false; modal_.hide(); } else e.currentTarget.disabled = false;
       });
       pinta();
     }
 
     /* ---- eventos ---- */
     mo.addEventListener('click', async (e) => {
-      const t = e.target.closest('[data-tipo]'); if (t) { tipo = t.dataset.tipo; return lista(); }
-      if (e.target.closest('[data-volver]')) { if (sucio && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si vuelves, se pierden.', ok: 'Volver sin guardar' }))) return; return lista(); }
       if (e.target.closest('[data-mas]')) return cur.add();
       const q = e.target.closest('[data-quitar]'); if (q) return cur.quitar(+q.closest('[data-i]').dataset.i);
-      if (e.target.closest('[data-guardar]')) { if (await guardar(false)) lista(); return; }
+      if (e.target.closest('[data-guardar]')) { if (await guardar(false)) { sucio = false; modal_.hide(); } return; }
       if (e.target.closest('[data-pagar]')) return ventanaPago();
-      const p = e.target.closest('[data-persona]'); if (p) return armarNomina(personas[+p.dataset.persona]);
-      const sv = e.target.closest('[data-serv]'); if (sv) return armarServicio(datos.servicios[+sv.dataset.serv]);
-      const su = e.target.closest('[data-suelto]'); if (su) { const x = datos.planes.find((y) => y.tipo === 'servicios' && y.key === su.dataset.suelto); return armar({ tipo: 'servicios', key: x.key, tercero: x.tercero }); }
-      if (e.target.closest('[data-nuevo-serv]')) return armar({ tipo: 'servicios', key: `s:${Date.now().toString(36)}`, tercero: '', items: [{ concepto: '', valor: '' }] });
     });
     mo.addEventListener('input', (e) => {
       const tr = e.target.closest('[data-i]'), f = e.target.dataset?.f;
@@ -320,7 +330,7 @@ DW.ready.then((me) => {
       else if (e.target.matches('[data-tercero],[data-centro],[data-taxid]') && cur) { sucio = true; const tt = mo.querySelector('[data-total]'); if (tt && !pie.querySelector('.badge')) tt.insertAdjacentHTML('afterend', ' <span class="badge text-bg-warning ms-1">Sin guardar</span>'); }
     });
     mo.addEventListener('change', async (e) => {
-      if (e.target.matches('[data-mes]')) { if (sucio && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cambias de mes, se pierden.', ok: 'Cambiar de mes' }))) { e.target.value = mes; return; } mes = e.target.value || mes; await cargar(); lista(); }
+      if (e.target.matches('[data-mes]')) { if (sucio && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cambias de mes, se pierden.', ok: 'Cambiar de mes' }))) { e.target.value = mes; return; } mes = e.target.value || mes; sucio = false; await cargar(); await armar(cur.def); }
     });
     const cerrar = async () => { if (sucio && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cierras, se pierden.', ok: 'Cerrar sin guardar' }))) return; modal_.hide(); };
     mo.addEventListener('click', (e) => { if (e.target.closest('[data-cerrar]')) cerrar(); });
@@ -345,9 +355,10 @@ DW.ready.then((me) => {
 
     modal_.show();
     try { await cargar(); } catch (x) { cuerpo.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    lista();
-    if (foco) { const x = datos.servicios.find((y) => y.id === foco); if (x) armarServicio(x); }
-    if (persona && personas) { const x = personas.find((y) => y.key === persona || `p:${y.profesional_id}` === persona); if (x) armarNomina(x); }
+    if (foco) { const x = datos.servicios.find((y) => y.id === foco); if (x) return armarServicio(x); }
+    if (persona && personas) { const x = personas.find((y) => y.key === persona || `p:${y.profesional_id}` === persona); if (x) return armarNomina(x); }
+    if (nuevo) return armar({ tipo: 'servicios', key: `s:${Date.now().toString(36)}`, tercero: '', items: [{ concepto: '', valor: '' }] });
+    modal_.hide();
   }
   // Enlaces a los archivos de un recibo (comprobantes que subió el cliente en la app)
   const archivos = (files) => (files || []).map((f) => `<a class="btn btn-sm btn-outline-secondary" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip me-1"></i>${esc(f.nombre.length > 18 ? f.nombre.slice(0, 16) + '…' : f.nombre)}</a>`).join(' ');
@@ -818,5 +829,5 @@ DW.ready.then((me) => {
 
   segBtn($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
   render();
-  if (irAPago && !RO) { history.replaceState(null, '', '#recurrentes'); pagosMes({ persona: irAPago }); }
+  if (irAPago && !RO) { history.replaceState(null, '', '#recurrentes'); pagosMes({ persona: irAPago, despues: () => location.reload() }); }
 });
