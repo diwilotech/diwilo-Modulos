@@ -58,7 +58,9 @@ DW.ready.then((me) => {
       { k: 'bank', label: 'Banco' }, { k: 'last4', label: 'Últimos 4 dígitos' }, { k: 'opening_balance', label: 'Saldo inicial (COP)', type: 'money', hint: 'lo que tenía la cuenta antes de registrar movimientos aquí' }],
   };
 
-  let view = (location.hash || '#resumen').slice(1);
+  // Desde Equipo: «Pago» de una persona abre Finanzas con su pago listo para armar (#pagos:<persona>)
+  const irAPago = /^#pagos:(.+)$/.exec(location.hash) ? decodeURIComponent(RegExp.$1) : null;
+  let view = irAPago ? 'recurrentes' : (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   function render() {
     history.replaceState(null, '', `#${view}`);
@@ -74,11 +76,11 @@ DW.ready.then((me) => {
       empty: 'Sin movimientos. Los gastos recurrentes y los cobros los crean solos.', emptyIcon: 'bi-arrow-down-up',
       columns: [
         { label: 'Fecha', html: (r) => day(r.date) },
-        { label: 'Descripción', main: true, html: (r) => `${esc(r.description || r.category || '—')}${sub(r.counterparty)}` },
+        { label: 'Descripción', main: true, html: (r) => `${esc(r.description || r.category || '—')}${sub(r.counterparty)}${r.tax_id ? sub(`CC/NIT ${r.tax_id}`) : ''}` },
         { label: 'Categoría', html: (r) => (r.category ? `<span class="badge text-bg-light">${esc(r.category)}</span>` : '—') },
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
         { label: 'Cuenta', html: (r, R) => C.refName(R, 'accounts', r.account_id) },
-        { label: 'Monto', cls: 'text-end text-nowrap', html: (r) => `<b class="${r.kind === 'ingreso' ? 'text-success' : ''}">${r.kind === 'ingreso' ? '+' : '−'}${money(r.amount)}</b>${r.receipt_id ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/receipts/${r.receipt_id}/pdf" target="_blank" rel="noopener" title="Ver el recibo ${esc(r.receipt_number)} (PDF)" aria-label="Ver el recibo (PDF)"><i class="bi bi-filetype-pdf"></i></a>${(r.receipt_files || []).map((f) => ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}" aria-label="${esc(f.nombre)}"><i class="bi bi-paperclip"></i></a>`).join('')}` : ''}${usdLine(r)}` },
+        { label: 'Monto', cls: 'text-end text-nowrap', html: (r) => `<b class="${r.kind === 'ingreso' ? 'text-success' : ''}">${r.kind === 'ingreso' ? '+' : '−'}${money(r.amount)}</b>${r.pago_doc ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/pagos-mes/documento?tipo=${r.pago_doc.tipo}&month=${r.pago_doc.month}&key=${encodeURIComponent(r.pago_doc.key)}" target="_blank" rel="noopener" title="Documento del pago: total con sus ${r.pago_doc.items} ítems, nombre y cédula" aria-label="Documento del pago"><i class="bi bi-file-earmark-text"></i></a>` : ''}${r.receipt_id ? ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${B}/receipts/${r.receipt_id}/pdf" target="_blank" rel="noopener" title="Ver el recibo ${esc(r.receipt_number)} (PDF)" aria-label="Ver el recibo (PDF)"><i class="bi bi-filetype-pdf"></i></a>${(r.receipt_files || []).map((f) => ` <a class="btn btn-sm btn-outline-secondary py-0 px-1" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}" aria-label="${esc(f.nombre)}"><i class="bi bi-paperclip"></i></a>`).join('')}` : ''}${usdLine(r)}` },
         { label: 'Conciliado', html: (r) => (r.reconciled ? '<i class="bi bi-check-circle text-success" title="Conciliado"></i>' : '') }] });
     t.load();
     $('[data-recibo]', el)?.addEventListener('click', () => nuevoRecibo(() => t.load()));
@@ -183,7 +185,7 @@ DW.ready.then((me) => {
   }
   // Pagos del mes. Se arma el pago de UNA persona (nómina) o de UN servicio, con sus ítems (las clases del profesional, el sueldo, un bono…): cada plan suma al presupuesto del mes
   // y «Pagar» lo registra en Movimientos, desde una o varias cuentas (p. ej. mitad en efectivo y mitad en el banco).
-  async function pagosMes({ foco = null, despues } = {}) {
+  async function pagosMes({ foco = null, persona = null, despues } = {}) {
     let mes = C.todayCo().slice(0, 7), tipo = foco ? 'servicios' : 'nomina';
     const cuentas = await C.refs(B, 'accounts').catch(() => []), centros = await C.refs(B, 'cost_centers').catch(() => []);
     let personas = null;
@@ -233,7 +235,7 @@ DW.ready.then((me) => {
     async function armar(def) {   // def: { tipo, key, tercero, recurring_id?, centroId?, items?, tercero editable? }
       const t = def.tipo, k = def.key, pl = plan(t, k), pg = pagado(t, k);
       let items = (pl?.items || def.items || []).map((x) => ({ ...x }));
-      let centro = pl ? pl.cost_center_id : (def.centroId ?? null), tercero = pl?.tercero ?? def.tercero ?? '';
+      let centro = pl ? pl.cost_center_id : (def.centroId ?? null), tercero = pl?.tercero ?? def.tercero ?? '', taxId = pl?.tax_id ?? def.taxId ?? '';
       if (!pl && def.sugerir) items = await def.sugerir();
       cur = { def, pagado: pg }; sucio = false;
       titulo.textContent = `${t === 'nomina' ? 'Pago de nómina' : 'Pago de servicio'} · ${tercero || 'nuevo'}`;
@@ -242,8 +244,9 @@ DW.ready.then((me) => {
         const bloqueado = !!pg;
         cuerpo.innerHTML = `<button type="button" class="btn btn-light btn-sm mb-3" data-volver><i class="bi bi-arrow-left me-1"></i>Volver</button>
           ${pg ? `<div class="alert alert-success py-2"><i class="bi bi-check-circle-fill me-1"></i><b>Pagado ${money(pg.total)}</b> ${pg.fuentes.map((f) => `<span class="small ms-2">${esc(cuentas.find((a) => a.id === f.account_id)?.name || 'Sin cuenta')}: ${money(f.valor)}</span>`).join('')}</div>` : ''}
-          <div class="row g-2 mb-3"><div class="col-md-6"><label class="form-label small mb-1">${t === 'nomina' ? 'Persona' : 'Proveedor o servicio'}</label><input class="form-control" data-tercero value="${esc(tercero)}" maxlength="200" ${t === 'nomina' || bloqueado ? 'disabled' : ''} placeholder="Ej.: Claro, Inmobiliaria…"></div>
-            <div class="col-md-6"><label class="form-label small mb-1">Centro de costo</label><select class="form-select" data-centro ${bloqueado ? 'disabled' : ''}><option value="">Sin centro de costo</option>${centros.map((x) => `<option value="${x.id}" ${x.id === centro ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div></div>
+          <div class="row g-2 mb-3"><div class="col-md-4"><label class="form-label small mb-1">${t === 'nomina' ? 'Persona' : 'Proveedor o servicio'}</label><input class="form-control" data-tercero value="${esc(tercero)}" maxlength="200" ${t === 'nomina' || bloqueado ? 'disabled' : ''} placeholder="Ej.: Claro, Inmobiliaria…"></div>
+            <div class="col-md-4"><label class="form-label small mb-1">Cédula o NIT</label><input class="form-control" data-taxid value="${esc(taxId)}" maxlength="40" ${bloqueado ? 'disabled' : ''} placeholder="Para el documento del pago"></div>
+            <div class="col-md-4"><label class="form-label small mb-1">Centro de costo</label><select class="form-select" data-centro ${bloqueado ? 'disabled' : ''}><option value="">Sin centro de costo</option>${centros.map((x) => `<option value="${x.id}" ${x.id === centro ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div></div>
           <h3 class="h6">Ítems que se pagan</h3><p class="small text-body-secondary">Ponle valor a los que quieras pagar; los que dejes vacíos no cuentan.</p>
           <div class="table-responsive"><table class="table align-middle mb-2"><thead><tr><th>Concepto</th><th style="width:180px">Valor</th><th style="width:3rem"></th></tr></thead><tbody>${items.map((x, i) => `<tr data-i="${i}"><td>${x.fijo ? esc(x.concepto) : `<input class="form-control form-control-sm" data-f="concepto" value="${esc(x.concepto)}" maxlength="200" ${bloqueado ? 'disabled' : ''} aria-label="Concepto">`}${x.detalle ? sub(x.detalle) : ''}</td>
             <td><div class="input-group input-group-sm"><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-f="valor" value="${x.valor || ''}" placeholder="Valor" ${bloqueado ? 'disabled' : ''} aria-label="Valor"></div></td>
@@ -252,8 +255,8 @@ DW.ready.then((me) => {
         pie.innerHTML = `<span>Total: <b data-total>${money(total())}</b>${sucio ? ' <span class="badge text-bg-warning ms-1">Sin guardar</span>' : ''}</span><span class="d-flex gap-2"><button type="button" class="btn btn-light" data-volver>Volver</button>${bloqueado || RO ? '' : '<button type="button" class="btn btn-outline-primary" data-guardar>Guardar presupuesto</button><button type="button" class="btn btn-primary" data-pagar><i class="bi bi-cash-coin me-1"></i>Pagar</button>'}</span>`;
       };
       dibuja();
-      cur.leer = () => ({ items: items.filter((x) => x.concepto && Number(x.valor) > 0).map((x) => ({ concepto: x.concepto, valor: Math.round(Number(x.valor)) })), tercero: mo.querySelector('[data-tercero]')?.value.trim() || tercero, centro: mo.querySelector('[data-centro]')?.value || null, total: total() });
-      cur.items = items; cur.ref = () => { const v = cur.leer(); return { month: mes, tipo: t, key: k, tercero: v.tercero, cost_center_id: v.centro || null, recurring_id: def.recurring_id || null, items: v.items }; };
+      cur.leer = () => ({ items: items.filter((x) => x.concepto && Number(x.valor) > 0).map((x) => ({ concepto: x.concepto, valor: Math.round(Number(x.valor)) })), tercero: mo.querySelector('[data-tercero]')?.value.trim() || tercero, taxId: mo.querySelector('[data-taxid]')?.value.trim() || '', centro: mo.querySelector('[data-centro]')?.value || null, total: total() });
+      cur.items = items; cur.ref = () => { const v = cur.leer(); return { month: mes, tipo: t, key: k, tercero: v.tercero, tax_id: v.taxId, cost_center_id: v.centro || null, recurring_id: def.recurring_id || null, items: v.items }; };
       cur.add = () => { items.push({ concepto: '', valor: '' }); sucio = true; dibuja(); };
       cur.quitar = (i) => { items.splice(i, 1); sucio = true; dibuja(); };
       cur.editar = (i, f, v) => { items[i][f] = v; sucio = true; const tt = mo.querySelector('[data-total]'); if (tt) tt.textContent = money(total()); };
@@ -314,7 +317,7 @@ DW.ready.then((me) => {
     mo.addEventListener('input', (e) => {
       const tr = e.target.closest('[data-i]'), f = e.target.dataset?.f;
       if (tr && f && cur) cur.editar(+tr.dataset.i, f, e.target.value);
-      else if (e.target.matches('[data-tercero],[data-centro]') && cur) { sucio = true; const tt = mo.querySelector('[data-total]'); if (tt && !pie.querySelector('.badge')) tt.insertAdjacentHTML('afterend', ' <span class="badge text-bg-warning ms-1">Sin guardar</span>'); }
+      else if (e.target.matches('[data-tercero],[data-centro],[data-taxid]') && cur) { sucio = true; const tt = mo.querySelector('[data-total]'); if (tt && !pie.querySelector('.badge')) tt.insertAdjacentHTML('afterend', ' <span class="badge text-bg-warning ms-1">Sin guardar</span>'); }
     });
     mo.addEventListener('change', async (e) => {
       if (e.target.matches('[data-mes]')) { if (sucio && !(await confirm({ title: 'Hay cambios sin guardar', text: 'Si cambias de mes, se pierden.', ok: 'Cambiar de mes' }))) { e.target.value = mes; return; } mes = e.target.value || mes; await cargar(); lista(); }
@@ -324,7 +327,7 @@ DW.ready.then((me) => {
 
     // Nómina: el sueldo definido en Equipo + (si es profesional) las clases que dicta ese mes, cada una con su valor opcional
     async function armarNomina(p) {
-      return armar({ tipo: 'nomina', key: p.key, tercero: p.nombre, centroId: centros.find((x) => x.name.toLowerCase() === String(p.centro_costo || '').toLowerCase())?.id ?? null,
+      return armar({ tipo: 'nomina', key: p.key, tercero: p.nombre, taxId: p.documento || '', centroId: centros.find((x) => x.name.toLowerCase() === String(p.centro_costo || '').toLowerCase())?.id ?? null,
         sugerir: async () => {
           const it = [];
           if (p.valor && FACTOR[p.periodicidad]) it.push({ concepto: BASE[p.periodicidad], valor: p.valor * FACTOR[p.periodicidad], fijo: true });
@@ -344,6 +347,7 @@ DW.ready.then((me) => {
     try { await cargar(); } catch (x) { cuerpo.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     lista();
     if (foco) { const x = datos.servicios.find((y) => y.id === foco); if (x) armarServicio(x); }
+    if (persona && personas) { const x = personas.find((y) => y.key === persona || `p:${y.profesional_id}` === persona); if (x) armarNomina(x); }
   }
   // Enlaces a los archivos de un recibo (comprobantes que subió el cliente en la app)
   const archivos = (files) => (files || []).map((f) => `<a class="btn btn-sm btn-outline-secondary" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip me-1"></i>${esc(f.nombre.length > 18 ? f.nombre.slice(0, 16) + '…' : f.nombre)}</a>`).join(' ');
@@ -814,4 +818,5 @@ DW.ready.then((me) => {
 
   segBtn($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
   render();
+  if (irAPago && !RO) { history.replaceState(null, '', '#recurrentes'); pagosMes({ persona: irAPago }); }
 });

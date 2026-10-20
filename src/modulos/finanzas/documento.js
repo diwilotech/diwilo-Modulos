@@ -290,3 +290,36 @@ ${wa ? `try{var q=qrcode(0,'M');q.addData(${JSON.stringify(wa)});q.make();docume
 ${autoprint ? "addEventListener('load',function(){setTimeout(function(){print()},400)});" : ''}
 </script></body></html>`;
 }
+
+// Documento de un pago de «Pagos del mes» (nómina o servicio): quién recibe (nombre y cédula o NIT), el total con sus ítems y de qué cuentas salió.
+export async function pagoDocument(env, org, { plan, movimientos, centro }, { autoprint = false, logo = null } = {}) {
+  const p = await getProfile(env, org), K = await skin(env, org);
+  const issuer = p.issuer_name || p.brand || '', total = plan.amount, esNomina = plan.tipo === 'nomina';
+  const numero = `PG-${plan.month.replace('-', '')}-${String(plan.key).replace(/[^\w]/g, '').slice(-6).toUpperCase()}`;
+  const fechaPago = movimientos[0]?.date || null, pagado = movimientos.length > 0;
+  const fileName = `Pago ${plan.tercero || ''} ${plan.month}`.replace(/[\\/:*?"<>|]/g, '');
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(fileName)}</title>
+<link href="${K.gfont}" rel="stylesheet">
+<style>@page{size:A4;margin:0}*{box-sizing:border-box}:root{--ink:#14112b;--ink2:#4a4766;--ink3:#8a87a3;--line:#e7e4f2}
+html{background:#e9e7f1}body{margin:0;font:12.5px/1.45 ${K.fam};color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.bar{position:sticky;top:0;display:flex;gap:10px;justify-content:center;align-items:center;padding:12px 16px;background:#14112b;color:#fff}.bar button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18px;cursor:pointer;background:${K.c400};color:#fff}
+.page{width:210mm;min-height:297mm;margin:24px auto;background:#fff;box-shadow:0 10px 40px rgba(20,17,43,.15);padding:14mm 16mm;position:relative;overflow:hidden}
+.page::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,${K.c400},${K.c500} 45%,${K.c700})}
+header{display:flex;justify-content:space-between;gap:16px}.brand{display:flex;gap:10px;align-items:center}.brand b{font-size:17px}.brand small{display:block;color:var(--ink3)}
+.doc{text-align:right}.doc h1{margin:0;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:${K.c500}}.doc .num{font-size:21px;font-weight:700;margin-top:4px}.doc small{display:block;color:var(--ink2)}
+.party{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px}.party h2{grid-column:1/-1;margin:0;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}.party b{font-size:14px}
+.party span{color:var(--ink2)}.amount{margin-top:12px;border-radius:12px;padding:11px 16px;background:${K.c50};display:flex;justify-content:space-between;align-items:center;gap:16px}.amount .v{font-size:24px;font-weight:700;color:${K.c700};white-space:nowrap}.amount .w{color:var(--ink2);font-style:italic;text-align:right}
+table{width:100%;border-collapse:collapse;margin-top:14px}thead th{text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:7px 8px;border-bottom:1.5px solid var(--ink)}tbody td{padding:7px 8px;border-bottom:1px solid var(--line)}td.n,th.n{text-align:right;white-space:nowrap}
+tfoot td{padding:9px 8px;font-weight:700;font-size:14px;border-top:1.5px solid var(--ink)}.fuentes{margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:10px 14px}.fuentes h2{margin:0 0 6px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+.sign{display:flex;gap:40px;margin-top:70px}.sign div{flex:1;border-top:1px solid var(--ink);padding-top:5px;color:var(--ink2);font-size:11px}.estado{display:inline-block;padding:2px 10px;border-radius:999px;font-weight:600;font-size:11px;background:${pagado ? '#dcfce7;color:#166534' : '#fef3c7;color:#92400e'}}
+@media print{html{background:#fff}.bar{display:none}.page{margin:0;box-shadow:none;width:auto;min-height:0}}</style></head><body>
+<div class="bar"><button onclick="print()">Imprimir o guardar PDF</button></div>
+<main class="page"><header><div class="brand">${logo ? `<img src="${esc(logo)}" alt="" style="width:40px;height:40px;border-radius:9px;object-fit:cover">` : ''}<div><b>${esc(issuer)}</b>${p.issuer_doc ? `<small>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}</small>` : ''}<small>${[p.city, p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</small></div></div>
+  <div class="doc"><h1>${esNomina ? 'Comprobante de pago de nómina' : 'Comprobante de pago'}</h1><div class="num">N.º ${esc(numero)}</div><small>${fechaPago ? esc(fecha(fechaPago)) : esc(plan.month)}</small><small><span class="estado">${pagado ? 'Pagado' : 'Por pagar'}</span></small></div></header>
+  <section class="party"><h2>${esNomina ? 'Se le paga a' : 'Proveedor'}</h2><div><b>${esc(plan.tercero || '—')}</b></div><div><span>Cédula o NIT: <b>${esc(plan.tax_id || '—')}</b></span></div>${centro ? `<div><span>Centro de costo: <b>${esc(centro)}</b></span></div>` : ''}<div><span>Periodo: <b>${esc(plan.month)}</b></span></div></section>
+  <section class="amount"><div class="v">${pesos(total)}</div><div class="w">${esc(enLetras(total))}</div></section>
+  <table><thead><tr><th style="width:2rem">#</th><th>Concepto</th><th class="n">Valor</th></tr></thead><tbody>${plan.items.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.concepto)}</td><td class="n">${pesos(x.valor)}</td></tr>`).join('')}</tbody><tfoot><tr><td></td><td>Total</td><td class="n">${pesos(total)}</td></tr></tfoot></table>
+  ${pagado ? `<section class="fuentes"><h2>De dónde se pagó</h2>${movimientos.map((m) => `<div style="display:flex;justify-content:space-between"><span>${esc(m.cuenta || 'Sin cuenta')} · ${esc(fecha(m.date))}</span><b>${pesos(m.amount)}</b></div>`).join('')}</section>` : ''}
+  <div class="sign"><div>Firma de quien paga</div><div>Firma de quien recibe${plan.tax_id ? ` · ${esc(plan.tax_id)}` : ''}</div></div></main>
+${autoprint ? '<script>addEventListener("load",()=>setTimeout(print,300))</script>' : ''}</body></html>`;
+}

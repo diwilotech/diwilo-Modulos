@@ -1,5 +1,10 @@
 # Finanzas — cambios
 
+## 1.9.0 · 2026-10-22
+- Al armar un pago se pide la **cédula o NIT** de a quién se le paga (la nómina la trae de Equipo). Queda en cada movimiento (columna en la descripción: «CC/NIT …») y en el pago.
+- **Documento del pago**: cada movimiento de «Pagos del mes» tiene un botón con el documento (nombre, cédula o NIT, el **total con sus ítems**, centro de costo y de qué cuentas salió) para imprimir o guardar como PDF, con la marca del negocio y N.º `PG-AAAAMM-…`. `GET /api/finanzas/pagos-mes/documento?tipo=&month=&key=`. Migración 0012.
+- Equipo → «Pago» de una persona abre directo Finanzas con su pago listo para armar (`#pagos:<persona>`).
+
 ## 1.8.0 · 2026-10-22
 - **Pagos del mes por separado**: se arma el pago de UNA persona (nómina) o de UN servicio. Ítems: el sueldo definido en Equipo, las **clases que dicta el profesional** ese mes (cada una con valor opcional: las vacías no cuentan), bonos o lo que se agregue; en servicios, los ítems del recibo.
 - El **centro de costo** se escoge en Finanzas al armar el pago. Cada plan suma al **presupuesto del mes** (por centro de costo y categoría); `fin_pagos_plan` (migración 0011).

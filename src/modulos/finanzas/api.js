@@ -14,7 +14,7 @@
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, cast, today, now, addDays, addMonths, all, one, DATE, MONTH } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
-import { getProfile, saveProfile, nextNumber, priceItems, invoiceDocument, receiptDocument } from './documento.js';
+import { getProfile, saveProfile, nextNumber, priceItems, invoiceDocument, receiptDocument, pagoDocument } from './documento.js';
 export { validatePage } from './documento.js';
 
 const MOD = 'finanzas';
@@ -110,7 +110,7 @@ async function priceInvoice(c, row, before, creating) {
 const parseFiles = (t) => { try { const a = JSON.parse(t || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
 export const ENTITIES = {
   movements: { table: 'fin_movements', label: 'el movimiento', title: 'description', search: ['description', 'counterparty', 'category'], order: 'date DESC, id DESC',
-    fields: { kind: ['ingreso', 'gasto'], date: 'date!', currency: ['COP', 'USD'], amount_usd: 'usd', amount: 'money!', fx_rate: 'num', category: 'text', description: 'text', counterparty: 'text', cost_center_id: 'int', account_id: 'int', invoice_id: 'int', reconciled: 'bool' },
+    fields: { kind: ['ingreso', 'gasto'], date: 'date!', currency: ['COP', 'USD'], amount_usd: 'usd', amount: 'money!', fx_rate: 'num', category: 'text', description: 'text', counterparty: 'text', tax_id: 'text', cost_center_id: 'int', account_id: 'int', invoice_id: 'int', reconciled: 'bool' },
     async beforeCreate(c, row, body) { if (row.currency === 'USD') await applyFx(c, 'movements', row); },
     async afterCreate(c, id, row) { if (row.invoice_id) await recomputeInvoice(c.env, c.businessId, row.invoice_id); },
     async beforeUpdate(c, row, before) { if (['currency', 'amount_usd', 'date'].some((k) => k in row)) await applyFx(c, 'movements', row, before); },
@@ -121,6 +121,13 @@ export const ENTITIES = {
       if (!ids.length) return rows;
       const rc = await all(c.env, `SELECT id, number, movement_id, files, voided FROM fin_receipts WHERE business_id = ? AND movement_id IN (${ids.map(() => '?').join(',')})`, c.businessId, ...ids);
       rows.forEach((r) => { const x = rc.find((y) => y.movement_id === r.id); if (x) { r.receipt_id = x.id; r.receipt_number = x.number; r.receipt_files = parseFiles(x.files); } });
+      // Los pagos armados en «Pagos del mes» traen su documento (total con sus ítems, nombre y cédula)
+      const planes = await all(c.env, 'SELECT month, tipo, key, recurring_id, tax_id, items FROM fin_pagos_plan WHERE business_id = ?', c.businessId);
+      for (const r of rows) {
+        const m = /^pago:(nomina|servicios):(\d{4}-\d{2}):([^:]+):\d+$/.exec(r.ref || '');
+        const pl = m ? planes.find((x) => x.tipo === m[1] && x.month === m[2] && x.key.replace(/[^\w.-]/g, '_').slice(0, 60) === m[3]) : r.recurring_id ? planes.find((x) => x.recurring_id === r.recurring_id && x.month === String(r.date).slice(0, 7)) : null;
+        if (pl) { r.pago_doc = { tipo: pl.tipo, month: pl.month, key: pl.key, items: parseFiles(pl.items).length }; if (!r.tax_id) r.tax_id = pl.tax_id || null; }
+      }
       return rows;
     },
     async afterDelete(c, before) {
@@ -276,9 +283,9 @@ async function autoMatch(c, accountId) {
 export async function chargeRecurring(env, r, d, o = {}) {
   const manual = o.amount > 0, usd = !manual && r.currency === 'USD' && r.amount_usd > 0, rate = usd ? await trm(env, d).catch(() => r.fx_rate || null) : null;
   const t = now();
-  return env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, currency, amount_usd, fx_rate, category, description, counterparty, cost_center_id, account_id, recurring_id, ref, created_at, updated_at)
-    VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(r.business_id, d, manual ? o.amount : usd && rate ? Math.round(r.amount_usd * rate) : r.amount, usd ? 'USD' : 'COP', usd ? r.amount_usd : null, rate,
-    r.category, r.name, o.vendor ?? r.vendor, o.costCenterId === undefined ? r.cost_center_id : o.costCenterId, o.accountId ?? r.account_id, r.id, `rec:${r.id}:${o.periodo || d}`, t, t).run();
+  return env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, currency, amount_usd, fx_rate, category, description, counterparty, tax_id, cost_center_id, account_id, recurring_id, ref, created_at, updated_at)
+    VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(r.business_id, d, manual ? o.amount : usd && rate ? Math.round(r.amount_usd * rate) : r.amount, usd ? 'USD' : 'COP', usd ? r.amount_usd : null, rate,
+    r.category, r.name, o.vendor ?? r.vendor, o.taxId ?? null, o.costCenterId === undefined ? r.cost_center_id : o.costCenterId, o.accountId ?? r.account_id, r.id, `rec:${r.id}:${o.periodo || d}`, t, t).run();
 }
 // Tarea diaria: los recurrentes que vencen se registran como gasto y la fecha pasa al siguiente cobro.
 export async function daily(env) {
@@ -600,7 +607,7 @@ export function routes(r) {
   };
   r.get(`${B}/pagos-mes`, `tenant:${MOD}`, async (c) => {
     const month = MONTH.test(c.url.searchParams.get('month') || '') ? c.url.searchParams.get('month') : today().slice(0, 7), fin = `${month}-31`;
-    const planes = (await all(c.env, 'SELECT tipo, key, tercero, cost_center_id, category, amount, items, recurring_id FROM fin_pagos_plan WHERE business_id = ? AND month = ?', c.businessId, month)).map((x) => ({ ...x, items: parseFiles(x.items) }));
+    const planes = (await all(c.env, 'SELECT tipo, key, tercero, tax_id, cost_center_id, category, amount, items, recurring_id FROM fin_pagos_plan WHERE business_id = ? AND month = ?', c.businessId, month)).map((x) => ({ ...x, items: parseFiles(x.items) }));
     const movs = await all(c.env, 'SELECT ref, amount, account_id FROM fin_movements WHERE business_id = ? AND ref LIKE ?', c.businessId, `pago:%:${month}:%`);
     const pagados = {};
     for (const m of movs) { const [, tipo, , k] = m.ref.split(':'); const id = `${tipo}:${k}`; (pagados[id] ||= { tipo, key: k, total: 0, fuentes: [] }); pagados[id].total += m.amount; pagados[id].fuentes.push({ account_id: m.account_id, valor: m.amount }); }
@@ -617,15 +624,15 @@ export function routes(r) {
     if (!(total > 0)) throw new HttpError(400, 'Ponle valor a al menos un ítem');
     const cc = cast('centro de costo', 'int', b.cost_center_id) || null;
     if (cc) await api.get(c, 'cost_centers', cc);
-    const tercero = String(b.tercero || '').trim().slice(0, 200) || null;
+    const tercero = String(b.tercero || '').trim().slice(0, 200) || null, taxId = String(b.tax_id || '').trim().slice(0, 40) || null;
     let rec = null;
     if (b.recurring_id) { rec = await one(c.env, 'SELECT * FROM fin_recurring WHERE id = ? AND business_id = ?', Number(b.recurring_id), c.businessId); if (!rec) throw new HttpError(404, 'El gasto recurrente no existe'); }
     const categoria = tipo === 'nomina' ? 'Nómina' : (rec?.category || 'Servicios');
     // 1) el plan y el presupuesto del mes
     const antes = await one(c.env, 'SELECT cost_center_id, category FROM fin_pagos_plan WHERE business_id = ? AND month = ? AND tipo = ? AND key = ?', c.businessId, month, tipo, key);
-    await c.env.DB.prepare(`INSERT INTO fin_pagos_plan (business_id, month, tipo, key, tercero, cost_center_id, category, amount, items, recurring_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(business_id, month, tipo, key) DO UPDATE SET tercero = excluded.tercero, cost_center_id = excluded.cost_center_id, category = excluded.category, amount = excluded.amount, items = excluded.items, recurring_id = excluded.recurring_id, updated_at = excluded.updated_at`)
-      .bind(c.businessId, month, tipo, key, tercero, cc, categoria, total, JSON.stringify(items), rec?.id || null, now()).run();
+    await c.env.DB.prepare(`INSERT INTO fin_pagos_plan (business_id, month, tipo, key, tercero, tax_id, cost_center_id, category, amount, items, recurring_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(business_id, month, tipo, key) DO UPDATE SET tercero = excluded.tercero, tax_id = excluded.tax_id, cost_center_id = excluded.cost_center_id, category = excluded.category, amount = excluded.amount, items = excluded.items, recurring_id = excluded.recurring_id, updated_at = excluded.updated_at`)
+      .bind(c.businessId, month, tipo, key, tercero, taxId, cc, categoria, total, JSON.stringify(items), rec?.id || null, now()).run();
     await reconstruirPresupuesto(c, month, cc, categoria);
     if (antes && (antes.cost_center_id !== cc || antes.category !== categoria)) await reconstruirPresupuesto(c, month, antes.cost_center_id, antes.category);
     if (!b.pagar) { await audit(c, `Armó el pago de ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}`, { modulo: MOD }); return json({ ok: true, total, pagado: false }, 201); }
@@ -643,18 +650,28 @@ export function routes(r) {
       const f = fuentes[i], nombreCuenta = f.account_id ? (await one(c.env, 'SELECT name FROM fin_accounts WHERE id = ? AND business_id = ?', f.account_id, c.businessId))?.name : null;
       const desc = `${titulo}${fuentes.length > 1 && nombreCuenta ? ` (${nombreCuenta})` : ''}`.slice(0, 300), t = now();
       if (rec) {   // servicio recurrente: queda ligado al gasto y este pasa al siguiente cobro
-        const res = await chargeRecurring(c.env, rec, fecha, { periodo: i ? `${rec.next_date}:${i + 1}` : rec.next_date, amount: f.valor, vendor: tercero ?? undefined, accountId: f.account_id, costCenterId: cc });
+        const res = await chargeRecurring(c.env, rec, fecha, { periodo: i ? `${rec.next_date}:${i + 1}` : rec.next_date, amount: f.valor, vendor: tercero ?? undefined, accountId: f.account_id, costCenterId: cc, taxId });
         if (res.meta.changes) hechos++;
         await c.env.DB.prepare('UPDATE fin_movements SET description = ? WHERE business_id = ? AND ref = ?').bind(desc, c.businessId, `rec:${rec.id}:${i ? `${rec.next_date}:${i + 1}` : rec.next_date}`).run();
       } else {
-        const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, account_id, ref, created_at, updated_at)
-          VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, fecha, f.valor, categoria, desc, tercero, cc, f.account_id, `pago:${tipo}:${month}:${rk}:${i + 1}`, t, t).run();
+        const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, tax_id, cost_center_id, account_id, ref, created_at, updated_at)
+          VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, fecha, f.valor, categoria, desc, tercero, taxId, cc, f.account_id, `pago:${tipo}:${month}:${rk}:${i + 1}`, t, t).run();
         if (res.meta.changes) hechos++;
       }
     }
     if (rec) await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1), now(), rec.id, c.businessId).run();
     await audit(c, `Pagó ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}${fuentes.length > 1 ? ` en ${fuentes.length} cuentas` : ''}`, { modulo: MOD });
     return json({ ok: true, total, pagado: true, movimientos: hechos }, 201);
+  });
+  // El documento de un pago (total con sus ítems, nombre y cédula, y de qué cuentas salió) para soportar el movimiento. GET /api/finanzas/pagos-mes/documento?tipo=&month=&key=
+  r.get(`${B}/pagos-mes/documento`, `tenant:${MOD}`, async (c) => {
+    const q = c.url.searchParams, tipo = q.get('tipo') === 'servicios' ? 'servicios' : 'nomina', month = MONTH.test(q.get('month') || '') ? q.get('month') : '', key = String(q.get('key') || '');
+    const pl = await one(c.env, 'SELECT * FROM fin_pagos_plan WHERE business_id = ? AND month = ? AND tipo = ? AND key = ?', c.businessId, month, tipo, key);
+    if (!pl) throw new HttpError(404, 'Ese pago no existe');
+    const movs = await all(c.env, `SELECT m.date, m.amount, a.name AS cuenta, m.ref, m.recurring_id FROM fin_movements m LEFT JOIN fin_accounts a ON a.id = m.account_id AND a.business_id = m.business_id
+      WHERE m.business_id = ? AND (m.ref LIKE ? ${pl.recurring_id ? 'OR (m.recurring_id = ? AND m.date BETWEEN ? AND ?)' : ''}) ORDER BY m.id`, c.businessId, `pago:${tipo}:${month}:${String(key).replace(/[^\w.-]/g, '_').slice(0, 60)}:%`, ...(pl.recurring_id ? [pl.recurring_id, `${month}-01`, `${month}-31`] : []));
+    const cc = pl.cost_center_id ? (await one(c.env, 'SELECT name FROM fin_cost_centers WHERE id = ? AND business_id = ?', pl.cost_center_id, c.businessId))?.name : null;
+    return new Response(await pagoDocument(c.env, c.businessId, { plan: { ...pl, items: parseFiles(pl.items) }, movimientos: movs, centro: cc }, { autoprint: q.has('imprimir'), logo: c.ctx?.business?.logo || null }), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
   });
   // Pagar un gasto recurrente cuando se acerca (o cuando se quiera): registra el pago al proveedor como gasto en Movimientos y pasa al siguiente cobro.
   //   POST /api/finanzas/recurring/:id/pagar { date?, amount?, vendor?, account_id? }
