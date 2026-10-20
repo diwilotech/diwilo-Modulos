@@ -677,7 +677,7 @@ export function routes(r) {
     if (!b.pagar) { await audit(c, `Armó el pago de ${tercero || key} (${month}) por $${total.toLocaleString('es-CO')}`, { modulo: MOD }); return json({ ok: true, total, pagado: false }, 201); }
     // 2) el pago, repartido entre las cuentas elegidas
     // La nómina semanal o quincenal cubre todo el mes: cada pago es el total dividido entre sus semanas (4) o quincenas (2)
-    const de = rec && tipo === 'nomina' ? (rec.cycle === 'semanal' ? 4 : rec.cycle === 'quincenal' ? 2 : 1) : 1, pago = de > 1 ? Math.round(total / de) : total;
+    const de = !rec ? 1 : [1, 2, 4, 12].includes(Number(b.partes)) ? Number(b.partes) : tipo === 'nomina' ? (rec.cycle === 'semanal' ? 4 : rec.cycle === 'quincenal' ? 2 : 1) : 1, pago = de > 1 ? Math.round(total / de) : total;
     const fuentes = (Array.isArray(b.fuentes) && b.fuentes.length ? b.fuentes : [{ account_id: null, valor: pago }]).slice(0, 6).map((f) => ({ account_id: cast('cuenta', 'int', f.account_id) || null, valor: Math.round(Number(f.valor)) }));
     if (fuentes.some((f) => !(f.valor > 0)) || fuentes.reduce((a, f) => a + f.valor, 0) !== pago) throw new HttpError(400, `Lo que sale de las cuentas debe sumar ${'$' + pago.toLocaleString('es-CO')}`);
     for (const f of fuentes) if (f.account_id) await api.get(c, 'accounts', f.account_id);
@@ -686,7 +686,7 @@ export function routes(r) {
         : await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND recurring_id = ? AND date BETWEEN ? AND ?', c.businessId, rec.id, `${month}-01`, `${month}-31`))
       : await one(c.env, 'SELECT 1 FROM fin_movements WHERE business_id = ? AND ref LIKE ?', c.businessId, `pago:${tipo}:${month}:${rk}:%`);
     if (yaPagado) throw new HttpError(409, 'Este pago ya está registrado este mes');
-    const titulo = `${tipo === 'nomina' ? 'Nómina' : 'Pago'} ${month}${tercero ? ` · ${tercero}` : ''}${de > 1 ? ` · 1/${de} del mes` : ''}`;
+    const titulo = `${tipo === 'nomina' ? 'Nómina' : 'Pago'} ${month}${tercero ? ` · ${tercero}` : ''}${de > 1 ? ` · cuota 1/${de}` : ''}`;
     let hechos = 0;
     for (let i = 0; i < fuentes.length; i++) {
       const f = fuentes[i], nombreCuenta = f.account_id ? (await one(c.env, 'SELECT name FROM fin_accounts WHERE id = ? AND business_id = ?', f.account_id, c.businessId))?.name : null;
@@ -701,7 +701,7 @@ export function routes(r) {
         if (res.meta.changes) hechos++;
       }
     }
-    if (rec) await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(siguienteCobro(rec.next_date, rec.cycle), now(), rec.id, c.businessId).run();
+    if (rec) await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(siguienteCobro(rec.next_date, de === 12 ? 'mensual' : de === 4 ? 'semanal' : de === 2 ? 'quincenal' : rec.cycle), now(), rec.id, c.businessId).run();
     await audit(c, `Pagó ${tercero || key} (${month}) por $${pago.toLocaleString('es-CO')}${fuentes.length > 1 ? ` en ${fuentes.length} cuentas` : ''}`, { modulo: MOD });
     return json({ ok: true, total: pago, mes: total, partes: de, pagado: true, movimientos: hechos }, 201);
   });

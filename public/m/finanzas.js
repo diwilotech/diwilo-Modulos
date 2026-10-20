@@ -93,14 +93,17 @@ DW.ready.then((me) => {
     const plan = pm.planes.find((x) => x.tipo === (esNomina ? 'nomina' : 'servicios') && x.key === key);
     if (esNomina && !plan && !(r.amount > 0)) { toast(`Primero arma los ítems de ${r.vendor || r.name} este mes${r.ref ? ' en Equipo' : ''}`, false); return; }
     // Los ítems se pueden cambiar aquí mismo (la app de origen, como Equipo, solo los organiza y los trae)
-    const de = esNomina ? (r.cycle === 'semanal' ? 4 : r.cycle === 'quincenal' ? 2 : 1) : 1, hoy = C.todayCo();
-    let items = plan ? plan.items.map((x) => ({ ...x })) : [{ concepto: r.vendor && esNomina ? `Nómina de ${monthName(mes)}` : r.name, valor: (Number(r.amount) || 0) * de }];
+    const FORMAS = { 1: ['Todo de una vez', 'Total'], 4: ['En cuotas semanales (total del mes ÷ 4)', 'semanas'], 2: ['En cuotas quincenales (total del mes ÷ 2)', 'quincenas'], 12: ['En cuotas mensuales (total del año ÷ 12)', 'meses'] };
+    let de = esNomina ? (r.cycle === 'semanal' ? 4 : r.cycle === 'quincenal' ? 2 : 1) : 1;
+    const hoy = C.todayCo(), planVale = plan && (r.ref || esNomina);   // un gasto propio de Finanzas parte de su valor, no de un plan viejo
+    let items = planVale ? plan.items.map((x) => ({ ...x })) : [{ concepto: r.vendor && esNomina ? `Nómina de ${monthName(mes)}` : r.name, valor: (Number(r.amount) || 0) * de }];
     const sumaMes = () => items.reduce((a, x) => a + (Number(x.valor) > 0 ? Math.round(Number(x.valor)) : 0), 0), parte = () => (de > 1 ? Math.round(sumaMes() / de) : sumaMes());
     let totalMes = sumaMes(), total0 = parte();
     let tot = total0, fu = [{ account_id: r.account_id || cuentas[0]?.id || '', valor: tot }];
     const efectivo = cuentas.find((a) => a.kind === 'efectivo'), banco = cuentas.find((a) => a.kind === 'banco') || cuentas.find((a) => a !== efectivo);
     const { el, m } = window.App.modal(`<div class="modal-header border-0 pb-0"><div><h2 class="modal-title h5 mb-0">Pagar · ${esc(r.vendor || r.name)}</h2><div class="small text-body-secondary">${esc(r.name)}${r.tax_id ? ` · ${esc(r.tax_id)}` : ''}</div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
-      <div class="modal-body"><ul class="list-group mb-1" data-items></ul>
+      <div class="modal-body"><div class="mb-3"><label class="form-label small mb-1">Cómo se paga</label><select class="form-select" data-forma>${Object.entries(FORMAS).map(([n, f]) => `<option value="${n}" ${+n === de ? 'selected' : ''}>${f[0]}</option>`).join('')}</select></div>
+        <ul class="list-group mb-1" data-items></ul>
         <button type="button" class="btn btn-sm btn-link px-0 mb-2" data-mas><i class="bi bi-plus-lg me-1"></i>Agregar ítem</button>
         <ul class="list-group mb-3" data-resumen></ul>
         <div class="mb-3"><label class="form-label small mb-1">Fecha del pago</label><input type="date" class="form-control" data-fecha value="${hoy}"></div>
@@ -112,7 +115,7 @@ DW.ready.then((me) => {
     };
     const resumen = () => {
       totalMes = sumaMes(); tot = parte();
-      el.querySelector('[data-resumen]').innerHTML = `${de > 1 ? `<li class="list-group-item d-flex justify-content-between"><span>Total del mes</span><b>${money(totalMes)}</b></li>` : ''}<li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>${de > 1 ? `Este pago · 1 de ${de} ${r.cycle === 'semanal' ? 'semanas' : 'quincenas'}` : 'Total'}</b><b>${money(tot)}</b></li>`;
+      el.querySelector('[data-resumen]').innerHTML = `${de > 1 ? `<li class="list-group-item d-flex justify-content-between"><span>Total del ${de === 12 ? 'año' : 'mes'}</span><b>${money(totalMes)}</b></li>` : ''}<li class="list-group-item d-flex justify-content-between bg-body-tertiary"><b>${de > 1 ? `Este pago · 1 de ${de} ${FORMAS[de][1]}` : 'Total a pagar'}</b><b>${money(tot)}</b></li>`;
       if (fu.length === 1) { fu[0].valor = tot; const v = el.querySelector('[data-j] [data-v]'); if (v) v.value = tot; }
       estado();
     };
@@ -120,6 +123,7 @@ DW.ready.then((me) => {
     const estado = () => { const d = dif(); el.querySelector('[data-dif]').innerHTML = d === 0 ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Cuadra con el total</span>' : `<span class="text-danger">${d > 0 ? 'Falta' : 'Sobra'} ${money(Math.abs(d))} para llegar a ${money(tot)}</span>`; el.querySelector('[data-ok]').disabled = d !== 0 || !(tot > 0); };
     const pinta = () => { el.querySelector('[data-fuentes]').innerHTML = fu.map((f, i) => `<div class="input-group mb-2" data-j="${i}"><select class="form-select" data-c aria-label="Cuenta"><option value="">Sin cuenta</option>${cuentas.map((a) => `<option value="${a.id}" ${a.id === f.account_id ? 'selected' : ''}>${esc(a.name)}${a.kind === 'efectivo' ? ' (efectivo)' : ''}</option>`).join('')}</select><span class="input-group-text">$</span><input class="form-control" type="number" min="0" step="1000" data-v value="${f.valor}" aria-label="Valor">${fu.length > 1 ? '<button type="button" class="btn btn-outline-secondary" data-x aria-label="Quitar"><i class="bi bi-x-lg"></i></button>' : ''}</div>`).join(''); estado(); };
     el.addEventListener('input', (e) => {
+      if (e.target.matches('[data-forma]')) { de = Number(e.target.value); resumen(); return; }
       const li = e.target.closest('[data-k]');
       if (li) { const x = items[+li.dataset.k]; if (e.target.matches('[data-valor]')) x.valor = Math.max(0, Math.round(Number(e.target.value) || 0)); else x.concepto = e.target.value; resumen(); return; }
       const j = e.target.closest('[data-j]'); if (!j) return; const f = fu[+j.dataset.j];
@@ -136,7 +140,7 @@ DW.ready.then((me) => {
       const btn = e.currentTarget; btn.disabled = true;
       const lista = items.filter((x) => x.concepto && Number(x.valor) > 0).map((x) => ({ concepto: x.concepto, valor: Math.round(Number(x.valor)) }));
       try {
-        const x = await api(`${B}/pagos-mes`, { method: 'POST', body: { month: mes, tipo: esNomina ? 'nomina' : 'servicios', key, tercero: r.vendor || r.name, tax_id: r.tax_id || '', cost_center_id: r.cost_center_id || null, recurring_id: r.id, items: lista,
+        const x = await api(`${B}/pagos-mes`, { method: 'POST', body: { month: mes, tipo: esNomina ? 'nomina' : 'servicios', key, tercero: r.vendor || r.name, tax_id: r.tax_id || '', cost_center_id: r.cost_center_id || null, recurring_id: r.id, partes: de, items: lista,
           pagar: true, fecha: el.querySelector('[data-fecha]').value, fuentes: fu.map((f) => ({ account_id: f.account_id || null, valor: f.valor })) } });
         toast(`Pago registrado en Movimientos${x.movimientos > 1 ? ` (${x.movimientos} cuentas)` : ''}`); m.hide(); despues?.();
       } catch (ex) { toast(ex.message, false); btn.disabled = false; }

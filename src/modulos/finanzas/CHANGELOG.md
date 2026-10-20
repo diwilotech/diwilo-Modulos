@@ -1,5 +1,8 @@
 # Finanzas — cambios
 
+## 1.10.4 · 2026-10-23
+- **«Cómo se paga» en el diálogo de Pagar**: todo de una vez, o en cuotas semanales (total del mes ÷ 4), quincenales (÷ 2) o mensuales (total del año ÷ 12). Muestra el total y «Este pago · 1 de N». Un gasto propio de Finanzas parte de su valor, no de un plan viejo del mes.
+
 ## 1.10.3 · 2026-10-23
 - **Los ítems se editan en el mismo diálogo de «Pagar»**: cambiar concepto o valor, agregar y quitar ítems. La app de origen (Equipo) solo los organiza y los trae; lo que cambies aquí queda en el plan del mes (y en su presupuesto). El total y la parte del pago (semanal/quincenal) se recalculan al escribir.
 
