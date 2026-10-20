@@ -70,13 +70,16 @@ async function nextReceiptNumber(env, biz) {
   const m = (await one(env, "SELECT COALESCE(MAX(CAST(substr(number, 4) AS INTEGER)), 0) m FROM fin_receipts WHERE business_id = ?", biz)).m;
   return `RC-${String(m + 1).padStart(4, '0')}`;
 }
-async function createReceipt(c, { inv = null, date, amount, method = null, accountId = null, counterparty = null, concept = null, notes = null, ref = null, costCenterId = null }) {
+// Archivos de un recibo que llegan de otra app: solo rutas de la propia app (empiezan por «/»), nunca enlaces externos.
+const limpiarArchivos = (v) => JSON.stringify((Array.isArray(v) ? v : []).slice(0, 10).map((f) => ({ nombre: String(f?.nombre || 'Archivo').slice(0, 100), url: String(f?.url || '') }))
+  .filter((f) => /^\/(?!\/)[\w\-./%?=&]{1,300}$/.test(f.url)));
+async function createReceipt(c, { inv = null, date, amount, method = null, accountId = null, counterparty = null, concept = null, notes = null, ref = null, costCenterId = null, files = null }) {
   const t = now(), number = await nextReceiptNumber(c.env, c.businessId);
   const desc = `Recibo de caja ${number}${inv ? ` · cuenta ${inv.number || '#' + inv.id}` : ''}${counterparty ? ` · ${counterparty}` : ''}`.slice(0, 300);
   const mov = await c.env.DB.prepare(`INSERT INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, account_id, invoice_id, ref, created_at, updated_at)
     VALUES (?, 'ingreso', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, date, amount, inv?.category || concept || 'Recibos de caja', desc, counterparty, costCenterId ?? inv?.cost_center_id ?? null, accountId, inv?.id || null, `recibo:${number}`, t, t).run();
-  const rc = await c.env.DB.prepare(`INSERT INTO fin_receipts (business_id, number, invoice_id, movement_id, date, amount, method, account_id, counterparty, concept, notes, ref, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, number, inv?.id || null, mov.meta.last_row_id, date, amount, method, accountId, counterparty, concept, notes, ref, t, t).run();
+  const rc = await c.env.DB.prepare(`INSERT INTO fin_receipts (business_id, number, invoice_id, movement_id, date, amount, method, account_id, counterparty, concept, notes, ref, files, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, number, inv?.id || null, mov.meta.last_row_id, date, amount, method, accountId, counterparty, concept, notes, ref, files, t, t).run();
   if (inv) await recomputeInvoice(c.env, c.businessId, inv.id);
   await audit(c, `Recibo de caja ${number} por $${amount.toLocaleString('es-CO')}${counterparty ? ` de ${counterparty}` : ''}`, { modulo: MOD });
   return { id: rc.meta.last_row_id, number };
@@ -104,6 +107,7 @@ async function priceInvoice(c, row, before, creating) {
 }
 
 /* ---------------- entidades ---------------- */
+const parseFiles = (t) => { try { const a = JSON.parse(t || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
 export const ENTITIES = {
   movements: { table: 'fin_movements', label: 'el movimiento', title: 'description', search: ['description', 'counterparty', 'category'], order: 'date DESC, id DESC',
     fields: { kind: ['ingreso', 'gasto'], date: 'date!', currency: ['COP', 'USD'], amount_usd: 'usd', amount: 'money!', fx_rate: 'num', category: 'text', description: 'text', counterparty: 'text', cost_center_id: 'int', account_id: 'int', invoice_id: 'int', reconciled: 'bool' },
@@ -111,6 +115,14 @@ export const ENTITIES = {
     async afterCreate(c, id, row) { if (row.invoice_id) await recomputeInvoice(c.env, c.businessId, row.invoice_id); },
     async beforeUpdate(c, row, before) { if (['currency', 'amount_usd', 'date'].some((k) => k in row)) await applyFx(c, 'movements', row, before); },
     async afterUpdate(c, id, row, before) { for (const inv of new Set([before.invoice_id, row.invoice_id].filter(Boolean))) await recomputeInvoice(c.env, c.businessId, inv); },
+    // Cada movimiento que viene de un recibo de caja lo trae (número y archivos) para verlo desde Movimientos.
+    async decorate(c, rows) {
+      const ids = rows.map((r) => r.id);
+      if (!ids.length) return rows;
+      const rc = await all(c.env, `SELECT id, number, movement_id, files, voided FROM fin_receipts WHERE business_id = ? AND movement_id IN (${ids.map(() => '?').join(',')})`, c.businessId, ...ids);
+      rows.forEach((r) => { const x = rc.find((y) => y.movement_id === r.id); if (x) { r.receipt_id = x.id; r.receipt_number = x.number; r.receipt_files = parseFiles(x.files); } });
+      return rows;
+    },
     async afterDelete(c, before) {
       if (before.invoice_id) await recomputeInvoice(c.env, c.businessId, before.invoice_id);
       await c.env.DB.prepare('UPDATE fin_bank_lines SET movement_id = NULL WHERE movement_id = ? AND business_id = ?').bind(before.id, c.businessId).run();
@@ -310,7 +322,7 @@ export function routes(r) {
     return json({ id: res.meta.last_row_id, nuevo: !!res.meta.changes }, res.meta.changes ? 201 : 200);
   });
   // Cuenta de cobro que crea otra app (una por matrícula, por ejemplo). Se identifica por `ref`: si ya existe se actualiza (mientras no esté anulada).
-  //   POST /api/finanzas/invoices/externo { ref, counterparty, tax_id?, client_email?, issue_date?, due_date?, concept, detail?, items?: [{concepto, detalle?, valor}], total, category?, centro_costo? }
+  //   POST /api/finanzas/invoices/externo { ref, update?: true (reescribe una existente; por defecto queda igual), counterparty, tax_id?, client_email?, issue_date?, due_date?, concept, detail?, items?: [{concepto, detalle?, valor}], total, category?, centro_costo? }
   r.post(`${B}/invoices/externo`, `manager:${MOD}`, async (c) => {
     const b = await readJson(c.req), ref = String(b.ref || '').slice(0, 120);
     if (!ref) throw new HttpError(400, 'Falta ref');
@@ -331,8 +343,9 @@ export function routes(r) {
     const taxId = b.tax_id ? String(b.tax_id).slice(0, 60) : null, email = b.client_email ? String(b.client_email).slice(0, 200) : null, category = b.category ? String(b.category).slice(0, 120) : 'Matrículas';
     const prev = await one(c.env, 'SELECT id, number, status FROM fin_invoices WHERE business_id = ? AND ref = ?', c.businessId, ref);
     const t = now();
+    // La cuenta de cobro queda como se emitió: solo se reescribe si la app lo pide (`update: true`).
     if (prev) {
-      if (prev.status !== 'anulada') {
+      if (prev.status !== 'anulada' && b.update === true) {
         await c.env.DB.prepare('UPDATE fin_invoices SET counterparty = ?, tax_id = ?, client_email = ?, due_date = ?, concept = ?, items = ?, subtotal = ?, total = ?, cost_center_id = ?, category = ?, updated_at = ? WHERE id = ? AND business_id = ?')
           .bind(counterparty, taxId, email, due, concept, items, total, total, cc, category, t, prev.id, c.businessId).run();
         await recomputeInvoice(c.env, c.businessId, prev.id);
@@ -359,7 +372,7 @@ export function routes(r) {
   //   GET  /api/finanzas/receipts?q=&limit=            lista de recibos
   //   POST /api/finanzas/receipts/:id/void             anula el recibo (el ingreso desaparece y la cuenta vuelve a deber)
   //   GET  /api/finanzas/receipts/:id/pdf              recibo de caja para imprimir
-  //   POST /api/finanzas/receipts/externo              { ref, invoice_ref?, date?, amount, method?, concept?, counterparty?, centro_costo?, notes? }  de otras apps (no duplica por ref)
+  //   POST /api/finanzas/receipts/externo              { ref, invoice_ref?, date?, amount, method?, concept?, counterparty?, centro_costo?, notes?, files?: [{ nombre, url }] }  de otras apps (no duplica por ref)
   //   POST /api/finanzas/receipts/externo/void         { ref }
   r.get(`${B}/invoices/:id/receipts`, `tenant:${MOD}`, async (c) => {
     if (!(await one(c.env, 'SELECT id FROM fin_invoices WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId))) throw new HttpError(404, 'No encontrada');
@@ -392,12 +405,28 @@ export function routes(r) {
       concept: String(b.concept || 'Pago recibido').slice(0, 300), notes: b.notes ? String(b.notes).slice(0, 300) : null, costCenterId: ccId });
     return json({ ok: true, receipt: rc }, 201);
   });
+  // Una cuenta con todo lo suyo: sus pagos (recibos con sus archivos) o, si es por pagar, los pagos registrados.
+  r.get(`${B}/invoices/:id/detalle`, `tenant:${MOD}`, async (c) => {
+    const inv = await one(c.env, 'SELECT * FROM fin_invoices WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
+    if (!inv) throw new HttpError(404, 'No encontrada');
+    const recibos = (await all(c.env, 'SELECT * FROM fin_receipts WHERE business_id = ? AND invoice_id = ? ORDER BY id', c.businessId, inv.id)).map((x) => ({ ...x, files: parseFiles(x.files) }));
+    const pagos = inv.kind === 'recibida' ? await all(c.env, 'SELECT id, date, amount, description FROM fin_movements WHERE business_id = ? AND invoice_id = ? ORDER BY date, id', c.businessId, inv.id) : [];
+    return json({ factura: { ...inv, state: invoiceState(inv, today()) }, recibos, pagos });
+  });
+  // Gastos recurrentes: lo que ya se pagó este mes y lo que falta por pagar (los que vencen antes de que acabe el mes).
+  r.get(`${B}/recurring/estado`, `tenant:${MOD}`, async (c) => {
+    const mes = MONTH.test(c.url.searchParams.get('month') || '') ? c.url.searchParams.get('month') : today().slice(0, 7), fin = `${mes}-31`;
+    const pagados = await all(c.env, 'SELECT recurring_id, SUM(amount) AS pagado FROM fin_movements WHERE business_id = ? AND recurring_id IS NOT NULL AND date BETWEEN ? AND ? GROUP BY recurring_id', c.businessId, `${mes}-01`, fin);
+    const recs = await all(c.env, 'SELECT id, amount, next_date FROM fin_recurring WHERE business_id = ? AND active = 1', c.businessId);
+    const porPagar = recs.filter((x) => x.next_date <= fin).map((x) => ({ id: x.id, valor: x.amount, fecha: x.next_date }));
+    return json({ mes, pagados, por_pagar: porPagar, total_pagado: pagados.reduce((a, x) => a + x.pagado, 0), total_por_pagar: porPagar.reduce((a, x) => a + x.valor, 0) });
+  });
   r.get(`${B}/receipts`, `tenant:${MOD}`, async (c) => {
     const q = (c.url.searchParams.get('q') || '').trim(), limit = Math.min(1000, Math.max(1, Number(c.url.searchParams.get('limit')) || 200));
     const rows = q
       ? await all(c.env, `SELECT * FROM fin_receipts WHERE business_id = ? AND (counterparty LIKE ? OR number LIKE ? OR concept LIKE ?) ORDER BY id DESC LIMIT ${limit}`, c.businessId, `%${q}%`, `%${q}%`, `%${q}%`)
       : await all(c.env, `SELECT * FROM fin_receipts WHERE business_id = ? ORDER BY id DESC LIMIT ${limit}`, c.businessId);
-    return json({ rows });
+    return json({ rows: rows.map((x) => ({ ...x, files: parseFiles(x.files) })) });
   });
   r.post(`${B}/receipts/externo/void`, `manager:${MOD}`, async (c) => {
     const ref = String((await readJson(c.req)).ref || '').slice(0, 120);
@@ -434,7 +463,7 @@ export function routes(r) {
       if (!cc) { const t0 = now(); cc = (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'app', 1, ?, ?)").bind(c.businessId, name, t0, t0).run()).meta.last_row_id; }
     }
     const rc = await createReceipt(c, { inv, date: cast('fecha', 'date', b.date) || today(), amount, method: b.method ? String(b.method).slice(0, 40) : null,
-      counterparty: b.counterparty ? String(b.counterparty).slice(0, 200) : inv?.counterparty || null, concept: b.concept ? String(b.concept).slice(0, 300) : null, notes: b.notes ? String(b.notes).slice(0, 300) : null, ref, costCenterId: cc });
+      counterparty: b.counterparty ? String(b.counterparty).slice(0, 200) : inv?.counterparty || null, concept: b.concept ? String(b.concept).slice(0, 300) : null, notes: b.notes ? String(b.notes).slice(0, 300) : null, ref, costCenterId: cc, files: b.files ? limpiarArchivos(b.files) : null });
     return json({ ...rc, nuevo: true }, 201);
   });
 

@@ -1,5 +1,12 @@
 # Finanzas — cambios
 
+## 1.5.0 · 2026-10-21
+- **Movimientos** (antes «Ingresos y gastos»): cada movimiento que viene de un recibo de caja muestra su recibo (PDF) y los archivos que lo acompañan; el recibo suelto se crea desde aquí.
+- **Cobros** (antes «Cuentas por cobrar y pagar»): el botón «Ver» abre la cuenta con su PDF, sus pagos, el recibo de cada pago (PDF) y sus archivos (comprobantes); se registra el cobro y se anula un recibo desde ahí. Se quita la vista «Recibos de caja» (la API sigue igual).
+- **Gastos recurrentes**: resumen «Este mes», «Pagado» y «Por pagar», y una columna «Este mes» por gasto. `GET /api/finanzas/recurring/estado`.
+- Las cuentas de cobro de otras apps (`POST /invoices/externo`) **ya no se reescriben**: quedan como se emitieron aunque la app cambie después sus cuotas; solo se actualizan con `update: true`.
+- Los recibos de otras apps traen `files: [{ nombre, url }]` (rutas de la propia app). `GET /api/finanzas/invoices/:id/detalle`. Migración 0010.
+
 ## 1.4.0 · 2026-10-20
 - La cuenta de cobro y el recibo de caja usan la marca del negocio (Marca e IA): color principal y sus tonos, tipografía y logo, en lugar de un violeta fijo.
 - `POST /api/finanzas/invoices/externo` acepta `items: [{ concepto, detalle?, valor }]` (una línea por cuota, por ejemplo); si no suman el total se usa una sola línea. El recibo también muestra el logo.

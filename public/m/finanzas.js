@@ -23,7 +23,7 @@ DW.ready.then((me) => {
   const usdLine = (r) => (r.currency === 'USD' && r.amount_usd ? `<div class="small text-body-secondary fw-normal">${usd(r.amount_usd)}${r.fx_rate ? ` · TRM ${Number(r.fx_rate).toLocaleString('es-CO', { maximumFractionDigits: 2 })}` : ''}</div>` : '');
   const sub = (t) => (t ? `<div class="small text-body-secondary fw-normal">${esc(t)}</div>` : '');
 
-  const VIEWS = [['resumen', 'Resumen', 'bi-pie-chart'], ['movimientos', 'Ingresos y gastos', 'bi-arrow-down-up'], ['facturas', 'Cuentas por cobrar y pagar', 'bi-receipt'], ['recibos', 'Recibos de caja', 'bi-cash-coin'],
+  const VIEWS = [['resumen', 'Resumen', 'bi-pie-chart'], ['movimientos', 'Movimientos', 'bi-arrow-down-up'], ['facturas', 'Cobros', 'bi-receipt'],
     ['recurrentes', 'Gastos recurrentes', 'bi-arrow-repeat'], ['centros', 'Centros de costo y presupuestos', 'bi-diagram-3'], ['bancos', 'Bancos y conciliación', 'bi-bank'], ['informes', 'Informes', 'bi-journal-text'], ['exportar', 'Exportar', 'bi-download']];
   const F = {
     movements: [
@@ -64,13 +64,16 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false);
     old.replaceWith(el);
-    ({ resumen: summary, movimientos, facturas: invoices, recibos: receiptsView, recurrentes, centros, bancos: banks, informes: reports, exportar: exportView })[view](el);
+    ({ resumen: summary, movimientos, facturas: invoices, recurrentes, centros, bancos: banks, informes: reports, exportar: exportView })[view](el);
   }
 
   function movimientos(el) {
-    C.table({ el, base: B, entity: 'movements', title: 'movimiento', newText: 'Nuevo movimiento', refs: ['cost_centers', 'accounts'], fields: F.movements,
-      filters: [{ k: 'kind', options: [['', 'Ingresos y gastos'], ['ingreso', 'Ingresos'], ['gasto', 'Gastos']] }], defaults: () => ({ kind: 'gasto', date: C.todayCo() }),
-      empty: 'Sin movimientos. Los gastos recurrentes y los cobros de facturas los crean solos.', emptyIcon: 'bi-arrow-down-up',
+    const t = C.table({ el, base: B, entity: 'movements', title: 'movimiento', newText: 'Nuevo movimiento', refs: ['cost_centers', 'accounts'], fields: F.movements,
+      filters: [{ k: 'kind', options: [['', 'Todos los movimientos'], ['ingreso', 'Ingresos'], ['gasto', 'Gastos']] }], defaults: () => ({ kind: 'gasto', date: C.todayCo() }),
+      extraButtons: RO ? '' : '<button class="btn btn-outline-primary" data-recibo><i class="bi bi-receipt me-1"></i>Recibo de caja</button>',
+      rowActions: (r) => (r.receipt_id ? `<button class="btn btn-sm btn-outline-secondary" data-act="recibo"><i class="bi bi-filetype-pdf me-1"></i>Recibo ${esc(r.receipt_number)}</button> ${archivos(r.receipt_files)}` : ''),
+      onAction: (a, r) => { if (a === 'recibo') window.open(`${B}/receipts/${r.receipt_id}/pdf`, '_blank', 'noopener'); },
+      empty: 'Sin movimientos. Los gastos recurrentes y los cobros los crean solos.', emptyIcon: 'bi-arrow-down-up',
       columns: [
         { label: 'Fecha', html: (r) => day(r.date) },
         { label: 'Descripción', main: true, html: (r) => `${esc(r.description || r.category || '—')}${sub(r.counterparty)}` },
@@ -78,21 +81,32 @@ DW.ready.then((me) => {
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
         { label: 'Cuenta', html: (r, R) => C.refName(R, 'accounts', r.account_id) },
         { label: 'Monto', cls: 'text-end text-nowrap', html: (r) => `<b class="${r.kind === 'ingreso' ? 'text-success' : ''}">${r.kind === 'ingreso' ? '+' : '−'}${money(r.amount)}</b>${usdLine(r)}` },
-        { label: 'Conciliado', html: (r) => (r.reconciled ? '<i class="bi bi-check-circle text-success" title="Conciliado"></i>' : '') }] }).load();
+        { label: 'Conciliado', html: (r) => (r.reconciled ? '<i class="bi bi-check-circle text-success" title="Conciliado"></i>' : '') }] });
+    t.load();
+    $('[data-recibo]', el)?.addEventListener('click', () => nuevoRecibo(() => t.load()));
   }
 
   function recurrentes(el) {
-    el.innerHTML = '<div class="alert alert-light border small">Arriendo, internet, software y servicios que se cobran solos. Cada día, a las 3:00 a. m., los que vencen se registran como gasto en su centro de costo y la fecha pasa al siguiente cobro.</div><div data-t></div>';
-    C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring,
+    el.innerHTML = '<div class="dw-grid dw-grid--kpi mb-3" data-tot></div><div class="alert alert-light border small">Arriendo, internet, software y servicios que se cobran solos. Cada día, a las 3:00 a. m., los que vencen se registran como gasto en su centro de costo y la fecha pasa al siguiente cobro.</div><div data-t></div>';
+    let est = { pagados: [], por_pagar: [] };
+    const cargaEstado = async () => {
+      est = await api(`${B}/recurring/estado`).catch(() => est);
+      C.kpis($('[data-tot]', el), [['Este mes', money((est.total_pagado || 0) + (est.total_por_pagar || 0)), `${monthName(est.mes || C.todayCo().slice(0, 7))}: lo pagado más lo que falta`, 'bi-calendar-month'],
+        ['Pagado', money(est.total_pagado || 0), `${est.pagados.length} gasto${est.pagados.length === 1 ? '' : 's'} ya registrado${est.pagados.length === 1 ? '' : 's'}`, 'bi-check-circle'],
+        ['Por pagar', `<span class="${est.total_por_pagar ? 'text-danger' : ''}">${money(est.total_por_pagar || 0)}</span>`, `${est.por_pagar.length} que vence${est.por_pagar.length === 1 ? '' : 'n'} antes de que acabe el mes`, 'bi-hourglass-split']]);
+    };
+    const t = C.table({ el: $('[data-t]', el), base: B, entity: 'recurring', title: 'gasto recurrente', newText: 'Nuevo gasto recurrente', refs: ['cost_centers', 'accounts'], fields: F.recurring, onChanged: () => cargaEstado().then(() => t.load()),
       filters: [{ k: 'category', options: [['', 'Todos los tipos'], ...Object.entries(REC_CAT)] }], defaults: () => ({ next_date: C.todayCo(), category: 'software' }),
       empty: 'Agrega lo que pagas cada mes o cada año.', emptyIcon: 'bi-arrow-repeat',
       columns: [
         { label: 'Gasto', main: true, html: (r) => `${esc(r.name)}${sub(r.vendor)}` },
         { label: 'Tipo', html: (r) => `<span class="badge text-bg-light">${esc(REC_CAT[r.category] || r.category)}</span>` },
         { label: 'Valor', cls: 'text-end text-nowrap', html: (r) => (r.currency === 'USD' ? `<b>${usd(r.amount_usd)}</b> <span class="small text-body-secondary">${esc(r.cycle)}</span>${sub(`≈ ${money(r.amount)} hoy`)}` : `${money(r.amount)}${sub(r.cycle)}`) },
+        { label: 'Este mes', html: (r) => { const p = est.pagados.find((x) => x.recurring_id === r.id), x = est.por_pagar.find((y) => y.id === r.id); return p ? `${chip('ok', 'Pagado')}${sub(money(p.pagado))}` : x ? `${chip(x.fecha < C.todayCo() ? 'bad' : 'soon', 'Por pagar')}${sub(`vence ${day(x.fecha)}`)}` : '<span class="text-body-secondary">—</span>'; } },
         { label: 'Próximo cobro', html: (r) => day(r.next_date) },
         { label: 'Centro de costo', html: (r, R) => C.refName(R, 'cost_centers', r.cost_center_id) },
-        { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Pausado')) }] }).load();
+        { label: 'Estado', html: (r) => (r.active ? chip('ok', 'Activo') : chip('free', 'Pausado')) }] });
+    cargaEstado().then(() => t.load());
   }
 
   function centros(el) {
@@ -155,37 +169,18 @@ DW.ready.then((me) => {
   }
 
   /* ---------- recibos de caja ---------- */
-  async function receiptsView(el) {
-    el.innerHTML = `<div class="alert alert-light border small">Cada pago que recibes de una cuenta por cobrar genera un <b>recibo de caja</b> con su número (RC-0001…). Puede haber varios por cuenta. También puedes hacer un recibo <b>sin cuenta de cobro</b> (botón «Nuevo recibo de caja»), si así trabajas.</div>
-      <div class="d-flex flex-wrap gap-2 mb-2"><input class="form-control" style="max-width:280px" data-q placeholder="Buscar por cliente, número o concepto" aria-label="Buscar">
-        ${RO ? '' : '<button class="btn btn-primary ms-auto" data-nuevo><i class="bi bi-plus-lg me-1"></i>Nuevo recibo de caja</button>'}</div><div class="dw-card p-0 p-md-2" data-lista><div class="p-3 text-body-secondary">Cargando…</div></div>`;
-    const load = async () => {
-      const { rows } = await api(`${B}/receipts?limit=500&q=${encodeURIComponent($('[data-q]', el).value.trim())}`);
-      $('[data-lista]', el).innerHTML = rows.length ? `<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Recibo</th><th>Fecha</th><th>Cliente</th><th>Medio</th><th class="text-end">Valor</th><th></th></tr></thead><tbody>${rows.map((x) => `<tr>
-          <td>${esc(x.number)}${x.voided ? ' ' + chip('free', 'Anulado') : ''}</td><td>${day(x.date)}</td><td>${esc(x.counterparty || '—')}${sub(x.concept)}</td><td>${esc(x.method || '—')}</td>
-          <td class="text-end ${x.voided ? 'text-decoration-line-through text-body-secondary' : ''}">${money(x.amount)}</td>
-          <td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-secondary" data-pdf="${x.id}"><i class="bi bi-printer me-1"></i>Recibo</button>${me.canManage && !x.voided && !RO ? ` <button class="btn btn-sm btn-outline-danger" data-void="${x.id}" data-n="${esc(x.number)}" aria-label="Anular"><i class="bi bi-x-circle"></i></button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
-        : '<div class="p-4 text-center text-body-secondary">Aún no hay recibos de caja.</div>';
-    };
-    $('[data-nuevo]', el)?.addEventListener('click', async () => {
-      const out = await C.form({ title: 'Nuevo recibo de caja', base: B, okText: 'Generar recibo',
-        fields: [{ k: 'counterparty', label: 'Recibimos de', required: true }, { k: 'concept', label: 'Por concepto de', required: true }, { k: 'amount', label: 'Valor', type: 'money', required: true },
-          { k: 'date', label: 'Fecha', type: 'date', required: true }, { k: 'method', label: 'Medio de pago', type: 'select', options: ['Efectivo', 'Transferencia', 'Nequi', 'Daviplata', 'Tarjeta', 'Bre-B', 'Otro'].map((x) => [x, x]) },
-          { k: 'account_id', label: 'Cuenta donde entra', ref: 'accounts' }, { k: 'cost_center_id', label: 'Centro de costo', ref: 'cost_centers' }, { k: 'notes', label: 'Notas', type: 'long' }],
-        values: { date: C.todayCo(), method: 'Efectivo' } });
-      if (!out) return;
-      try { const r = await api(`${B}/receipts`, { method: 'POST', body: out }); toast(`Recibo de caja ${r.receipt.number} generado`); window.open(`${B}/receipts/${r.receipt.id}/pdf`, '_blank', 'noopener'); load(); } catch (x) { toast(x.message, false); }
-    });
-    let tq; $('[data-q]', el).addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(load, 250); });
-    el.addEventListener('click', async (e) => {
-      const p = e.target.closest('[data-pdf]'), v = e.target.closest('[data-void]');
-      if (p) window.open(`${B}/receipts/${p.dataset.pdf}/pdf`, '_blank', 'noopener');
-      if (v && (await confirm({ title: `¿Anular el recibo ${v.dataset.n}?`, text: 'El ingreso se quita y la cuenta de cobro vuelve a deber ese valor.', ok: 'Anular', danger: true }))) {
-        try { await api(`${B}/receipts/${v.dataset.void}/void`, { method: 'POST' }); toast('Recibo anulado'); load(); } catch (x) { toast(x.message, false); }
-      }
-    });
-    load().catch((x) => toast(x.message, false));
+  // Recibo de caja sin cuenta de cobro (para quien cobra sin cuentas de cobro). Los demás recibos nacen de los cobros de una cuenta.
+  async function nuevoRecibo(after) {
+    const out = await C.form({ title: 'Nuevo recibo de caja', base: B, okText: 'Generar recibo',
+      fields: [{ k: 'counterparty', label: 'Recibimos de', required: true }, { k: 'concept', label: 'Por concepto de', required: true }, { k: 'amount', label: 'Valor', type: 'money', required: true },
+        { k: 'date', label: 'Fecha', type: 'date', required: true }, { k: 'method', label: 'Medio de pago', type: 'select', options: ['Efectivo', 'Transferencia', 'Nequi', 'Daviplata', 'Tarjeta', 'Bre-B', 'Otro'].map((x) => [x, x]) },
+        { k: 'account_id', label: 'Cuenta donde entra', ref: 'accounts' }, { k: 'cost_center_id', label: 'Centro de costo', ref: 'cost_centers' }, { k: 'notes', label: 'Notas', type: 'long' }],
+      values: { date: C.todayCo(), method: 'Efectivo' } });
+    if (!out) return;
+    try { const r = await api(`${B}/receipts`, { method: 'POST', body: out }); toast(`Recibo de caja ${r.receipt.number} generado`); window.open(`${B}/receipts/${r.receipt.id}/pdf`, '_blank', 'noopener'); after?.(); } catch (x) { toast(x.message, false); }
   }
+  // Enlaces a los archivos de un recibo (comprobantes que subió el cliente en la app)
+  const archivos = (files) => (files || []).map((f) => `<a class="btn btn-sm btn-outline-secondary" href="${esc(f.url)}" target="_blank" rel="noopener" title="${esc(f.nombre)}"><i class="bi bi-paperclip me-1"></i>${esc(f.nombre.length > 18 ? f.nombre.slice(0, 16) + '…' : f.nombre)}</a>`).join(' ');
 
   /* ---------- facturas y cuentas de cobro ---------- */
   function invoices(el) {
@@ -194,7 +189,7 @@ DW.ready.then((me) => {
     $('[data-profile]', el)?.addEventListener('click', billingProfile);
     $('[data-sign]', el)?.addEventListener('click', signatureDialog);
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'invoices', title: 'factura', newText: 'Nueva cuenta de cobro', refs: ['cost_centers'], fields: F.invoices,
-      filters: [{ k: 'kind', options: [['', 'Por cobrar y por pagar'], ['emitida', 'Por cobrar (emitidas)'], ['recibida', 'Por pagar (recibidas)']] }],
+      filters: [{ k: 'kind', options: [['', 'Cobros y cuentas por pagar'], ['emitida', 'Cobros (cuentas por cobrar)'], ['recibida', 'Por pagar (recibidas)']] }],
       extraButtons: RO ? '' : '<button class="btn btn-outline-primary" data-recibida><i class="bi bi-inbox me-1"></i>Factura recibida</button>',
       empty: 'Sin facturas. Crea tu primera cuenta de cobro o registra las que te llegan.', emptyIcon: 'bi-receipt',
       onEdit: (row, changed) => (row?.kind === 'recibida' ? simpleInvoice(row, changed) : invoiceEditor(row, changed)),
@@ -204,8 +199,9 @@ DW.ready.then((me) => {
         { label: 'Emisión', html: (r) => day(r.issue_date) }, { label: 'Vence', html: (r) => day(r.due_date) },
         { label: 'Total', cls: 'text-end', html: (r) => money(r.total) }, { label: 'Saldo', cls: 'text-end', html: (r) => money(Math.max(0, r.total - r.paid)) },
         { label: 'Estado', html: (r) => chip(...(INV_STATE[r.state] || ['free', r.state])) }],
-      rowActions: (r) => `${r.kind === 'emitida' ? '<button class="btn btn-sm btn-outline-secondary" data-act="pdf"><i class="bi bi-filetype-pdf me-1"></i>PDF</button> ' : ''}${['pendiente', 'vencida'].includes(r.state) && !RO ? `<button class="btn btn-sm btn-outline-primary" data-act="pay"><i class="bi bi-cash me-1"></i>${r.kind === 'emitida' ? 'Registrar cobro' : 'Registrar pago'}</button>` : ''}`,
+      rowActions: (r) => `<button class="btn btn-sm btn-outline-primary" data-act="ver"><i class="bi bi-eye me-1"></i>Ver</button> ${r.kind === 'emitida' ? '<button class="btn btn-sm btn-outline-secondary" data-act="pdf"><i class="bi bi-filetype-pdf me-1"></i>PDF</button> ' : ''}${['pendiente', 'vencida'].includes(r.state) && !RO ? `<button class="btn btn-sm btn-outline-primary" data-act="pay"><i class="bi bi-cash me-1"></i>${r.kind === 'emitida' ? 'Registrar cobro' : 'Registrar pago'}</button>` : ''}`,
       onAction: async (a, r) => {
+        if (a === 'ver') return detalleCuenta(r.id, () => t.load());
         if (a === 'pdf') return openPdf(r.id);
         if (a !== 'pay') return;
         if (r.kind === 'emitida') return payReceipt(r, () => t.load());
@@ -225,6 +221,35 @@ DW.ready.then((me) => {
       if (out === 'deleted') { toast('Borrada'); return changed(); }
       if (!out) return;
       try { await api(row ? `${B}/invoices/${row.id}` : `${B}/invoices`, { method: row ? 'PATCH' : 'POST', body: out }); toast('Guardada'); changed(); } catch (x) { toast(x.message, false); }
+    }
+
+    // La cuenta con todo lo suyo: su PDF, sus pagos con el recibo (PDF) y los archivos que lo acompañan (comprobantes).
+    async function detalleCuenta(id, changed) {
+      const { el: mo } = window.App.modal('<div class="modal-body"><p class="text-body-secondary mb-0">Cargando…</p></div>', { size: 'modal-lg' });
+      const pinta = async () => {
+        let d; try { d = await api(`${B}/invoices/${id}/detalle`); } catch (x) { mo.querySelector('.modal-content').innerHTML = `<div class="modal-body text-danger">${esc(x.message)}</div>`; return; }
+        const f = d.factura, saldo = Math.max(0, f.total - f.paid), cobro = f.kind === 'emitida';
+        mo.querySelector('.modal-content').innerHTML = `<div class="modal-header border-0 pb-0"><div><h2 class="modal-title h5 mb-0">${esc(f.number || '#' + f.id)} · ${esc(f.counterparty)}</h2><div class="small text-body-secondary">${cobro ? 'Cuenta por cobrar' : 'Cuenta por pagar'} · ${day(f.issue_date)}${f.due_date ? ` · vence ${day(f.due_date)}` : ''}</div></div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+          <div class="modal-body"><div class="row g-2 mb-3"><div class="col-4"><div class="small text-body-secondary">Total</div><b>${money(f.total)}</b></div><div class="col-4"><div class="small text-body-secondary">${cobro ? 'Cobrado' : 'Pagado'}</div><b class="text-success">${money(f.paid)}</b></div>
+            <div class="col-4"><div class="small text-body-secondary">Saldo</div><b class="${saldo ? 'text-danger' : ''}">${money(saldo)}</b> ${chip(...(INV_STATE[f.state] || ['free', f.state]))}</div></div>
+            <div class="d-flex flex-wrap gap-2 mb-3">${cobro ? '<button class="btn btn-sm btn-outline-secondary" data-cuenta><i class="bi bi-filetype-pdf me-1"></i>Ver la cuenta de cobro (PDF)</button>' : ''}
+              ${!RO && ['pendiente', 'vencida'].includes(f.state) && cobro ? '<button class="btn btn-sm btn-primary" data-cobrar><i class="bi bi-cash me-1"></i>Registrar cobro</button>' : ''}</div>
+            <h3 class="h6">${cobro ? 'Pagos recibidos' : 'Pagos registrados'}</h3>
+            ${cobro ? (d.recibos.length ? `<ul class="list-group">${d.recibos.map((x) => `<li class="list-group-item d-flex flex-wrap gap-2 align-items-center ${x.voided ? 'opacity-50' : ''}"><div class="flex-grow-1"><b>${esc(x.number)}</b>${x.voided ? ' ' + chip('free', 'Anulado') : ''}
+                <div class="small text-body-secondary">${day(x.date)} · ${esc(x.method || '—')}${x.concept ? ` · ${esc(x.concept)}` : ''}</div></div><b class="${x.voided ? 'text-decoration-line-through' : ''}">${money(x.amount)}</b>
+                <button class="btn btn-sm btn-outline-secondary" data-recibo="${x.id}"><i class="bi bi-filetype-pdf me-1"></i>Recibo</button>${archivos(x.files)}
+                ${me.canManage && !x.voided && !RO ? `<button class="btn btn-sm btn-outline-danger" data-void="${x.id}" data-n="${esc(x.number)}" aria-label="Anular recibo"><i class="bi bi-x-circle"></i></button>` : ''}</li>`).join('')}</ul>` : '<p class="small text-body-secondary mb-0">Aún no hay pagos.</p>')
+            : (d.pagos.length ? `<ul class="list-group">${d.pagos.map((x) => `<li class="list-group-item d-flex gap-2"><div class="flex-grow-1">${day(x.date)}<div class="small text-body-secondary">${esc(x.description || '')}</div></div><b>${money(x.amount)}</b></li>`).join('')}</ul>` : '<p class="small text-body-secondary mb-0">Aún no hay pagos.</p>')}</div>`;
+        mo.querySelector('[data-cuenta]')?.addEventListener('click', () => openPdf(f.id));
+        mo.querySelector('[data-cobrar]')?.addEventListener('click', async () => { await payReceipt({ ...f }, async () => { await pinta(); changed?.(); }); });
+        mo.querySelectorAll('[data-recibo]').forEach((b) => b.addEventListener('click', () => window.open(`${B}/receipts/${b.dataset.recibo}/pdf`, '_blank', 'noopener')));
+        mo.querySelectorAll('[data-void]').forEach((b) => b.addEventListener('click', async () => {
+          if (!(await confirm({ title: `¿Anular el recibo ${b.dataset.n}?`, text: 'El ingreso se quita y la cuenta de cobro vuelve a deber ese valor.', ok: 'Anular', danger: true }))) return;
+          try { await api(`${B}/receipts/${b.dataset.void}/void`, { method: 'POST' }); toast('Recibo anulado'); await pinta(); changed?.(); } catch (x) { toast(x.message, false); }
+        }));
+      };
+      pinta();
     }
 
     // Ventana para pagar una cuenta por cobrar: genera un recibo de caja (se pueden hacer varios hasta cubrir el saldo).
