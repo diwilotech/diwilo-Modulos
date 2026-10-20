@@ -11,8 +11,21 @@ const MODELO = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 export async function usoDelDia(env, org, day = dayCo()) {
   return (await env.DB.prepare('SELECT COALESCE(SUM(calls), 0) n, COALESCE(SUM(tin), 0) tin, COALESCE(SUM(tout), 0) tout FROM ia_uso WHERE business_id = ? AND day = ?').bind(org, day).first()) || { n: 0, tin: 0, tout: 0 };
 }
+// Topes y precios (los mismos que en IA Diwilo de Diwilo Admin): tokens por día y por ejecución de un agente, dólar en pesos; el negocio puede cambiarlos.
+export const PRECIOS = { gemini: { in: 0.30, out: 2.50 }, 'workers-ai': { in: 0.29, out: 2.25 } };   // US$ por millón de tokens (estimados)
+export const AJUSTES_BASE = { tope_tokens: 500000, tope_ejecucion: 100000, usd_cop: 4000 };
+export const NEURONAS_GRATIS = 10000;
+export async function ajustesDe(env, org) {
+  const s = { ...AJUSTES_BASE };
+  try { for (const r of (await env.DB.prepare('SELECT k, v FROM ia_ajustes WHERE business_id = ?').bind(org).all()).results || []) if (r.k in s && Number.isFinite(Number(r.v))) s[r.k] = Number(r.v); } catch (_) {}
+  return s;
+}
+export const costoUsd = (filas) => filas.reduce((t, r) => { const p = PRECIOS[r.proveedor] || { in: 0, out: 0 }; return t + ((r.tin || 0) * p.in + (r.tout || 0) * p.out) / 1e6; }, 0);
+// Neuronas de Workers AI (con las que Cloudflare mide su cuota gratis diaria): Llama 3.3 70B ≈ 26.668 por millón leído y 204.805 por millón escrito
+export const neuronas = (filas) => Math.round(filas.filter((r) => r.proveedor === 'workers-ai').reduce((t, r) => t + ((r.tin || 0) * 26668 + (r.tout || 0) * 204805) / 1e6, 0));
 export async function revisarTope(env, org, limite = TOPE_DIA) {
-  const { n } = await usoDelDia(env, org);
+  const { n, tin, tout } = await usoDelDia(env, org), aj = await ajustesDe(env, org);
+  if (aj.tope_tokens > 0 && tin + tout >= aj.tope_tokens) throw new HttpError(429, 'La IA del negocio llegó a su tope de tokens de hoy. Se reanuda mañana o súbelo en IA → Consumo.', 'IA_TOPE');
   if (n >= Math.min(limite || TOPE_DIA, TOPE_DIA)) throw new HttpError(429, 'La IA del negocio llegó a su tope de hoy. Vuelve mañana o continúa por otro medio.', 'IA_TOPE');
 }
 export async function registrarUso(env, org, { fuente, proveedor, tin = 0, tout = 0 }) {

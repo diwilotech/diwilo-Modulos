@@ -16,10 +16,10 @@ DW.ready.then((me) => {
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const CAN = me.canManage && !me.business.readOnly;
-  const VIEWS = [['chats', 'Chats', 'bi-chat-dots'], ['conversaciones', 'Conversaciones', 'bi-chat-left-text'], ['asistente', 'Asistente', 'bi-stars'], ['agentes', 'Agentes', 'bi-lightning-charge'],
-    ['plantillas', 'Plantillas', 'bi-file-earmark-text'], ['consumo', 'Consumo', 'bi-speedometer2'], ['conexiones', 'Conexiones', 'bi-plug'], ...(me.canManage ? [['bitacora', 'Bitácora', 'bi-journal-text']] : [])];
-  let view = (location.hash || '#chats').slice(1), filtroChat = null;
-  if (!VIEWS.some(([k]) => k === view)) view = 'chats';
+  const VIEWS = [['agentes', 'Agentes', 'bi-lightning-charge'], ['asistente', 'IA Diwilo', 'bi-stars'], ['consumo', 'Consumo', 'bi-speedometer2'], ['conversaciones', 'Conversaciones del chat', 'bi-chat-left-text'],
+    ['chats', 'Ajustes del chat', 'bi-sliders'], ['conexiones', 'Conexiones y API', 'bi-plug'], ['plantillas', 'Plantillas', 'bi-file-earmark-text'], ...(me.canManage ? [['bitacora', 'Bitácora', 'bi-journal-text']] : [])];
+  let view = (location.hash || '#agentes').slice(1), filtroChat = null;
+  if (!VIEWS.some(([k]) => k === view)) view = 'agentes';
   const hasMkt = me.modules.some((m) => m.id === 'marketing');
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
   const ago = (ts) => (ts ? fecha(ts, true) : '—');
@@ -93,21 +93,22 @@ DW.ready.then((me) => {
     try { [rows, cs] = await Promise.all([api(`${B}/conversaciones${filtroChat ? `?chat=${filtroChat}` : ''}`).then((r) => r.rows), api(`${B}/chats`).then((r) => r.rows)]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     el.innerHTML = `<div class="d-flex flex-wrap gap-2 mb-3 align-items-center"><select class="form-select w-auto" data-chat><option value="">Todos los chats</option>${cs.map((c) => `<option value="${c.id}" ${filtroChat === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select>
         <span class="small text-body-secondary">${rows.length} conversación${rows.length === 1 ? '' : 'es'}</span></div>
-      <div class="row g-3"><div class="col-lg-5"><div class="d-grid gap-2" data-list style="max-height:70vh;overflow:auto">${rows.length ? rows.map((v) => `<button class="btn text-start border p-2" data-id="${esc(v.id)}"><span class="d-block text-truncate fw-semibold">${esc(v.primero || '(sin mensajes)')}</span>
+      <div class="row g-3"><div class="col-12"><div class="d-grid gap-2" data-list style="max-height:70vh;overflow:auto">${rows.length ? rows.map((v) => `<button class="btn text-start border p-2" data-id="${esc(v.id)}"><span class="d-block text-truncate fw-semibold">${esc(v.primero || '(sin mensajes)')}</span>
           <span class="small text-body-secondary">${esc(v.chat)} · ${esc(ago(v.last_at))} · ${v.msg_count} mensajes${v.dispositivo ? ` · ${esc(v.dispositivo)}` : ''}${v.lead_id ? ' · <b>lead</b>' : ''}</span></button>`).join('') : empty('bi-chat-left-text', 'Aún no hay conversaciones.')}</div></div>
-        <div class="col-lg-7"><div class="dw-card" data-conv><p class="text-body-secondary mb-0">Elige una conversación.</p></div></div></div>`;
+      </div>`;
     $('[data-chat]', el).onchange = (e) => { filtroChat = Number(e.target.value) || null; conversaciones(el); };
     $('[data-list]', el).onclick = async (e) => {
       const b = e.target.closest('[data-id]'); if (!b) return;
       $$('[data-id]', el).forEach((x) => x.classList.toggle('border-primary', x === b));
-      const box = $('[data-conv]', el); box.innerHTML = '<p class="text-body-secondary mb-0">Cargando…</p>';
+      const { el: mo, m: mm } = modal('<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Conversación del chat</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body" data-conv></div>', { size: 'modal-lg' });
+      const box = mo.querySelector('[data-conv]'); box.innerHTML = '<p class="text-body-secondary mb-0">Cargando…</p>';
       try {
         const d = await api(`${B}/conversaciones/${encodeURIComponent(b.dataset.id)}`);
         box.innerHTML = `<div class="d-flex align-items-center mb-2"><div class="flex-grow-1 small text-body-secondary">${esc(ago(d.conversacion.started_at))}${d.conversacion.pagina ? ` · ${esc(d.conversacion.pagina.slice(0, 60))}` : ''}${d.conversacion.pais ? ` · ${esc(d.conversacion.pais)}` : ''}</div>${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button>' : ''}</div>
           <div class="d-flex flex-column gap-2" style="max-height:60vh;overflow:auto">${d.mensajes.map((m) => `<div class="p-2 px-3 rounded-4 ${m.rol === 'user' ? 'align-self-end text-white' : 'align-self-start'}" style="max-width:85%;white-space:pre-wrap;${m.rol === 'user' ? 'background:var(--dw-p)' : 'background:rgba(var(--bs-body-color-rgb),.08)'}">${esc(m.contenido)}<div style="font-size:.7rem;opacity:.65">${esc(fecha(m.ts, true))}</div></div>`).join('')}</div>`;
         $('[data-del]', box)?.addEventListener('click', async () => {
           if (!(await confirm({ title: '¿Borrar esta conversación?', text: 'No se puede deshacer.', ok: 'Borrar' }))) return;
-          try { await api(`${B}/conversaciones/${encodeURIComponent(b.dataset.id)}`, { method: 'DELETE' }); toast('Conversación borrada'); conversaciones(el); } catch (x) { toast(x.message, false); }
+          try { await api(`${B}/conversaciones/${encodeURIComponent(b.dataset.id)}`, { method: 'DELETE' }); mm.hide(); toast('Conversación borrada'); conversaciones(el); } catch (x) { toast(x.message, false); }
         });
       } catch (x) { box.innerHTML = `<p class="text-danger mb-0">${esc(x.message)}</p>`; }
     };
@@ -116,14 +117,17 @@ DW.ready.then((me) => {
   /* ================= Asistente del negocio ================= */
   let hist = [];
   function asistente(el) {
-    const pintarPasos = (pasos) => (pasos?.length ? `<details class="mt-1"><summary class="small text-body-secondary" style="cursor:pointer">Lo que consultó (${pasos.length})</summary><ul class="small mb-0 ps-3">${pasos.map((p) => `<li><code>${esc(p.herramienta)}</code> ${esc(p.estado)}${p.resultado ? ` · ${esc(String(p.resultado).slice(0, 120))}` : ''}</li>`).join('')}</ul></details>` : '');
+    // Paso a paso visible: mientras trabaja y, al terminar, queda debajo de la respuesta (con lo que devolvió cada herramienta)
+    const etiqueta = (h) => { const [m, ...r] = String(h).split('.'); return r.length ? `${m.charAt(0).toUpperCase()}${m.slice(1)} · ${r.join(' ').replace(/_/g, ' ')}` : String(h).replace(/_/g, ' '); };
+    const ICO = { consultada: ['text-success', 'bi-check-circle-fill', 'Consultado'], hecha: ['text-success', 'bi-check-circle-fill', 'Hecho'], propuesta: ['text-warning', 'bi-hourglass-split', 'Por confirmar'], rechazada: ['text-danger', 'bi-x-circle-fill', 'Descartado'], error: ['text-danger', 'bi-x-circle-fill', 'No se pudo'] };
+    const pintarPasos = (pasos, actual) => ((pasos?.length || actual) ? `<div class="mt-2 p-2 rounded-3 small" style="background:rgba(var(--bs-body-color-rgb),.05)"><div class="fw-semibold text-uppercase text-body-secondary" style="font-size:11px;letter-spacing:.04em">Paso a paso</div><ol class="list-unstyled mb-0">${(pasos || []).map((p) => { const [c, ic, t] = ICO[p.estado] || ['text-body-secondary', 'bi-dot', '']; return `<li class="d-flex gap-2 align-items-baseline"><i class="bi ${ic} ${c}"></i><span>${esc(etiqueta(p.herramienta))} <span class="text-body-secondary">${t}</span>${p.resultado ? `<div class="text-body-secondary" style="font-size:11.5px">${esc(String(p.resultado).slice(0, 140))}</div>` : ''}</span></li>`; }).join('')}${actual ? `<li class="d-flex gap-2 align-items-baseline text-primary fw-semibold"><span class="spinner-border spinner-border-sm"></span><span>${esc(actual)}</span></li>` : ''}</ol></div>` : '');
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Pregúntale a la IA por los datos de tu negocio (clientes, ventas, cuentas…). Consulta con las herramientas de tus módulos activos; si quiere <b>crear o cambiar</b> algo, te lo propone y tú lo apruebas.</div>
       <div class="d-flex flex-wrap gap-2 mb-3" data-flujos></div>
       <div class="dw-card"><div data-log class="d-flex flex-column gap-2 mb-3" style="min-height:160px;max-height:55vh;overflow:auto"></div>
         <form class="d-flex gap-2" data-f><input class="form-control" name="q" maxlength="2000" placeholder="Ej.: ¿Cuántos leads nuevos tuve esta semana?" autocomplete="off" required aria-label="Pregunta"><button class="btn btn-primary text-nowrap"><i class="bi bi-send me-1"></i>Preguntar</button><button type="button" class="btn btn-light" data-clear title="Empezar de nuevo"><i class="bi bi-eraser"></i></button></form></div>`;
     // Flujos sugeridos: salen de la guía de cada módulo (el mismo estándar del MCP y de los agentes)
     api(`${B}/guias`).then((r) => {
-      const fl = r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })));
+      const fl = [...(r.entre || []).map((f) => ({ ...f, modulo: f.modulos.join(' + ') })), ...r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))];
       $('[data-flujos]', el).innerHTML = fl.length ? `<span class="small text-body-secondary align-self-center"><i class="bi bi-diagram-3 me-1"></i>Flujos:</span>${fl.map((f, i) => `<button type="button" class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('')}` : '';
       $('[data-flujos]', el).onclick = (e) => { const b = e.target.closest('[data-fl]'); if (b) { const q = $('[data-f] [name=q]', el); q.value = fl[+b.dataset.fl].prompt; q.focus(); } };
     }).catch(() => {});
@@ -137,9 +141,11 @@ DW.ready.then((me) => {
       hist.push({ role: 'user', content: q }); burbuja('user', esc(q));
       const w = burbuja('assistant', '<span class="text-body-secondary">Pensando…</span>'); f.querySelector('.btn-primary').disabled = true;
       try {
-        const r = await api(`${B}/asistente`, { method: 'POST', body: { mensajes: hist.map(({ role, content }) => ({ role, content })) } });
+        const pid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        const t = setInterval(async () => { try { const g = await api(`${B}/asistente/progreso?id=${pid}`); if (g.pasos?.length || g.actual) { w.innerHTML = `<span class="text-body-secondary">Trabajando…</span>${pintarPasos(g.pasos, g.actual)}`; log.scrollTop = log.scrollHeight; } } catch (_) {} }, 900);
+        let r; try { r = await api(`${B}/asistente`, { method: 'POST', body: { progreso: pid, mensajes: hist.map(({ role, content }) => ({ role, content })) } }); } finally { clearInterval(t); }
         const props = r.pasos.filter((p) => p.estado === 'propuesta');
-        const pasosHtml = pintarPasos(r.pasos.filter((p) => p.estado !== 'propuesta'));
+        const pasosHtml = pintarPasos(r.pasos);
         w.innerHTML = esc(r.respuesta) + pasosHtml;
         hist.push({ role: 'assistant', content: r.respuesta, pasosHtml });
         for (const p of props) {
@@ -278,13 +284,40 @@ DW.ready.then((me) => {
   async function consumo(el) {
     el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
     let u; try { u = await api(`${B}/uso`); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const pct = Math.min(100, Math.round((u.hoy.calls / u.tope_dia) * 100)), max = Math.max(1, ...u.dias.map((d) => d.calls));
-    const FUENTE = { chat: 'Chats de clientes', agente: 'Agentes', asistente: 'Asistente' }, n = (x) => Number(x || 0).toLocaleString('es-CO');
-    el.innerHTML = `<div class="row g-3 mb-3"><div class="col-md-6"><div class="dw-card h-100"><div class="small text-body-secondary">Hoy</div><div class="fs-3 fw-bold">${n(u.hoy.calls)} <span class="fs-6 fw-normal text-body-secondary">de ${n(u.tope_dia)} llamadas</span></div>
-        <div class="progress mt-2" style="height:8px"><div class="progress-bar ${pct > 85 ? 'bg-danger' : ''}" style="width:${pct}%"></div></div><div class="small text-body-secondary mt-2">Al llegar al tope, los chats responden con un aviso y pasan a WhatsApp. Se reinicia a la medianoche (hora de Colombia).</div></div></div>
-        <div class="col-md-6"><div class="dw-card h-100"><div class="small text-body-secondary">Motor de IA</div><div class="fs-5 fw-semibold">${esc(u.motor)}</div><div class="small text-body-secondary mt-2">Tokens de hoy: ${n(u.hoy.tin)} de entrada · ${n(u.hoy.tout)} de salida. El consumo lo paga Diwilo dentro de tu plan.</div></div></div></div>
-      <div class="row g-3"><div class="col-lg-7"><div class="dw-card"><h2 class="h6 mb-3">Últimos 30 días</h2>${u.dias.length ? `<div class="d-flex align-items-end gap-1" style="height:120px">${u.dias.map((d) => `<div title="${esc(d.day)}: ${n(d.calls)} llamadas" style="flex:1;min-width:3px;height:${Math.max(3, Math.round((d.calls / max) * 100))}%;background:var(--dw-p);border-radius:3px 3px 0 0"></div>`).join('')}</div><div class="d-flex justify-content-between small text-body-secondary mt-1"><span>${esc(u.dias[0].day)}</span><span>${esc(u.dias[u.dias.length - 1].day)}</span></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo.</p>'}</div></div>
-        <div class="col-lg-5"><div class="dw-card"><h2 class="h6 mb-3">Por uso (30 días)</h2>${u.fuentes.length ? u.fuentes.map((f) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span>${esc(FUENTE[f.fuente] || f.fuente)}</span><b>${n(f.calls)}</b></div>`).join('') : '<p class="text-body-secondary mb-0">Sin datos.</p>'}</div></div></div>`;
+    const n = (x) => Number(x || 0).toLocaleString('es-CO'), aj = u.ajustes, FUENTE = { chat: 'Chats de clientes', agente: 'Agentes', asistente: 'Asistente', informes: 'Informes' };
+    const tok = (x) => (x >= 1e6 ? `${(x / 1e6).toLocaleString('es-CO', { maximumFractionDigits: 2 })} M` : x >= 1000 ? `${(x / 1000).toLocaleString('es-CO', { maximumFractionDigits: 1 })} k` : String(x || 0));
+    const cop = (usd) => `$${Math.round(usd * aj.usd_cop).toLocaleString('es-CO')}`, usd = (x) => `US$${x.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: x < 1 ? 3 : 2 })}`;
+    const hoyT = u.hoy.tin + u.hoy.tout, mesT = u.mes.tin + u.mes.tout, pct = aj.tope_tokens ? Math.min(100, Math.round((hoyT / aj.tope_tokens) * 100)) : 0;
+    const medidor = (v, max) => `<div class="progress mt-2" style="height:6px"><div class="progress-bar ${v / max > .85 ? 'bg-danger' : ''}" style="width:${Math.min(100, Math.round((v / max) * 100))}%"></div></div>`;
+    const kpi = (t, v, sub, extra = '') => `<div class="col-6 col-lg"><div class="dw-card h-100"><div class="small text-body-secondary">${t}</div><div class="fs-5 fw-bold">${v}</div><div class="small text-body-secondary">${sub}</div>${extra}</div></div>`;
+    const max = Math.max(1, ...u.dias.map((d) => d.tin + d.tout));
+    el.innerHTML = `${pct >= 80 ? `<div class="alert ${pct >= 100 ? 'alert-danger' : 'alert-warning'} py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>${pct >= 100 ? 'La IA está en pausa hasta mañana: se llegó al tope diario. Los chats pasan a WhatsApp.' : `Llevas el ${pct}% del tope diario de tokens.`}</div>` : ''}
+      <p class="small text-body-secondary">Cada vez que la IA responde se cuentan los tokens (lo que lee + lo que escribe). Motor: <b>${esc(u.motor)}</b>. Los costos son estimados.</p>
+      <div class="row g-3 mb-3">
+        ${kpi('Tokens hoy', tok(hoyT), aj.tope_tokens ? `tope ${tok(aj.tope_tokens)}` : 'sin tope diario', aj.tope_tokens ? medidor(hoyT, aj.tope_tokens) : '')}
+        ${kpi('Costo hoy', cop(u.hoy.usd), `${usd(u.hoy.usd)} · ${n(u.hoy.calls)} de ${n(u.tope_dia)} llamadas`, medidor(u.hoy.calls, u.tope_dia))}
+        ${u.neuronas_gratis ? kpi('Cuota gratis de Cloudflare', n(u.hoy.neuronas), `de ${n(u.neuronas_gratis)} neuronas · se renueva 7:00 p. m.`, medidor(u.hoy.neuronas, u.neuronas_gratis)) : ''}
+        ${kpi('Tokens del mes', tok(mesT), `${tok(u.mes.tin)} leídos · ${tok(u.mes.tout)} escritos`)}
+        ${kpi('Costo del mes', cop(u.mes.usd), `${usd(u.mes.usd)} · proyección ${cop(u.mes.proyeccion_usd)}`)}</div>
+      <div class="row g-3 mb-3"><div class="col-lg-7"><div class="dw-card h-100"><h2 class="h6 mb-3">Últimos 30 días</h2>${u.dias.length ? `<div class="d-flex align-items-end gap-1" style="height:120px">${u.dias.map((d) => `<div title="${esc(d.day)}: ${tok(d.tin + d.tout)} tokens · ${cop(d.usd)}" style="flex:1;min-width:3px;height:${Math.max(3, Math.round(((d.tin + d.tout) / max) * 100))}%;background:var(--dw-p);border-radius:3px 3px 0 0"></div>`).join('')}</div><div class="d-flex justify-content-between small text-body-secondary mt-1"><span>${esc(u.dias[0].day)}</span><span>Día más alto: ${tok(max)} tokens</span><span>${esc(u.dias[u.dias.length - 1].day)}</span></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo.</p>'}</div></div>
+        <div class="col-lg-5"><div class="dw-card h-100"><h2 class="h6 mb-3">Quién gasta este mes</h2>${u.fuentes.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Origen</th><th class="text-end">Llamadas</th><th class="text-end">Tokens</th><th class="text-end">Costo</th></tr></thead><tbody>${u.fuentes.map((f) => `<tr><td>${esc(FUENTE[f.fuente] || f.fuente)}</td><td class="text-end">${n(f.calls)}</td><td class="text-end">${tok(f.tin + f.tout)}</td><td class="text-end">${cop(f.usd)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo este mes.</p>'}</div></div></div>
+      <div class="row g-3"><div class="col-lg-6"><form class="dw-card h-100" data-topes><h2 class="h6 mb-3">Topes</h2>
+          <label class="form-label small mb-1">Tope diario de tokens (entre todo)</label><input class="form-control mb-1" name="tope_tokens" type="number" min="0" step="10000" value="${aj.tope_tokens}" ${CAN && me.canManage ? '' : 'disabled'}><div class="small text-body-secondary mb-3">0 = sin tope. Al llegar, la IA se pausa hasta mañana y los chats pasan a WhatsApp.</div>
+          <label class="form-label small mb-1">Tope por ejecución de un agente (tokens)</label><input class="form-control mb-1" name="tope_ejecucion" type="number" min="5000" step="5000" value="${aj.tope_ejecucion}" ${CAN && me.canManage ? '' : 'disabled'}><div class="small text-body-secondary mb-3">Al llegar, el agente para y entrega lo que alcanzó.</div>
+          <label class="form-label small mb-1">Dólar en pesos</label><input class="form-control mb-3" name="usd_cop" type="number" min="1000" step="10" value="${aj.usd_cop}" ${CAN && me.canManage ? '' : 'disabled'}>
+          ${CAN && me.canManage ? '<button class="btn btn-primary">Guardar topes</button>' : ''}</form></div>
+        <div class="col-lg-6"><div class="dw-card h-100"><h2 class="h6 mb-3">Qué te protege de gastar de más</h2><ul class="small mb-0 ps-3">
+          <li><b>Tope diario</b>: nada llama a la IA cuando se llega al tope del día (y máximo ${n(u.tope_dia)} llamadas).</li>
+          <li><b>Tope por agente</b>: cada ejecución tiene su límite de tokens y de pasos (16).</li>
+          <li><b>Sin repeticiones</b>: si un agente pide lo mismo dos veces, se le recuerda que ya lo tiene.</li>
+          <li><b>Memoria recortada</b>: en cada paso los resultados viejos se resumen para no pagarlos otra vez.</li>
+          <li><b>Uno a la vez</b>: un agente no corre dos veces al mismo tiempo; las ejecuciones cortadas se cierran solas a los 15 minutos.</li>
+          <li><b>Chats</b>: máximo 20 mensajes por visitante cada 10 minutos y un tope diario por chat.</li></ul></div></div></div>`;
+    el.querySelector('[data-topes]')?.addEventListener('submit', async (e) => {
+      e.preventDefault(); const f = e.target;
+      try { await api(`${B}/uso`, { method: 'PATCH', body: { tope_tokens: f.tope_tokens.value, tope_ejecucion: f.tope_ejecucion.value, usd_cop: f.usd_cop.value } }); toast('Topes guardados'); consumo(el); }
+      catch (x) { toast(x.message, false); }
+    });
   }
 
   /* ================= Conexiones: MCP, claves de API y webhooks ================= */

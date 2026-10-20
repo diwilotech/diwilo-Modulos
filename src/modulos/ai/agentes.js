@@ -1,13 +1,15 @@
 // Agentes y asistente del negocio: la IA trabaja con las herramientas de los módulos activos (las mismas del MCP).
 // Un bucle de pasos: el modelo responde SIEMPRE con un JSON, o usa una herramienta o termina. Las herramientas de lectura corren;
 // las de escritura se PROPONEN (la persona las aprueba) o se ejecutan, según la autonomía.
-import { llamarIA } from '../../lib/ia.js';
+import { HttpError } from '../../lib/http.js';
+import { llamarIA, ajustesDe } from '../../lib/ia.js';
 import { REG, ejecutarHerramienta, herramientasDe } from '../../lib/registro.js';
 import { guiasDe } from '../../lib/guias.js';
+import { flujosEntre, flujosEnTexto } from '../../lib/flujos.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
 import { all, one, now, today } from '../../lib/crud.js';
 
-const MAX_PASOS = 8;
+const MAX_PASOS = 8, MAX_PASOS_AGENTE = 16, STALE = 15 * 60000;   // el asistente da 8 pasos; un agente, 16
 export { herramientasDe };
 
 const resumenArgs = (schema) => Object.entries(schema?.properties || {}).map(([k, v]) => `${k}${(schema.required || []).includes(k) ? '*' : ''}: ${v.enum ? v.enum.join('|') : v.type || 'texto'}`).join(', ');
@@ -16,11 +18,11 @@ const wire = (n) => String(n).replace(/\./g, '_');
 // Resumen de las guías de los módulos que usa (el estándar de src/lib/guias.js): qué hace cada uno y sus flujos; la guía completa se pide con la acción «guia»
 const guiasResumen = (guias) => (guias.length ? `\nMÓDULOS (cada uno tiene su guía de uso; léela con {"accion":"guia","modulo":"<id>"} antes de usarlo si no lo conoces bien):\n${guias.map((g) => `- ${g.modulo} (${g.nombre}): ${g.guia.slice(0, 220)}${g.guia.length > 220 ? '…' : ''}${g.flujos.length ? ` · flujos: ${g.flujos.map((f) => f.id).join(', ')}` : ''}`).join('\n')}\n` : '');
 
-export function sistemaDeHerramientas({ rol, instrucciones, negocio, herramientas, autonomia, extra = '', guias = [] }) {
+export function sistemaDeHerramientas({ maxPasos = MAX_PASOS, flujos = [], rol, instrucciones, negocio, herramientas, autonomia, extra = '', guias = [] }) {
   return `${rol}
 
 Trabajas para el negocio «${negocio}». Hoy es ${today()}.
-${instrucciones ? `\nINSTRUCCIONES\n${instrucciones}\n` : ''}${extra}${guiasResumen(guias)}
+${instrucciones ? `\nINSTRUCCIONES\n${instrucciones}\n` : ''}${extra}${guiasResumen(guias)}${flujosEnTexto(flujos)}
 HERRAMIENTAS (usa solo estas; * = obligatorio):
 ${herramientas.map((t) => `- ${t.name} [${t.tipo}] ${t.description} · args: { ${resumenArgs(t.inputSchema)} }`).join('\n') || '(ninguna)'}
 
@@ -28,7 +30,7 @@ CÓMO RESPONDER: siempre con UN solo objeto JSON, sin texto fuera de él:
 {"accion":"usar","herramienta":"<nombre>","args":{...}}   para usar una herramienta
 {"accion":"guia","modulo":"<id>"}   para leer la guía de uso de un módulo
 {"accion":"fin","respuesta":"<lo que le dices a la persona>"}   cuando ya terminaste
-Reglas: no inventes datos ni cifras: si no los tienes, consúltalos con una herramienta. No repitas una herramienta con los mismos argumentos. Máximo ${MAX_PASOS} pasos.
+Reglas: no inventes datos ni cifras: si no los tienes, consúltalos con una herramienta. No repitas una herramienta con los mismos argumentos. Máximo ${maxPasos} pasos.
 ${autonomia === 'ejecutar' ? 'Las herramientas de escritura se ejecutan al instante: úsalas solo cuando estés seguro.' : 'Las herramientas de escritura quedan como PROPUESTA hasta que una persona las apruebe: propónlas y explica por qué en tu respuesta final.'}`;
 }
 
@@ -41,10 +43,17 @@ function leerJson(texto) {
 const corto = (v, n = 5000) => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > n ? `${s.slice(0, n)}…` : s; };
 
 // El bucle. Devuelve { respuesta, pasos }. `pasos` guarda lo que se usó y el estado de cada escritura.
-export async function bucle(env, { org, ctx, system, historial, herramientas, autonomia, fuente, limite, guias = [] }) {
+export async function bucle(env, { org, ctx, system, historial, herramientas, autonomia, fuente, limite, guias = [], maxPasos = MAX_PASOS, topeTokens = 0, progreso = null }) {
   const hist = [...historial], pasos = [], usadas = new Set();
-  let respuesta = null, invalidos = 0;
-  for (let n = 1; n <= MAX_PASOS && respuesta === null; n++) {
+  let respuesta = null, invalidos = 0, gastados = 0;
+  const est = (t) => Math.ceil(String(t || '').length / 4);
+  const avisar = async (actual) => { try { await progreso?.({ pasos, actual }); } catch (_) {} };   // paso a paso visible
+  for (let n = 1; n <= maxPasos && respuesta === null; n++) {
+    // Memoria recortada: los resultados viejos se resumen para no pagarlos una y otra vez en cada paso
+    if (hist.length > 6) for (let i = 1; i < hist.length - 4; i++) if (hist[i].role === 'user' && /^(Resultado de|Guía de)/.test(hist[i].content) && hist[i].content.length > 500) hist[i] = { role: 'user', content: `${hist[i].content.slice(0, 400)}… (recortado)` };
+    gastados += est(system) + hist.reduce((a, m) => a + est(m.content), 0);
+    if (topeTokens && gastados >= topeTokens) { respuesta = `Paré al llegar al tope de ${topeTokens.toLocaleString('es-CO')} tokens por ejecución. Esto es lo que alcancé a hacer.`; break; }
+    await avisar(n === 1 ? 'Entendiendo tu pedido…' : 'Pensando el siguiente paso…');
     const texto = await llamarIA(env, org, system, hist, { fuente, maxTokens: 900, temperature: 0.3, limite });
     const o = leerJson(texto);
     hist.push({ role: 'assistant', content: texto });
@@ -71,6 +80,7 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
       hist.push({ role: 'user', content: 'Propuesta registrada: una persona la aprobará. Sigue con lo demás o termina.' });
       continue;
     }
+    await avisar(`${t.tipo === 'escritura' ? 'Haciendo' : 'Consultando'}: ${t.name}`);
     const r = await ejecutarHerramienta(env, ctx, t.name, args);
     pasos.push({ n, herramienta: t.name, args, tipo: t.tipo, estado: r.ok ? (t.tipo === 'escritura' ? 'hecha' : 'consultada') : 'error', resultado: r.ok ? corto(r.result, 1200) : r.error });
     hist.push({ role: 'user', content: r.ok ? `Resultado de ${t.name}: ${corto(r.result)}` : `Error de ${t.name}: ${r.error}` });
@@ -84,15 +94,18 @@ const parseList = (s) => { try { const a = JSON.parse(s); return Array.isArray(a
 export async function correrAgente(env, { org, agente, disparador = 'manual', ctx = null, por = null }) {
   ctx ||= await ctxDeOrg(env, org, { role: 'admin' });
   if (!ctx) throw new Error('El negocio aún no usa los módulos');
-  const t0 = now();
+  // Uno a la vez: si ya está trabajando no arranca otro; las ejecuciones cortadas hace más de 15 minutos se cierran solas
+  await env.DB.prepare("UPDATE ia_ejecuciones SET estado = 'error', resumen = 'Se interrumpió antes de terminar', terminada_at = ? WHERE agente_id = ? AND business_id = ? AND estado = 'en_curso' AND created_at < ?").bind(now(), agente.id, org, now() - STALE).run();
+  if (await one(env, "SELECT 1 FROM ia_ejecuciones WHERE agente_id = ? AND business_id = ? AND estado = 'en_curso'", agente.id, org)) throw new HttpError(409, 'Este agente ya está trabajando. Espera a que termine.');
+  const aj = await ajustesDe(env, org), t0 = now();
   const ej = (await env.DB.prepare("INSERT INTO ia_ejecuciones (business_id, agente_id, disparador, estado, por, created_at) VALUES (?, ?, ?, 'en_curso', ?, ?)").bind(org, agente.id, disparador, por, t0).run()).meta.last_row_id;
   let estado = 'ok', resumen = '', pasos = [];
   try {
     const disp = herramientasDe(ctx), elegidas = parseList(agente.herramientas);
     const herr = disp.filter((t) => elegidas.includes(t.name));
     const guias = guiasDe(ctx).filter((g) => herr.some((t) => t.modulo === g.modulo));
-    const system = sistemaDeHerramientas({ rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias });
-    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias });
+    const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias });
+    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias, maxPasos: MAX_PASOS_AGENTE, topeTokens: aj.tope_ejecucion });
     resumen = r.respuesta; pasos = r.pasos;
   } catch (e) { estado = 'error'; resumen = String(e.message || e).slice(0, 500); }
   const pend = pasos.filter((p) => p.estado === 'propuesta').length;
@@ -127,12 +140,21 @@ export async function resolverPropuesta(env, { org, ejecucionId, indice, aprobar
 }
 
 /* ---------- asistente interactivo del negocio ---------- */
-export async function asistente(env, { org, ctx, mensajes }) {
+export async function asistente(env, { org, ctx, mensajes, progresoId = null }) {
   const hist = (Array.isArray(mensajes) ? mensajes : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
   if (!hist.length || hist[hist.length - 1].role !== 'user') return { status: 400, error: 'Escribe tu pregunta' };
-  const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai');
+  const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura');
   const guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai');
-  const system = sistemaDeHerramientas({ guias, rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: 'Responde en español, claro y breve. Para preguntas sobre el negocio consulta con herramientas antes de contestar.', negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
-  const r = await bucle(env, { org, ctx, system, historial: hist, herramientas: herr, autonomia: 'proponer', fuente: 'asistente', guias });
-  return { status: 200, respuesta: r.respuesta, pasos: r.pasos };
+  const system = sistemaDeHerramientas({ guias, flujos: flujosEntre(herr), rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: 'Responde en español, claro y breve. Para preguntas sobre el negocio consulta con herramientas antes de contestar.', negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
+  // El paso a paso se guarda en ia_progreso para que la pantalla lo muestre mientras el asistente trabaja
+  const escribir = progresoId ? async (estado, { pasos = [], actual = null }) => {
+    await env.DB.prepare(`INSERT INTO ia_progreso (id, business_id, estado, actual, pasos, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET estado = excluded.estado, actual = excluded.actual, pasos = excluded.pasos, updated_at = excluded.updated_at WHERE business_id = excluded.business_id`).bind(progresoId, org, estado, actual, JSON.stringify(pasos.map(({ n, herramienta, tipo, estado: e }) => ({ n, herramienta, tipo, estado: e }))), now()).run();
+  } : null;
+  if (escribir) await env.DB.prepare('DELETE FROM ia_progreso WHERE updated_at < ?').bind(now() - 86400000).run().catch(() => {});
+  try {
+    const r = await bucle(env, { org, ctx, system, historial: hist, herramientas: herr, autonomia: 'proponer', fuente: 'asistente', guias, progreso: escribir ? (info) => escribir('trabajando', info) : null });
+    await escribir?.('listo', { pasos: r.pasos });
+    return { status: 200, respuesta: r.respuesta, pasos: r.pasos };
+  } catch (e) { await escribir?.('error', { actual: String(e.message || e).slice(0, 200) }).catch(() => {}); throw e; }
 }

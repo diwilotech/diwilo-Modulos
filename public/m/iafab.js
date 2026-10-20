@@ -35,6 +35,10 @@
 .ia-form button{border:0;border-radius:10px;width:42px;height:40px;background:#6d28d9;color:#fff;cursor:pointer;font-size:16px}.ia-form button:disabled{opacity:.6}
 .ia-wait{display:flex;gap:5px;width:max-content}.ia-wait span{width:7px;height:7px;border-radius:50%;background:#a855f7;animation:iaDot 1s infinite}.ia-wait span:nth-child(2){animation-delay:.15s}.ia-wait span:nth-child(3){animation-delay:.3s}
 @keyframes iaDot{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.ia-steps{list-style:none;margin:8px 0 0;padding:8px 10px;border-radius:10px;background:rgba(124,58,237,.07);font-size:12.5px;display:flex;flex-direction:column;gap:3px}.ia-steps b{font-weight:600;font-size:11.5px;color:#6d28d9;text-transform:uppercase;letter-spacing:.04em}
+.ia-steps li{display:flex;gap:6px;align-items:baseline}.ia-steps .ok{color:#16a34a}.ia-steps .bad{color:#dc2626}.ia-steps .wait{color:#d97706}.ia-steps .now{color:#6d28d9;font-weight:600}.ia-steps .spin{display:inline-block;animation:iaSpin 1s linear infinite}
+@keyframes iaSpin{to{transform:rotate(360deg)}}
+@keyframes iaDot2{0%,80%,100%{opacity:.25}40%{opacity:1}}
 @media (max-width:991.98px){.ia-fab{right:14px;bottom:calc(var(--dw-bottom-h,64px) + 14px)}.ia-panel{left:8px;right:8px;bottom:8px;width:auto;height:calc(100vh - 16px)}}`;
 
   window.DW.ready.then((me) => {
@@ -56,11 +60,15 @@
     const $ = (s) => document.querySelector(s), panel = $('#iaPanel'), log = $('#iaLog'), form = $('#iaForm'), ta = form.q;
     const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^[-•]\s+(.*)$/gm, '<span class="li">$1</span>').replace(/\n/g, '<br>');
     const nombre = (t) => String(t).replace(/_/g, ' ');
-    const usados = (pasos) => (pasos?.length ? `<small class="ia-used">Consultó: ${[...new Set(pasos.map((p) => nombre(p.herramienta)))].map(esc).join(', ')}</small>` : '');
+    // Paso a paso visible: lo que va haciendo mientras trabaja y, al terminar, la lista queda debajo de la respuesta
+    const etiqueta = (h) => { const [m, ...r] = String(h).split('.'); return r.length ? `${m.charAt(0).toUpperCase()}${m.slice(1)} · ${r.join(' ').replace(/_/g, ' ')}` : String(h).replace(/_/g, ' '); };
+    const ICO = { consultada: ['ok', '✓', 'Consultado'], hecha: ['ok', '✓', 'Hecho'], propuesta: ['wait', '⏳', 'Por confirmar'], rechazada: ['bad', '✕', 'Descartado'], error: ['bad', '✕', 'No se pudo'] };
+    const pasosHtml = (pasos, actual) => ((pasos?.length || actual) ? `<ul class="ia-steps"><b>Paso a paso</b>${(pasos || []).map((p) => { const [c, i, t] = ICO[p.estado] || ['ok', '•', '']; return `<li><span class="${c}">${i}</span><span>${esc(etiqueta(p.herramienta))} <small>${t}</small></span></li>`; }).join('')}${actual ? `<li class="now"><span class="spin">◌</span><span>${esc(actual)}</span></li>` : ''}</ul>` : '');
+    const usados = (pasos) => pasosHtml(pasos, null);
 
     // Sugerencias: salen de los flujos que cada módulo activo declara en su guía; sin guías, unas genéricas.
-    call(`${B}/guias`).then((r) => { SUGG = r.modulos.flatMap((g) => g.flujos.map((f) => f.prompt || f.nombre)).filter(Boolean).slice(0, 4); if (!panel.hidden) draw(); }).catch(() => {});
-    const sugerencias = () => (SUGG.length ? SUGG : ['¿Cómo va mi negocio esta semana?', '¿Qué tengo pendiente hoy?', 'Resumen del mes']);
+    call(`${B}/guias`).then((r) => { SUGG = [...(r.entre || []).slice(0, 2).map((f) => ({ t: f.nombre, q: f.prompt })), ...r.modulos.flatMap((g) => g.flujos.map((f) => ({ t: f.prompt || f.nombre, q: f.prompt || f.nombre }))).filter((x) => x.t)].slice(0, 4); if (!panel.hidden) draw(); }).catch(() => {});
+    const sugerencias = () => (SUGG.length ? SUGG : ['¿Cómo va mi negocio esta semana?', '¿Qué tengo pendiente hoy?', 'Resumen del mes'].map((x) => ({ t: x, q: x })));
 
     function propuesta(div, p) {
       const card = document.createElement('div'); card.className = 'ia-pending';
@@ -80,11 +88,11 @@
       if (!hist.length) log.innerHTML = `<div class="ia-msg assistant">Hola. Soy la IA de ${esc(me.business?.name || 'tu negocio')}. Puedo consultar tus datos y crear o cambiar cosas con las herramientas de tus módulos; antes de cambiar algo siempre te pido confirmar.</div>`;
       for (const m of hist) {
         const div = document.createElement('div'); div.className = `ia-msg ${m.role}`;
-        div.innerHTML = m.role === 'user' ? esc(m.content) : md(m.content) + usados(m.pasos);
+        div.innerHTML = m.role === 'user' ? esc(m.content) : md(m.content) + usados(m.todos || m.pasos);
         (m.props || []).forEach((p) => propuesta(div, p));
         log.appendChild(div);
       }
-      $('#iaSugg').innerHTML = hist.length ? '' : sugerencias().map((s) => `<button class="pill" type="button">${esc(s)}</button>`).join('');
+      $('#iaSugg').innerHTML = hist.length ? '' : sugerencias().map((s) => `<button class="pill" type="button" data-q="${esc(s.q)}">${esc(s.t)}</button>`).join('');
       log.scrollTop = log.scrollHeight;
     }
     async function ask(q) {
@@ -92,17 +100,21 @@
       hist.push({ role: 'user', content: q }); save(); draw();
       const wait = document.createElement('div'); wait.className = 'ia-msg assistant'; wait.innerHTML = '<div class="ia-wait"><span></span><span></span><span></span></div>'; log.appendChild(wait); log.scrollTop = log.scrollHeight;
       form.querySelector('button').disabled = true;
+      // El asistente guarda lo que va haciendo con este id y aquí se consulta cada segundo
+      const pid = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`), t = setInterval(async () => {
+        try { const g = await call(`${B}/asistente/progreso?id=${pid}`); if (g && (g.pasos?.length || g.actual)) { wait.innerHTML = `<div class="ia-wait"><span></span><span></span><span></span></div>${pasosHtml(g.pasos, g.actual)}`; log.scrollTop = log.scrollHeight; } } catch (_) {}
+      }, 900);
       try {
-        const r = await call(`${B}/asistente`, { mensajes: hist.map((m) => ({ role: m.role, content: m.content + (m.props?.some((p) => p.hecho) ? `\n(${m.props.filter((p) => p.hecho).map((p) => p.hecho).join(', ')})` : '') })) });
-        hist.push({ role: 'assistant', content: r.respuesta, pasos: r.pasos.filter((p) => p.estado !== 'propuesta'), props: r.pasos.filter((p) => p.estado === 'propuesta') });
+        const r = await call(`${B}/asistente`, { progreso: pid, mensajes: hist.map((m) => ({ role: m.role, content: m.content + (m.props?.some((p) => p.hecho) ? `\n(${m.props.filter((p) => p.hecho).map((p) => p.hecho).join(', ')})` : '') })) });
+        hist.push({ role: 'assistant', content: r.respuesta, pasos: r.pasos.filter((p) => p.estado !== 'propuesta'), todos: r.pasos, props: r.pasos.filter((p) => p.estado === 'propuesta') });
       } catch (x) { hist.push({ role: 'assistant', content: `No pude responder: ${x.message}` }); }
-      form.querySelector('button').disabled = false; save(); draw();
+      clearInterval(t); form.querySelector('button').disabled = false; save(); draw();
     }
     const open = (on) => { panel.hidden = !on; $('#iaFab').classList.toggle('on', on); if (on) { draw(); setTimeout(() => ta.focus(), 50); } };
     $('#iaFab').onclick = () => open(panel.hidden);
     $('#iaClose').onclick = () => open(false);
     $('#iaNew').onclick = () => { hist = []; save(); draw(); };
-    $('#iaSugg').onclick = (e) => { const b = e.target.closest('.pill'); if (b) ask(b.textContent); };
+    $('#iaSugg').onclick = (e) => { const b = e.target.closest('.pill'); if (b) ask(b.dataset.q || b.textContent); };
     form.onsubmit = (e) => { e.preventDefault(); const q = ta.value; ta.value = ''; ta.style.height = ''; ask(q); };
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
     ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; });

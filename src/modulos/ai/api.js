@@ -11,10 +11,11 @@
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
-import { motor, usoDelDia, TOPE_DIA, dayCo } from '../../lib/ia.js';
+import { motor, usoDelDia, TOPE_DIA, dayCo, ajustesDe, AJUSTES_BASE, costoUsd, neuronas, NEURONAS_GRATIS } from '../../lib/ia.js';
 import { REG, ejecutarHerramienta } from '../../lib/registro.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
 import { guiasDe } from '../../lib/guias.js';
+import { flujosEntre } from '../../lib/flujos.js';
 import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe } from './agentes.js';
 import { webhookValido, dispararWebhook } from './chat.js';
 
@@ -133,7 +134,7 @@ export function routes(r) {
   /* herramientas, agentes y asistente */
   r.get(`${B}/herramientas`, `tenant:${MOD}`, async (c) => json({ herramientas: herramientasDe(c.ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura') }));
   // Las guías de uso de los módulos (el mismo estándar del MCP): para crear agentes desde un flujo y para el asistente
-  r.get(`${B}/guias`, `tenant:${MOD}`, async (c) => json({ modulos: guiasDe(c.ctx).filter((g) => g.modulo !== 'ai').map(({ markdown, ...g }) => g) }));
+  r.get(`${B}/guias`, `tenant:${MOD}`, async (c) => json({ modulos: guiasDe(c.ctx).filter((g) => g.modulo !== 'ai').map(({ markdown, ...g }) => g), entre: flujosEntre(herramientasDe(c.ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura')) }));
   r.post(`${B}/agentes/:id/ejecutar`, `manager:${MOD}`, async (c) => {
     const a = await one(c.env, 'SELECT * FROM ia_agentes WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
     if (!a) throw new HttpError(404, 'Agente no encontrado');
@@ -155,9 +156,15 @@ export function routes(r) {
     return json({ paso: res.paso, pendientes: res.pendientes });
   });
   r.post(`${B}/asistente`, `tenant:${MOD}`, async (c) => {
-    const res = await asistente(c.env, { org: c.businessId, ctx: { ...c.ctx, readOnly: c.readOnly }, mensajes: (await readJson(c.req)).mensajes });
+    const b = await readJson(c.req), progresoId = /^[\w-]{8,40}$/.test(b.progreso || '') ? b.progreso : null;
+    const res = await asistente(c.env, { org: c.businessId, ctx: { ...c.ctx, readOnly: c.readOnly }, mensajes: b.mensajes, progresoId });
     if (res.status !== 200) throw new HttpError(res.status, res.error);
     return json({ respuesta: res.respuesta, pasos: res.pasos });
+  });
+  // El paso a paso del asistente mientras trabaja (la pantalla lo consulta cada segundo). GET /api/ai/asistente/progreso?id=<el mismo que mandó en POST /asistente>
+  r.get(`${B}/asistente/progreso`, `tenant:${MOD}`, async (c) => {
+    const p = await one(c.env, 'SELECT estado, actual, pasos FROM ia_progreso WHERE id = ? AND business_id = ?', String(c.url.searchParams.get('id') || ''), c.businessId);
+    return json(p ? { estado: p.estado, actual: p.actual, pasos: JSON.parse(p.pasos || '[]') } : { estado: 'trabajando', actual: null, pasos: [] });
   });
   r.post(`${B}/asistente/aprobar`, `tenant:${MOD}`, async (c) => {
     const b = await readJson(c.req), t = herramientasDe(c.ctx).find((x) => x.name === b.herramienta);
@@ -170,11 +177,26 @@ export function routes(r) {
 
   /* consumo */
   r.get(`${B}/uso`, `tenant:${MOD}`, async (c) => {
-    const hoy = await usoDelDia(c.env, c.businessId);
+    const hoy = await usoDelDia(c.env, c.businessId), aj = await ajustesDe(c.env, c.businessId), dia = dayCo(), mes = dia.slice(0, 7);
     const desde = new Date(Date.now() - 5 * 3600000 - 29 * 86400000).toISOString().slice(0, 10);
-    const dias = await all(c.env, 'SELECT day, SUM(calls) calls, SUM(tin) tin, SUM(tout) tout FROM ia_uso WHERE business_id = ? AND day >= ? GROUP BY day ORDER BY day', c.businessId, desde);
-    const fuentes = await all(c.env, 'SELECT fuente, SUM(calls) calls, SUM(tin) tin, SUM(tout) tout FROM ia_uso WHERE business_id = ? AND day >= ? GROUP BY fuente ORDER BY calls DESC', c.businessId, desde);
-    return json({ motor: motor(c.env), tope_dia: TOPE_DIA, hoy: { calls: hoy.n, tin: hoy.tin, tout: hoy.tout }, dia: dayCo(), dias, fuentes });
+    const filas = await all(c.env, 'SELECT day, fuente, proveedor, calls, tin, tout FROM ia_uso WHERE business_id = ? AND (day >= ? OR day LIKE ?)', c.businessId, desde, `${mes}%`);
+    const suma = (l) => ({ calls: l.reduce((a, r) => a + r.calls, 0), tin: l.reduce((a, r) => a + r.tin, 0), tout: l.reduce((a, r) => a + r.tout, 0), usd: costoUsd(l) });
+    const delMes = filas.filter((r) => r.day.startsWith(mes)), delDia = filas.filter((r) => r.day === dia);
+    const dias = [...new Set(filas.filter((r) => r.day >= desde).map((r) => r.day))].sort().map((d) => ({ day: d, ...suma(filas.filter((r) => r.day === d)) }));
+    const porFuente = {}; for (const r of delMes) (porFuente[r.fuente] ||= []).push(r);
+    const m = suma(delMes), diaDelMes = Number(dia.slice(8)), diasMes = new Date(Date.UTC(+mes.slice(0, 4), +mes.slice(5, 7), 0)).getUTCDate();
+    return json({ motor: motor(c.env), tope_dia: TOPE_DIA, hoy: { calls: hoy.n, tin: hoy.tin, tout: hoy.tout, usd: costoUsd(delDia), neuronas: neuronas(delDia) }, dia, dias,
+      mes: { ...m, proyeccion_usd: m.usd / diaDelMes * diasMes }, neuronas_gratis: c.env.GEMINI_API_KEY ? null : NEURONAS_GRATIS, ajustes: aj,
+      fuentes: Object.entries(porFuente).map(([fuente, l]) => ({ fuente, ...suma(l) })).sort((a, b) => b.usd - a.usd || b.calls - a.calls) });
+  });
+  // Topes del negocio: tokens por día, tokens por ejecución de un agente y dólar en pesos. PATCH /api/ai/uso { tope_tokens?, tope_ejecucion?, usd_cop? }
+  r.patch(`${B}/uso`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), rangos = { tope_tokens: [0, 1e9, 'El tope diario debe ser de 0 (sin tope) a 1.000 millones de tokens'], tope_ejecucion: [5000, 1e8, 'El tope por ejecución debe ser de al menos 5.000 tokens'], usd_cop: [1000, 20000, 'El dólar debe estar entre 1.000 y 20.000 pesos'] };
+    const put = [];
+    for (const [k, [min, max, msg]] of Object.entries(rangos)) if (b[k] !== undefined) { const n = Math.round(Number(b[k])); if (!Number.isFinite(n) || n < min || n > max) throw new HttpError(400, msg); put.push([k, n]); }
+    for (const [k, v] of put) await c.env.DB.prepare('INSERT INTO ia_ajustes (business_id, k, v) VALUES (?, ?, ?) ON CONFLICT(business_id, k) DO UPDATE SET v = excluded.v').bind(c.businessId, k, String(v)).run();
+    if (put.length) await audit(c, `Cambió los topes de IA (${put.map(([k, v]) => `${k}: ${v}`).join(', ')})`, { modulo: MOD });
+    return json({ ok: true, ajustes: await ajustesDe(c.env, c.businessId) });
   });
 
   /* claves de la API */

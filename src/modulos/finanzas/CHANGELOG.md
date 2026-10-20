@@ -1,5 +1,8 @@
 # Finanzas — cambios
 
+## 1.11.1 · 2026-10-23
+- **La IA conoce los gastos recurrentes nuevos**: crear y editar con `cuotas` (1, 2, 4 o 12), `ciclo` quincenal/semanal, `cedula_nit` y tipo nómina; verlos incluye cuotas y cédula. La guía del módulo explica la nómina y que el pago se hace con el botón «Pagar».
+
 ## 1.11.0 · 2026-10-23
 - **El gasto recurrente tiene un valor total y «Cómo se paga»**: todo de una vez, en 2 quincenas, 4 semanas o 12 meses (migración 0014, `partes`). El formulario pide el total y la tabla muestra «mensual · en 4 semanas». Los de cuotas se pagan con el botón (no se cobran solos).
 - **Pagar muestra el valor completo**: si los ítems no llegan al valor del gasto (p. ej. 2.800.000 de 4.000.000), la diferencia sale como una fila para decir qué es, con aviso, y no deja registrar hasta nombrarla. La API acepta `partes` en `recurring/externo`.

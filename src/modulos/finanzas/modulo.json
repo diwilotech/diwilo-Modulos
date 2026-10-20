@@ -1,7 +1,7 @@
 {
   "id": "finanzas",
   "nombre": "Finanzas",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "descripcion": "Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), facturas y cuentas de cobro en PDF con QR de validación, cartera, gastos recurrentes, centros de costo, presupuestos, conciliación bancaria y exportación para el contador, informes del analista de IA.",
   "icono": "bi-cash-coin",
   "menu": {
@@ -56,11 +56,12 @@
   "pagina": "/m/finanzas.js",
   "central": true,
   "mcp": {
-    "guia": "Finanzas del negocio: ingresos, gastos, cuentas de cobro, cartera, gastos recurrentes, centros de costo y cuentas. Para cifras usa siempre las herramientas de lectura (resumen_mes, cartera, buscar_movimientos) y no inventes valores. Registrar o editar movimientos y crear cuentas de cobro son escrituras: confirma valor, fecha y centro de costo antes. Los montos van en COP salvo que el movimiento sea en USD.",
+    "guia": "Finanzas del negocio: ingresos, gastos, cuentas de cobro, cartera, gastos recurrentes (incluida la nómina), centros de costo y cuentas. Para cifras usa siempre las herramientas de lectura (resumen_mes, cartera, buscar_movimientos) y no inventes valores. Registrar o editar movimientos y crear cuentas de cobro son escrituras: confirma valor, fecha y centro de costo antes. Los montos van en COP salvo que el movimiento sea en USD. Un gasto recurrente tiene un VALOR TOTAL, cada cuánto se genera (mes, quincena, semana, año) y «cuotas»: cómo se paga ese total (1 de una vez, 2 quincenas, 4 semanas o 12 meses). Antes de crear uno revisa ver_gastos_recurrentes para no duplicar. La nómina es un gasto recurrente de tipo «nomina» con la cédula o NIT de la persona; la crea y actualiza la app de origen (p. ej. Equipo) y se PAGA en Finanzas con el botón «Pagar» (ítems editables, cuentas divididas como efectivo y banco); el pago queda en Movimientos con su documento. Tú no pagas nóminas: indica al usuario que lo haga ahí. Si los ítems de un pago no llegan al valor del gasto, pregunta qué es la diferencia antes de registrar.",
     "ejemplos": [
       "Pídele: «¿Cómo va el mes? Ingresos, gastos y utilidad.»",
       "Pídele: «Registra un gasto de 85.000 de transporte de ayer, centro de costo Eventos.»",
-      "Pídele: «Prepara el informe financiero de la semana y guárdalo.»"
+      "Pídele: «Prepara el informe financiero de la semana y guárdalo.»",
+      "Pídele: «Crea el arriendo de 4.000.000 mensual, pagado en 4 semanas, centro de costo Sede.»"
     ],
     "flujos": [
       {

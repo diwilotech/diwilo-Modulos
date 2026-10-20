@@ -1,5 +1,13 @@
 # IA (`ai`) — cambios
 
+## 1.2.0 · 2026-10-23
+- **Secciones en el orden de Diwilo Admin**: Agentes · IA Diwilo · Consumo · Conversaciones del chat · Ajustes del chat · Conexiones y API (MCP, claves, webhooks) · Plantillas · Bitácora. Abre en Agentes. Cada conversación se abre en una ventana (modal).
+- **Paso a paso visible**: al preguntar, el botón flotante y la sección IA Diwilo muestran en vivo lo que el asistente va haciendo (qué módulo consulta o qué cambia) y la lista queda debajo de la respuesta. Se guarda en `ia_progreso` y la pantalla lo consulta cada segundo (`GET /api/ai/asistente/progreso`).
+- **Flujos de trabajo entre módulos** (`src/lib/flujos.js`): lead → cuenta de cobro, cobranza con seguimiento, campaña con la voz de la marca, informe general, chat → contacto, y los de la academia (matricular y cobrar, cartera de estudiantes, clases y reposiciones). Solo salen los que el negocio puede hacer con sus módulos y su rol. Los usan el asistente, los agentes, las sugerencias y `GET /api/ai/guias` (`entre`).
+- **Consumo como en «Integraciones e IA» de Diwilo Admin**: tokens de hoy y del mes, costo estimado en pesos y dólares, proyección del mes, cuota gratis de Cloudflare (neuronas), gráfico de 30 días y tabla «Quién gasta este mes» con tokens y costo por origen.
+- **Topes por negocio** (los cambia el administrador en Consumo): tokens por día (por defecto 500.000; 0 = sin tope), tokens por ejecución de un agente (100.000) y dólar en pesos. Al llegar al tope diario la IA se pausa y los chats pasan a WhatsApp. Migración 0015 (`ia_ajustes`).
+- **Agentes más seguros**: hasta 16 pasos, se detienen y entregan lo que alcanzaron al llegar a su tope de tokens, recortan los resultados viejos para no pagarlos otra vez, no corren dos veces a la vez (409) y las ejecuciones cortadas se cierran solas a los 15 minutos.
+
 ## 1.1.1 · 2026-10-20
 - Las secciones de IA (Chats, Conversaciones, Asistente, Agentes, Plantillas, Consumo, Conexiones, Bitácora) se muestran como botones pequeños con ícono, como en «Integraciones e IA» de Diwilo Admin; en celular se desplazan de lado.
 

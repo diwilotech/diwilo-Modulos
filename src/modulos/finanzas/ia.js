@@ -57,7 +57,7 @@ export default [
     name: 'finanzas.ver_gastos_recurrentes', modulo: 'finanzas', rol: 'admin', tipo: 'lectura',
     description: 'Gastos recurrentes con id, valor (pesos o dólares), ciclo, próximo cobro, centro de costo y cuenta. Úsalo antes de crear uno (para no duplicar) o para editarlo.',
     inputSchema: S({}),
-    run: async (c) => ({ recurrentes: await all(c.env, `SELECT r.id, r.name nombre, r.vendor proveedor, r.category tipo, r.currency moneda, r.amount_usd dolares, r.amount pesos, r.cycle ciclo, r.next_date proximo_cobro, r.active activo,
+    run: async (c) => ({ recurrentes: await all(c.env, `SELECT r.id, r.name nombre, r.vendor proveedor, r.category tipo, r.currency moneda, r.amount_usd dolares, r.amount pesos, r.cycle ciclo, r.partes cuotas, r.tax_id cedula_nit, r.next_date proximo_cobro, r.active activo,
       cc.name centro_costo, ac.name cuenta FROM fin_recurring r LEFT JOIN fin_cost_centers cc ON cc.id = r.cost_center_id AND cc.business_id = r.business_id
       LEFT JOIN fin_accounts ac ON ac.id = r.account_id AND ac.business_id = r.business_id WHERE r.business_id = ? ORDER BY r.active DESC, r.next_date`, c.businessId) }),
   },
@@ -138,14 +138,14 @@ export default [
   {
     name: 'finanzas.crear_gasto_recurrente', modulo: 'finanzas', rol: 'admin', tipo: 'escritura',
     description: 'Agrega un gasto recurrente (arriendo, software, servicios…). No crea uno que ya exista con el mismo nombre. En dólares, da "dolares" y cada cobro se pasa a pesos con la TRM de su día. Los cobros que YA se hicieron van en "cobros_hechos" (se registran como gastos, sin repetir) y en "proximo_cobro" el siguiente que aún no pasa.',
-    inputSchema: S({ nombre: str(), monto: num('Pesos'), dolares: num(), ciclo: { type: 'string', enum: ['mensual', 'anual'] }, proximo_cobro: str('AAAA-MM-DD'),
-      cobros_hechos: { type: 'array', items: { type: 'string' } }, tipo: { type: 'string', enum: ['infraestructura', 'software', 'api', 'ia', 'marketing', 'otro'] }, proveedor: str(), centro_costo: ref, cuenta: ref }, ['nombre', 'proximo_cobro']),
+    inputSchema: S({ nombre: str(), monto: num('Pesos'), dolares: num(), ciclo: { type: 'string', enum: ['mensual', 'quincenal', 'semanal', 'anual'], description: 'Cada cuánto se genera el gasto' }, cuotas: { type: 'number', enum: [1, 2, 4, 12], description: 'Cómo se paga el valor total: 1 de una vez, 2 quincenas, 4 semanas o 12 meses' }, cedula_nit: str('De a quién se le paga'), proximo_cobro: str('AAAA-MM-DD'),
+      cobros_hechos: { type: 'array', items: { type: 'string' } }, tipo: { type: 'string', enum: ['infraestructura', 'software', 'api', 'ia', 'marketing', 'nomina', 'otro'] }, proveedor: str(), centro_costo: ref, cuenta: ref }, ['nombre', 'proximo_cobro']),
     run: async (c, a) => {
       const hechos = Array.isArray(a.cobros_hechos) ? a.cobros_hechos : [];
       const dup = await one(c.env, 'SELECT id FROM fin_recurring WHERE business_id = ? AND lower(trim(name)) = lower(trim(?))', c.businessId, String(a.nombre));
       if (dup) { const cobros = hechos.length ? await cobrosHechos(c, dup.id, hechos) : []; return { ya_existia: dup.id, cobros_registrados: cobros, nota: 'Ya existía; no lo dupliqué. Para cambiarlo usa finanzas_editar_gasto_recurrente.' }; }
       if (!(a.monto > 0 || a.dolares > 0)) throw new Error('Falta el valor (en pesos o en dólares)');
-      const r = await api.create(c, 'recurring', { name: a.nombre, ...(a.dolares ? { currency: 'USD', amount_usd: a.dolares, amount: 0 } : { amount: a.monto }), cycle: a.ciclo, next_date: a.proximo_cobro,
+      const r = await api.create(c, 'recurring', { name: a.nombre, ...(a.dolares ? { currency: 'USD', amount_usd: a.dolares, amount: 0 } : { amount: a.monto }), cycle: a.ciclo, partes: a.cuotas, tax_id: a.cedula_nit, next_date: a.proximo_cobro,
         category: a.tipo, vendor: a.proveedor, cost_center_id: await finRef(c, 'cc', a.centro_costo), account_id: await finRef(c, 'acc', a.cuenta) });
       return { ...r, cobros_registrados: hechos.length ? await cobrosHechos(c, r.id, hechos) : [] };
     },
@@ -153,7 +153,7 @@ export default [
   {
     name: 'finanzas.editar_gasto_recurrente', modulo: 'finanzas', rol: 'admin', tipo: 'escritura',
     description: 'Cambia un gasto recurrente (por id o nombre): centro de costo, cuenta, valor (pesos o dólares), ciclo, próximo cobro, proveedor o si está activo. El centro de costo y la cuenta se ponen también en los gastos que ya generó (salvo "aplicar_a_cobros": false).',
-    inputSchema: S({ id: num(), nombre: str(), centro_costo: ref, cuenta: ref, monto: num('Pesos'), dolares: num(), ciclo: { type: 'string', enum: ['mensual', 'anual'] },
+    inputSchema: S({ id: num(), nombre: str(), centro_costo: ref, cuenta: ref, monto: num('Pesos'), dolares: num(), ciclo: { type: 'string', enum: ['mensual', 'quincenal', 'semanal', 'anual'] }, cuotas: { type: 'number', enum: [1, 2, 4, 12], description: 'Cómo se paga el valor total: 1 de una vez, 2 quincenas, 4 semanas o 12 meses' }, cedula_nit: str(),
       proximo_cobro: str('AAAA-MM-DD'), proveedor: str(), activo: { type: 'boolean' }, aplicar_a_cobros: { type: 'boolean' } }),
     run: async (c, a) => {
       const r = a.id ? await one(c.env, 'SELECT id, name FROM fin_recurring WHERE id = ? AND business_id = ?', Number(a.id), c.businessId)
@@ -163,7 +163,7 @@ export default [
       if (a.centro_costo !== undefined) body.cost_center_id = (await finRef(c, 'cc', a.centro_costo)) ?? null;
       if (a.cuenta !== undefined) body.account_id = (await finRef(c, 'acc', a.cuenta)) ?? null;
       if (a.dolares) Object.assign(body, { currency: 'USD', amount_usd: a.dolares }); else if (a.monto) Object.assign(body, { currency: 'COP', amount: a.monto });
-      for (const [k, f] of [['ciclo', 'cycle'], ['proximo_cobro', 'next_date'], ['proveedor', 'vendor']]) if (a[k] !== undefined) body[f] = a[k];
+      for (const [k, f] of [['ciclo', 'cycle'], ['cuotas', 'partes'], ['cedula_nit', 'tax_id'], ['proximo_cobro', 'next_date'], ['proveedor', 'vendor']]) if (a[k] !== undefined) body[f] = a[k];
       if (a.activo !== undefined) body.active = !!a.activo;
       if (!Object.keys(body).length) throw new Error('No me dijiste qué cambiar');
       await api.update(c, 'recurring', r.id, body);

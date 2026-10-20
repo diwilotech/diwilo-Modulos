@@ -72,7 +72,10 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   /* ---------- consumo ---------- */
   const uso = (await A.app(`${X}/uso`)).data;
   check('IA: el consumo cuenta las llamadas de hoy y trae el tope', uso.hoy.calls >= 5 && uso.tope_dia === 200 && uso.fuentes.some((f) => f.fuente === 'chat'), JSON.stringify(uso).slice(0, 200));
-  check('IA: B no ve el consumo de A', (await B.app(`${X}/uso`)).data.hoy.calls === 0);
+  check('IA: el consumo trae tokens, costo, proyección y topes del negocio', uso.mes.calls >= 5 && uso.mes.tin >= 0 && uso.mes.proyeccion_usd >= 0 && uso.ajustes.tope_tokens === 500000 && uso.ajustes.tope_ejecucion === 100000 && uso.ajustes.usd_cop === 4000 && uso.fuentes.every((f) => 'usd' in f), JSON.stringify([uso.mes, uso.ajustes]));
+  const topes = await A.app(`${X}/uso`, { method: 'PATCH', body: { tope_tokens: 800000, usd_cop: 4200 } });
+  check('IA: el administrador cambia los topes; el personal no; un valor inválido se rechaza', topes.status === 200 && topes.data.ajustes.tope_tokens === 800000 && topes.data.ajustes.usd_cop === 4200 && (await staff.app(`${X}/uso`, { method: 'PATCH', body: { tope_tokens: 1 } })).status === 403 && (await A.app(`${X}/uso`, { method: 'PATCH', body: { tope_ejecucion: 10 } })).status === 400 && (await B.app(`${X}/uso`)).data.ajustes.tope_tokens === 500000);
+  await A.app(`${X}/uso`, { method: 'PATCH', body: { tope_tokens: 500000, usd_cop: 4000 } });
 
   /* ---------- agentes ---------- */
   const herr = (await A.app(`${X}/herramientas`)).data.herramientas;
@@ -106,6 +109,12 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   /* ---------- asistente del negocio ---------- */
   const as = await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [{ role: 'user', content: GUION(['{"accion":"usar","herramienta":"marketing.resumen","args":{}}', '{"accion":"fin","respuesta":"Tienes datos de marketing."}']) }] } });
   check('IA: el asistente consulta con herramientas y responde', as.status === 200 && as.data.respuesta === 'Tienes datos de marketing.' && as.data.pasos?.[0]?.estado === 'consultada', JSON.stringify(as.data).slice(0, 200));
+  // Paso a paso visible: el asistente guarda lo que va haciendo con el id que manda la pantalla
+  const pid = 'prueba-progreso-0001';
+  const asp = await A.app(`${X}/asistente`, { method: 'POST', body: { progreso: pid, mensajes: [{ role: 'user', content: GUION(['{"accion":"usar","herramienta":"marketing.resumen","args":{}}', '{"accion":"fin","respuesta":"Listo."}']) }] } });
+  const prog = (await A.app(`${X}/asistente/progreso?id=${pid}`)).data;
+  check('IA: el asistente deja su paso a paso (lo que consultó) y termina en «listo»', asp.status === 200 && prog.estado === 'listo' && prog.pasos.length === 1 && prog.pasos[0].herramienta === 'marketing.resumen' && prog.pasos[0].estado === 'consultada', JSON.stringify(prog));
+  check('IA: otro negocio no ve el paso a paso ajeno', (await B.app(`${X}/asistente/progreso?id=${pid}`)).data.pasos.length === 0);
   const ase = await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [{ role: 'user', content: GUION(['{"accion":"usar","herramienta":"marketing.crear_contacto","args":{"nombre":"Desde el asistente"}}', '{"accion":"fin","respuesta":"Te lo propongo."}']) }] } });
   check('IA: el asistente propone escrituras, no las hace', ase.data.pasos?.[0]?.estado === 'propuesta' && !(await A.app('/api/marketing/contacts?q=Desde el asistente')).data.rows.length);
   check('IA: al aprobar la propuesta del asistente se ejecuta', (await A.app(`${X}/asistente/aprobar`, { method: 'POST', body: { herramienta: 'marketing.crear_contacto', args: { nombre: 'Desde el asistente' } } })).status === 200 && (await A.app('/api/marketing/contacts?q=Desde el asistente')).data.rows.length === 1);
@@ -114,6 +123,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
 
   /* ---------- estándar compartido: guías y herramientas propias de la app para el asistente y los agentes ---------- */
   const gs = (await A.app(`${X}/guias`)).data.modulos;
+  const entreG = (await A.app(`${X}/guias`)).data.entre;
+  check('IA: los flujos entre módulos traen sus módulos, pasos y prompt (el de lead a cobro cruza Marketing y Finanzas)', Array.isArray(entreG) && entreG.some((f) => f.id === 'lead_a_cobro' && f.modulos.includes('marketing') && f.modulos.includes('finanzas') && f.pasos.includes('finanzas_crear_cuenta_cobro') && /confirmación/.test(f.prompt)) && entreG.every((f) => f.modulos.length > 1), JSON.stringify(entreG?.map((f) => f.id)));
   check('IA: las guías de uso (el estándar del MCP) incluyen módulos centrales y propios, con sus flujos', gs.some((g) => g.modulo === 'marketing' && g.flujos.some((f) => f.id === 'informe')) && gs.some((g) => g.modulo === 'estudiantes' && g.herramientas.some((h) => h.nombre === 'estudiantes_buscar')) && !gs.some((g) => g.modulo === 'ai'), JSON.stringify(gs.map((g) => g.modulo)));
   const hh = (await A.app(`${X}/herramientas`)).data.herramientas;
   check('IA: las herramientas propias de la app llegan al mismo catálogo que las centrales', hh.some((t) => t.name === 'estudiantes.buscar' && t.propia) && hh.some((t) => t.name === 'marketing.resumen' && !t.propia));
