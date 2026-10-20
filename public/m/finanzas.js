@@ -3,6 +3,13 @@
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
   const { api, esc, toast, confirm, modal } = window.App;
+  // Secciones de arriba: botones pequeños solo con palabras (igual en todas las apps, sin depender del crud.js de cada una)
+  function segBtn(el, items, onPick, initial) {
+    if (!document.getElementById('dw-segb-css')) document.head.insertAdjacentHTML('beforeend', `<style id="dw-segb-css">${'.dw-segb{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px;padding:0;list-style:none}.dw-segb .btn{flex:none;white-space:nowrap}.dw-segb .btn.active{background:var(--dw-p);border-color:var(--dw-p);color:#fff}@media(max-width:767.98px){.dw-segb{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dw-segb::-webkit-scrollbar{display:none}}'}</style>`);
+    el.className = 'dw-segb'; el.hidden = false;
+    el.innerHTML = items.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === initial ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
+    el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
+  }
   const C = window.App.Crud;
   const { money, num, day, monthName, chip } = C;
   const B = '/api/finanzas';
@@ -542,6 +549,6 @@ DW.ready.then((me) => {
       onAction: (a, r) => modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${esc(r.title)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><div style="white-space:pre-wrap">${esc(r.content)}</div></div>`, { size: 'modal-lg' }) }).load();
   }
 
-  C.seg($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
+  segBtn($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
   render();
 });

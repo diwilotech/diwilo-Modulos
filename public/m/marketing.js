@@ -3,6 +3,13 @@
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
   const { api, esc, toast, confirm, modal } = window.App;
+  // Secciones de arriba: botones pequeños solo con palabras (igual en todas las apps, sin depender del crud.js de cada una)
+  function segBtn(el, items, onPick, initial) {
+    if (!document.getElementById('dw-segb-css')) document.head.insertAdjacentHTML('beforeend', `<style id="dw-segb-css">${'.dw-segb{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px;padding:0;list-style:none}.dw-segb .btn{flex:none;white-space:nowrap}.dw-segb .btn.active{background:var(--dw-p);border-color:var(--dw-p);color:#fff}@media(max-width:767.98px){.dw-segb{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dw-segb::-webkit-scrollbar{display:none}}'}</style>`);
+    el.className = 'dw-segb'; el.hidden = false;
+    el.innerHTML = items.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === initial ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
+    el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
+  }
   const C = window.App.Crud;
   const { money, num, pct, day, chip } = C;
   const B = '/api/marketing';
@@ -433,9 +440,9 @@ DW.ready.then((me) => {
       marcaCargada ||= new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = '/m/marca.js'; sc.onload = res; sc.onerror = () => rej(new Error('No se pudo cargar la marca')); document.head.appendChild(sc); });
       try { await marcaCargada; await DW.ready; await new Promise((r) => setTimeout(r, 0)); await window.DwMarca.mount(body, k); } catch (x) { body.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; }
     };
-    C.seg($('[data-sub]', el), SUB, show, subTar);
+    segBtn($('[data-sub]', el), SUB, show, subTar);
     // «Editar la tarjeta» desde Marca lleva a la edición en vivo
-    window.onDwTarjetaEditar = (id) => { editarPendiente = id; $$('[data-sub] .nav-link', el).forEach((b) => b.classList.toggle('active', b.dataset.k === 'tarjetas')); show('tarjetas'); };
+    window.onDwTarjetaEditar = (id) => { editarPendiente = id; $$('[data-sub] .btn', el).forEach((b) => b.classList.toggle('active', b.dataset.k === 'tarjetas')); show('tarjetas'); };
     show(subTar);
   }
 
@@ -631,6 +638,6 @@ DW.ready.then((me) => {
         { label: 'Estado', html: (r) => chip(r.status === 'activa' ? 'ok' : r.status === 'prueba' ? 'soon' : 'free', r.status) }] }).load();
   }
 
-  C.seg($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
+  segBtn($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
   render();
 });

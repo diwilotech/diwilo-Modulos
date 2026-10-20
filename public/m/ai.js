@@ -4,6 +4,13 @@
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
   const { api, esc, toast, confirm, modal, table, empty, fecha } = window.App;
+  // Secciones de arriba: botones pequeños solo con palabras (igual en todas las apps, sin depender del crud.js de cada una)
+  function segBtn(el, items, onPick, initial) {
+    if (!document.getElementById('dw-segb-css')) document.head.insertAdjacentHTML('beforeend', `<style id="dw-segb-css">${'.dw-segb{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px;padding:0;list-style:none}.dw-segb .btn{flex:none;white-space:nowrap}.dw-segb .btn.active{background:var(--dw-p);border-color:var(--dw-p);color:#fff}@media(max-width:767.98px){.dw-segb{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dw-segb::-webkit-scrollbar{display:none}}'}</style>`);
+    el.className = 'dw-segb'; el.hidden = false;
+    el.innerHTML = items.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === initial ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
+    el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
+  }
   const C = window.App.Crud;
   const B = '/api/ai', M = '/api/marca';
   const $ = (s, el = document) => el.querySelector(s);
@@ -22,7 +29,7 @@ DW.ready.then((me) => {
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
     ({ chats, conversaciones, asistente, agentes, plantillas, consumo, conexiones, bitacora })[view](el);
   }
-  const go = (k) => { view = k; $$('[data-seg] .nav-link').forEach((b) => b.classList.toggle('active', b.dataset.k === k)); render(); };
+  const go = (k) => { view = k; $$('[data-seg] .btn').forEach((b) => b.classList.toggle('active', b.dataset.k === k)); render(); };
 
   /* ================= Chats de clientes ================= */
   async function chats(el) {
@@ -349,6 +356,6 @@ curl -H "Authorization: Bearer dwi_xxx" ${esc(host)}/v1/conversaciones</pre></di
       { label: 'Qué', main: true, html: (a) => esc(a.accion) }, { label: 'Desde', html: (a) => `<span class="badge text-bg-light">${ORIGEN[a.origen] || esc(a.origen)}</span>` }], items) : empty('bi-journal-text', 'Aún no hay movimientos registrados.')}</div>`;
   }
 
-  C.seg($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
+  segBtn($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
   render();
 });

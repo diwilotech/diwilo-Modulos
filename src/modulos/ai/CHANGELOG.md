@@ -1,5 +1,11 @@
 # IA (`ai`) — cambios
 
+## 1.1.1 · 2026-10-20
+- Las secciones de IA (Chats, Conversaciones, Asistente, Agentes, Plantillas, Consumo, Conexiones, Bitácora) se muestran como botones pequeños con ícono, como en «Integraciones e IA» de Diwilo Admin; en celular se desplazan de lado.
+
+## 1.1.0 · 2026-10-20
+- **Botón flotante «IA Diwilo»** para todas las apps: `/m/iafab.js` (igual al de Diwilo Admin). Cada app lo carga una vez en su panel con `<script src="/m/iafab.js"></script>` después de `shell.js`; usa el asistente del módulo (`/api/ai/asistente`), propone y pide «Confirmar» antes de cambiar datos, y sugiere los flujos de los módulos activos.
+
 ## 1.0.0 · 2026-10-17
 - **Módulo general de IA** (base: siempre activo). Reúne todo lo de «Integraciones e IA» de Diwilo, por negocio:
   - **Chats de clientes:** varios por negocio, cada uno con su dirección `/chat/<slug>` en el dominio de la app, su saludo, instrucciones, WhatsApp de respaldo,
