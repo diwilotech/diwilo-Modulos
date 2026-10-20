@@ -587,6 +587,71 @@ export function routes(r) {
     return json({ ok: true, movement_id: movementId });
   });
 
+  // Pagos del mes: servicios (gastos recurrentes) o nómina. Lo que se lista crea el presupuesto del mes (por centro de costo y categoría) y lo marcado como pagado
+  // queda como gasto en Movimientos.
+  //   GET  /api/finanzas/pagos-mes?month=AAAA-MM  → servicios por pagar o pagados del mes y las claves de nómina ya pagadas
+  //   POST /api/finanzas/pagos-mes { month, tipo: 'servicios'|'nomina', account_id?, items: [{ key, recurring_id?, concepto, tercero, valor, centro_costo, pagado, ya? }] }
+  const centroPorNombre = async (c, nombre) => {
+    const n = String(nombre || '').trim().slice(0, 120);
+    if (!n) return null;
+    const hit = await one(c.env, 'SELECT id FROM fin_cost_centers WHERE business_id = ? AND lower(name) = lower(?)', c.businessId, n);
+    if (hit) return hit.id;
+    const t0 = now();
+    return (await c.env.DB.prepare("INSERT INTO fin_cost_centers (business_id, name, kind, active, created_at, updated_at) VALUES (?, ?, 'area', 1, ?, ?)").bind(c.businessId, n, t0, t0).run()).meta.last_row_id;
+  };
+  r.get(`${B}/pagos-mes`, `tenant:${MOD}`, async (c) => {
+    const month = MONTH.test(c.url.searchParams.get('month') || '') ? c.url.searchParams.get('month') : today().slice(0, 7), fin = `${month}-31`;
+    const servicios = await all(c.env, `SELECT r.id, r.name, r.vendor, r.category, r.amount, r.next_date, r.account_id, cc.name AS centro FROM fin_recurring r LEFT JOIN fin_cost_centers cc ON cc.id = r.cost_center_id AND cc.business_id = r.business_id
+      WHERE r.business_id = ? AND r.active = 1 AND r.next_date <= ? ORDER BY r.next_date, r.name`, c.businessId, fin);
+    const pagadosRec = await all(c.env, `SELECT m.recurring_id, m.amount, m.counterparty, r.name, r.vendor, r.category, cc.name AS centro FROM fin_movements m JOIN fin_recurring r ON r.id = m.recurring_id AND r.business_id = m.business_id
+      LEFT JOIN fin_cost_centers cc ON cc.id = r.cost_center_id AND cc.business_id = r.business_id WHERE m.business_id = ? AND m.recurring_id IS NOT NULL AND m.date BETWEEN ? AND ?`, c.businessId, `${month}-01`, fin);
+    const nomina = (await all(c.env, 'SELECT ref, amount FROM fin_movements WHERE business_id = ? AND ref LIKE ?', c.businessId, `pago:nomina:${month}:%`)).map((x) => ({ key: x.ref.slice(`pago:nomina:${month}:`.length), valor: x.amount }));
+    return json({ month, servicios, pagados_servicios: pagadosRec.map((x) => ({ recurring_id: x.recurring_id, name: x.name, vendor: x.counterparty || x.vendor, category: x.category, centro: x.centro, valor: x.amount })), pagados_nomina: nomina });
+  });
+  r.post(`${B}/pagos-mes`, `tenant:${MOD}`, async (c) => {
+    const b = await readJson(c.req);
+    const month = MONTH.test(b.month || '') ? b.month : null, tipo = b.tipo === 'nomina' ? 'nomina' : b.tipo === 'servicios' ? 'servicios' : null;
+    if (!month || !tipo) throw new HttpError(400, 'Elige el mes y el tipo de pago');
+    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 300);
+    if (!items.length) throw new HttpError(400, 'No hay nada que guardar');
+    const accountId = cast('cuenta', 'int', b.account_id) || null;
+    if (accountId) await api.get(c, 'accounts', accountId);
+    const hoy = today(), fecha = hoy.slice(0, 7) === month ? hoy : `${month}-${String(Math.min(28, Number(hoy.slice(8)))).padStart(2, '0')}`;
+    const grupos = new Map();   // presupuesto: (centro, categoría) → total
+    let pagados = 0;
+    for (const it of items) {
+      const valor = Math.round(Number(it.valor));
+      if (!Number.isFinite(valor) || valor <= 0) continue;
+      let cc = null, categoria = 'Nómina', rec = null;
+      if (tipo === 'servicios') {
+        rec = await one(c.env, 'SELECT * FROM fin_recurring WHERE id = ? AND business_id = ?', Number(it.recurring_id), c.businessId);
+        if (!rec) throw new HttpError(404, 'Uno de los gastos recurrentes no existe');
+        cc = rec.cost_center_id; categoria = rec.category || 'Servicios';
+      } else cc = await centroPorNombre(c, it.centro_costo);
+      const k = `${cc ?? ''}|${categoria}`; grupos.set(k, { cc, categoria, total: (grupos.get(k)?.total || 0) + valor });
+      if (!it.pagado || it.ya) continue;
+      if (tipo === 'servicios') {
+        if (!rec.active) continue;
+        const res = await chargeRecurring(c.env, rec, fecha, { periodo: rec.next_date, amount: valor, vendor: String(it.tercero || '').trim().slice(0, 200) || undefined, accountId });
+        if (res.meta.changes) { pagados++; await c.env.DB.prepare('UPDATE fin_recurring SET next_date = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(addMonths(rec.next_date, rec.cycle === 'anual' ? 12 : 1), now(), rec.id, c.businessId).run(); }
+      } else {
+        const key = String(it.key || '').replace(/[^\w:.-]/g, '').slice(0, 60);
+        if (!key) continue;
+        const t = now();
+        const res = await c.env.DB.prepare(`INSERT OR IGNORE INTO fin_movements (business_id, kind, date, amount, category, description, counterparty, cost_center_id, account_id, ref, created_at, updated_at)
+          VALUES (?, 'gasto', ?, ?, 'Nómina', ?, ?, ?, ?, ?, ?, ?)`).bind(c.businessId, fecha, valor, String(it.concepto || 'Pago de nómina').slice(0, 300), String(it.tercero || '').slice(0, 200) || null, cc, accountId, `pago:nomina:${month}:${key}`, t, t).run();
+        if (res.meta.changes) pagados++;
+      }
+    }
+    // Presupuesto del mes: lo que se va a pagar (pagado o no) por centro de costo y categoría; reemplaza el de ese mismo centro y categoría
+    const t = now();
+    for (const g of grupos.values()) {
+      await c.env.DB.prepare(`DELETE FROM fin_budgets WHERE business_id = ? AND month = ? AND category = ? AND ${g.cc === null ? 'cost_center_id IS NULL' : 'cost_center_id = ?'}`).bind(c.businessId, month, g.categoria, ...(g.cc === null ? [] : [g.cc])).run();
+      await c.env.DB.prepare('INSERT INTO fin_budgets (business_id, month, cost_center_id, category, amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(c.businessId, month, g.cc, g.categoria, g.total, t, t).run();
+    }
+    await audit(c, `Pagos del mes ${month} (${tipo === 'nomina' ? 'nómina' : 'servicios'}): ${pagados} pagados, presupuesto de ${grupos.size} línea${grupos.size === 1 ? '' : 's'}`, { modulo: MOD });
+    return json({ ok: true, pagados, presupuesto: [...grupos.values()].map((g) => ({ centro_id: g.cc, categoria: g.categoria, total: g.total })) }, 201);
+  });
   // Pagar un gasto recurrente cuando se acerca (o cuando se quiera): registra el pago al proveedor como gasto en Movimientos y pasa al siguiente cobro.
   //   POST /api/finanzas/recurring/:id/pagar { date?, amount?, vendor?, account_id? }
   r.post(`${B}/recurring/:id/pagar`, `tenant:${MOD}`, async (c) => {

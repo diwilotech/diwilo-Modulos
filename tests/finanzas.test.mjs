@@ -31,6 +31,23 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Finanzas: al pagar, el gasto recurrente pasa al siguiente cobro', (await A.app(`${F}/recurring`)).data.rows.find((x) => x.id === rc.data.id)?.next_date > hoy);
   check('Finanzas: el pago manual no se duplica con el cobro automático', (await A.app(`${F}/movements?limit=100`)).data.rows.filter((m) => m.recurring_id === rc.data.id).length === 1);
   check('Finanzas: otro negocio no paga el recurrente ajeno', (await B.app(`${F}/recurring/${rc.data.id}/pagar`, { method: 'POST', body: {} })).status === 404);
+  // Pagos del mes: nómina y servicios arman el presupuesto del mes y lo pagado queda en Movimientos
+  const mesAct = hoy.slice(0, 7);
+  const recArr = await A.app(`${F}/recurring`, { method: 'POST', body: { name: 'Alquiler oficina', vendor: 'Inmobiliaria', category: 'otro', amount: 900000, cycle: 'mensual', next_date: hoy, cost_center_id: cc.data.id } });
+  const listaPagos = await A.app(`${F}/pagos-mes?month=${mesAct}`);
+  check('Finanzas: pagos del mes lista los servicios por pagar', listaPagos.status === 200 && listaPagos.data.servicios.some((x) => x.id === recArr.data.id), JSON.stringify(listaPagos.data).slice(0, 200));
+  const itemsNom = [{ key: 'u:1', concepto: 'Sueldo mensual · Laura', tercero: 'Laura', valor: 2000000, centro_costo: 'Maquillaje', pagado: true }, { key: 'u:2', concepto: 'Sueldo mensual · Ana', tercero: 'Ana', valor: 1500000, centro_costo: 'Maquillaje', pagado: false }];
+  const pn = await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'nomina', account_id: acc.data.id, items: itemsNom } });
+  const presu = (await A.app(`${F}/budgets`)).data.rows.filter((b) => b.month === mesAct && b.category === 'Nómina');
+  check('Finanzas: la nómina crea el presupuesto del mes por centro de costo', pn.status === 201 && pn.data.pagados === 1 && presu.length === 1 && presu[0].amount === 3500000, JSON.stringify([pn.data, presu]));
+  const movN = (await A.app(`${F}/movements?limit=100`)).data.rows.filter((m) => m.category === 'Nómina');
+  check('Finanzas: solo lo marcado como pagado queda en Movimientos', movN.length === 1 && movN[0].counterparty === 'Laura' && movN[0].amount === 2000000 && movN[0].account_id === acc.data.id);
+  await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'nomina', items: itemsNom.map((x) => ({ ...x, pagado: true })) } });
+  check('Finanzas: guardar de nuevo no duplica ni el pago ni el presupuesto', (await A.app(`${F}/movements?limit=100`)).data.rows.filter((m) => m.category === 'Nómina').length === 2 && (await A.app(`${F}/budgets`)).data.rows.filter((b) => b.month === mesAct && b.category === 'Nómina').length === 1);
+  const ps = await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'servicios', items: [{ recurring_id: recArr.data.id, valor: 910000, tercero: 'Inmobiliaria Sur', pagado: true }] } });
+  check('Finanzas: pagar servicios crea su presupuesto y el gasto, y avanza el cobro', ps.status === 201 && ps.data.pagados === 1 && (await A.app(`${F}/movements?limit=100`)).data.rows.some((m) => m.recurring_id === recArr.data.id && m.amount === 910000 && m.counterparty === 'Inmobiliaria Sur')
+    && (await A.app(`${F}/budgets`)).data.rows.some((b) => b.month === mesAct && b.category === 'otro' && b.amount === 910000));
+  check('Finanzas: pagos del mes no acepta un tipo ni un recurrente ajeno', (await A.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'otro', items: [{ valor: 1 }] } })).status === 400 && (await B.app(`${F}/pagos-mes`, { method: 'POST', body: { month: mesAct, tipo: 'servicios', items: [{ recurring_id: recArr.data.id, valor: 1, pagado: true }] } })).status === 404);
   check('Finanzas: saldo de la cuenta suma el ingreso', s.accounts?.find((a) => a.id === acc.data.id)?.balance === 1500000);
   check('Finanzas: flujo de caja de 9 meses', s.cash_flow?.length === 9);
 

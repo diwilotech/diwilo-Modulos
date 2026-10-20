@@ -1,5 +1,11 @@
 # Finanzas — cambios
 
+## 1.7.0 · 2026-10-21
+- **Pagos del mes** (Gastos recurrentes): una ventana con «Pago de servicios» y «Pago de nómina». Se lista lo del mes, se marcan los pagados y al guardar: (1) se crea el **presupuesto del mes** por centro de costo y categoría y (2) lo pagado queda como gasto en **Movimientos**.
+  - Servicios: los gastos recurrentes que vencen en el mes (valor y proveedor editables); al pagar, pasan al siguiente cobro.
+  - Nómina: las personas con pago definido en Equipo (si la app lo tiene), con cantidad (clases, horas…), centro de costo y ítems extra (bonos, auxilios).
+  - `GET/POST /api/finanzas/pagos-mes`. Guardar de nuevo no duplica pagos ni presupuesto.
+
 ## 1.6.0 · 2026-10-21
 - **Gastos recurrentes → Pagar**: cada gasto tiene el botón «Pagar» (destacado cuando vence este mes). Se elige proveedor, fecha, valor y la cuenta de la que sale; el pago queda como gasto en Movimientos (con su proveedor y cuenta) y el gasto pasa al siguiente cobro, sin duplicarse con el cobro automático. `POST /api/finanzas/recurring/:id/pagar`.
 
