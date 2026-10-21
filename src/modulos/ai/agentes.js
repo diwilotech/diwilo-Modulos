@@ -91,7 +91,7 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
 /* ---------- agentes ---------- */
 const parseList = (s) => { try { const a = JSON.parse(s); return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []; } catch { return []; } };
 
-export async function correrAgente(env, { org, agente, disparador = 'manual', ctx = null, por = null }) {
+export async function correrAgente(env, { org, agente, disparador = 'manual', ctx = null, por = null, pedido = '', progresoId = null }) {
   ctx ||= await ctxDeOrg(env, org, { role: 'admin' });
   if (!ctx) throw new Error('El negocio aún no usa los módulos');
   // Uno a la vez: si ya está trabajando no arranca otro; las ejecuciones cortadas hace más de 15 minutos se cierran solas
@@ -100,14 +100,17 @@ export async function correrAgente(env, { org, agente, disparador = 'manual', ct
   const aj = await ajustesDe(env, org), t0 = now();
   const ej = (await env.DB.prepare("INSERT INTO ia_ejecuciones (business_id, agente_id, disparador, estado, por, created_at) VALUES (?, ?, ?, 'en_curso', ?, ?)").bind(org, agente.id, disparador, por, t0).run()).meta.last_row_id;
   let estado = 'ok', resumen = '', pasos = [];
+  const escribir = escritor(env, org, progresoId);
   try {
     const disp = herramientasDe(ctx), elegidas = parseList(agente.herramientas);
     const herr = disp.filter((t) => elegidas.includes(t.name));
     const guias = guiasDe(ctx).filter((g) => herr.some((t) => t.modulo === g.modulo));
     const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias });
-    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias, maxPasos: MAX_PASOS_AGENTE, topeTokens: aj.tope_ejecucion });
+    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: pedido ? `Empieza tu trabajo. Pedido puntual para esta vez: ${String(pedido).slice(0, 500)}` : 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias, maxPasos: MAX_PASOS_AGENTE, topeTokens: aj.tope_ejecucion,
+      progreso: escribir ? (info) => escribir('trabajando', info) : null });
     resumen = r.respuesta; pasos = r.pasos;
   } catch (e) { estado = 'error'; resumen = String(e.message || e).slice(0, 500); }
+  await escribir?.(estado === 'error' ? 'error' : 'listo', { pasos, actual: estado === 'error' ? resumen.slice(0, 200) : null }).catch(() => {});
   const pend = pasos.filter((p) => p.estado === 'propuesta').length;
   await env.DB.prepare('UPDATE ia_ejecuciones SET estado = ?, resumen = ?, pasos = ?, pendientes = ?, terminada_at = ? WHERE id = ?').bind(estado, resumen, JSON.stringify(pasos), pend, now(), ej).run();
   await env.DB.prepare('UPDATE ia_agentes SET ultima_ejecucion = ?, ejecuciones = ejecuciones + 1 WHERE id = ? AND business_id = ?').bind(now(), agente.id, org).run();
@@ -139,6 +142,12 @@ export async function resolverPropuesta(env, { org, ejecucionId, indice, aprobar
   return { status: 200, paso: p, pendientes: pend, audit: audit || [] };
 }
 
+// El paso a paso se guarda en ia_progreso para que la pantalla lo muestre mientras la IA trabaja (asistente y agentes)
+export const escritor = (env, org, id) => (id ? async (estado, { pasos = [], actual = null }) => {
+  await env.DB.prepare(`INSERT INTO ia_progreso (id, business_id, estado, actual, pasos, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET estado = excluded.estado, actual = excluded.actual, pasos = excluded.pasos, updated_at = excluded.updated_at WHERE business_id = excluded.business_id`).bind(id, org, estado, actual, JSON.stringify(pasos.map(({ n, herramienta, tipo, estado: e }) => ({ n, herramienta, tipo, estado: e }))), now()).run();
+} : null);
+
 /* ---------- asistente interactivo del negocio ---------- */
 export async function asistente(env, { org, ctx, mensajes, progresoId = null }) {
   const hist = (Array.isArray(mensajes) ? mensajes : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
@@ -146,11 +155,7 @@ export async function asistente(env, { org, ctx, mensajes, progresoId = null }) 
   const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura');
   const guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai');
   const system = sistemaDeHerramientas({ guias, flujos: flujosEntre(herr), rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: 'Responde en español, claro y breve. Para preguntas sobre el negocio consulta con herramientas antes de contestar.', negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
-  // El paso a paso se guarda en ia_progreso para que la pantalla lo muestre mientras el asistente trabaja
-  const escribir = progresoId ? async (estado, { pasos = [], actual = null }) => {
-    await env.DB.prepare(`INSERT INTO ia_progreso (id, business_id, estado, actual, pasos, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET estado = excluded.estado, actual = excluded.actual, pasos = excluded.pasos, updated_at = excluded.updated_at WHERE business_id = excluded.business_id`).bind(progresoId, org, estado, actual, JSON.stringify(pasos.map(({ n, herramienta, tipo, estado: e }) => ({ n, herramienta, tipo, estado: e }))), now()).run();
-  } : null;
+  const escribir = escritor(env, org, progresoId);
   if (escribir) await env.DB.prepare('DELETE FROM ia_progreso WHERE updated_at < ?').bind(now() - 86400000).run().catch(() => {});
   try {
     const r = await bucle(env, { org, ctx, system, historial: hist, herramientas: herr, autonomia: 'proponer', fuente: 'asistente', guias, progreso: escribir ? (info) => escribir('trabajando', info) : null });

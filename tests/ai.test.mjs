@@ -90,7 +90,9 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('IA: crea un agente', ag.status === 201);
   check('IA: B no ve los agentes de A', (await B.app(`${X}/agentes`)).data.rows.length === 0 && (await B.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST' })).status === 404);
   check('IA: el personal no ejecuta agentes (403)', (await staff.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST' })).status === 403);
-  const run = await A.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST' });
+  const run = await A.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST', body: { progreso: 'prueba-agente-0001', pedido: 'solo esta semana' } });
+  const progA = (await A.app(`${X}/asistente/progreso?id=prueba-agente-0001`)).data;
+  check('IA: ejecutar un agente con un pedido puntual deja su paso a paso en vivo y termina en «listo»', run.status === 200 && progA.estado === 'listo' && progA.pasos.length >= 2 && progA.pasos[0].herramienta === 'marketing.resumen', JSON.stringify([run.data?.estado, progA]));
   check('IA: el agente consulta y PROPONE la escritura (no la hace)', run.data.estado === 'ok' && run.data.pasos?.[0]?.estado === 'consultada' && run.data.pasos?.[1]?.estado === 'propuesta' && run.data.pendientes === 1 && /propuse/.test(run.data.resumen), JSON.stringify(run.data).slice(0, 300));
   check('IA: lo propuesto no se escribió todavía', !(await A.app('/api/marketing/contacts?q=Lead del agente')).data.rows.some((c) => c.name === 'Lead del agente'));
   const ap = await A.app(`${X}/ejecuciones/${run.data.id}/aprobar`, { method: 'POST', body: { indice: 1, aprobar: true } });

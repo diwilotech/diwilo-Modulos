@@ -16,18 +16,31 @@ DW.ready.then((me) => {
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const CAN = me.canManage && !me.business.readOnly;
+  // «Modelo de IA» (qué IA responde en TODAS las apps) solo existe en Diwilo Admin: el negocio de Diwilo dentro del panel
+  const ES_DIWILO = me.app?.id === 'diwilo' && me.business?.id === 'diwilo' && me.canManage;
   const VIEWS = [['agentes', 'Agentes', 'bi-lightning-charge'], ['asistente', 'IA Diwilo', 'bi-stars'], ['consumo', 'Consumo', 'bi-speedometer2'], ['conversaciones', 'Conversaciones del chat', 'bi-chat-left-text'],
-    ['chats', 'Ajustes del chat', 'bi-sliders'], ['conexiones', 'Conexiones y API', 'bi-plug'], ['plantillas', 'Plantillas', 'bi-file-earmark-text'], ...(me.canManage ? [['bitacora', 'Bitácora', 'bi-journal-text']] : [])];
+    ['chats', 'Ajustes del chat', 'bi-sliders'], ['conexiones', 'Conexiones y API', 'bi-plug'], ['plantillas', 'Plantillas', 'bi-file-earmark-text'], ...(me.canManage ? [['bitacora', 'Bitácora', 'bi-journal-text']] : []), ...(ES_DIWILO ? [['modelo', 'Modelo de IA', 'bi-cpu']] : [])];
   let view = (location.hash || '#agentes').slice(1), filtroChat = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'agentes';
   const hasMkt = me.modules.some((m) => m.id === 'marketing');
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
   const ago = (ts) => (ts ? fecha(ts, true) : '—');
 
+  // Paso a paso visible: mientras trabaja y, al terminar, queda debajo de la respuesta (con lo que devolvió cada herramienta)
+  const etiqueta = (h) => { const [m, ...r] = String(h).split('.'); return r.length ? `${m.charAt(0).toUpperCase()}${m.slice(1)} · ${r.join(' ').replace(/_/g, ' ')}` : String(h).replace(/_/g, ' '); };
+  const ICO = { consultada: ['text-success', 'bi-check-circle-fill', 'Consultado'], hecha: ['text-success', 'bi-check-circle-fill', 'Hecho'], propuesta: ['text-warning', 'bi-hourglass-split', 'Por confirmar'], rechazada: ['text-danger', 'bi-x-circle-fill', 'Descartado'], error: ['text-danger', 'bi-x-circle-fill', 'No se pudo'] };
+  const pintarPasos = (pasos, actual) => ((pasos?.length || actual) ? `<div class="mt-2 p-2 rounded-3 small" style="background:rgba(var(--bs-body-color-rgb),.05)"><div class="fw-semibold text-uppercase text-body-secondary" style="font-size:11px;letter-spacing:.04em">Paso a paso</div><ol class="list-unstyled mb-0">${(pasos || []).map((p) => { const [c, ic, t] = ICO[p.estado] || ['text-body-secondary', 'bi-dot', '']; return `<li class="d-flex gap-2 align-items-baseline"><i class="bi ${ic} ${c}"></i><span>${esc(etiqueta(p.herramienta))} <span class="text-body-secondary">${t}</span>${p.resultado ? `<div class="text-body-secondary" style="font-size:11.5px">${esc(String(p.resultado).slice(0, 140))}</div>` : ''}</span></li>`; }).join('')}${actual ? `<li class="d-flex gap-2 align-items-baseline text-primary fw-semibold"><span class="spinner-border spinner-border-sm"></span><span>${esc(actual)}</span></li>` : ''}</ol></div>` : '');
+  // Consulta el avance cada segundo mientras dura la llamada `trabajo` y lo pinta con `pintar(pasos, actual)`
+  async function conAvance(pid, pintar, trabajo) {
+    const t = setInterval(async () => { try { const g = await api(`${B}/asistente/progreso?id=${pid}`); if (g.pasos?.length || g.actual) pintar(g.pasos, g.actual); } catch (_) {} }, 900);
+    try { return await trabajo(); } finally { clearInterval(t); }
+  }
+  const nuevoId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+
   function render() {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
-    ({ chats, conversaciones, asistente, agentes, plantillas, consumo, conexiones, bitacora })[view](el);
+    ({ chats, conversaciones, asistente, agentes, plantillas, consumo, conexiones, bitacora, modelo })[view](el);
   }
   const go = (k) => { view = k; $$('[data-seg] .btn').forEach((b) => b.classList.toggle('active', b.dataset.k === k)); render(); };
 
@@ -117,14 +130,21 @@ DW.ready.then((me) => {
   /* ================= Asistente del negocio ================= */
   let hist = [];
   function asistente(el) {
-    // Paso a paso visible: mientras trabaja y, al terminar, queda debajo de la respuesta (con lo que devolvió cada herramienta)
-    const etiqueta = (h) => { const [m, ...r] = String(h).split('.'); return r.length ? `${m.charAt(0).toUpperCase()}${m.slice(1)} · ${r.join(' ').replace(/_/g, ' ')}` : String(h).replace(/_/g, ' '); };
-    const ICO = { consultada: ['text-success', 'bi-check-circle-fill', 'Consultado'], hecha: ['text-success', 'bi-check-circle-fill', 'Hecho'], propuesta: ['text-warning', 'bi-hourglass-split', 'Por confirmar'], rechazada: ['text-danger', 'bi-x-circle-fill', 'Descartado'], error: ['text-danger', 'bi-x-circle-fill', 'No se pudo'] };
-    const pintarPasos = (pasos, actual) => ((pasos?.length || actual) ? `<div class="mt-2 p-2 rounded-3 small" style="background:rgba(var(--bs-body-color-rgb),.05)"><div class="fw-semibold text-uppercase text-body-secondary" style="font-size:11px;letter-spacing:.04em">Paso a paso</div><ol class="list-unstyled mb-0">${(pasos || []).map((p) => { const [c, ic, t] = ICO[p.estado] || ['text-body-secondary', 'bi-dot', '']; return `<li class="d-flex gap-2 align-items-baseline"><i class="bi ${ic} ${c}"></i><span>${esc(etiqueta(p.herramienta))} <span class="text-body-secondary">${t}</span>${p.resultado ? `<div class="text-body-secondary" style="font-size:11.5px">${esc(String(p.resultado).slice(0, 140))}</div>` : ''}</span></li>`; }).join('')}${actual ? `<li class="d-flex gap-2 align-items-baseline text-primary fw-semibold"><span class="spinner-border spinner-border-sm"></span><span>${esc(actual)}</span></li>` : ''}</ol></div>` : '');
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Pregúntale a la IA por los datos de tu negocio (clientes, ventas, cuentas…). Consulta con las herramientas de tus módulos activos; si quiere <b>crear o cambiar</b> algo, te lo propone y tú lo apruebas.</div>
+      <div class="dw-card mb-3" data-caps hidden></div>
       <div class="d-flex flex-wrap gap-2 mb-3" data-flujos></div>
       <div class="dw-card"><div data-log class="d-flex flex-column gap-2 mb-3" style="min-height:160px;max-height:55vh;overflow:auto"></div>
         <form class="d-flex gap-2" data-f><input class="form-control" name="q" maxlength="2000" placeholder="Ej.: ¿Cuántos leads nuevos tuve esta semana?" autocomplete="off" required aria-label="Pregunta"><button class="btn btn-primary text-nowrap"><i class="bi bi-send me-1"></i>Preguntar</button><button type="button" class="btn btn-light" data-clear title="Empezar de nuevo"><i class="bi bi-eraser"></i></button></form></div>`;
+    // Qué puede hacer: sale de las herramientas de los módulos activos (lo que consulta, lo que hace con confirmación y lo que nunca hace)
+    api(`${B}/herramientas`).then((r) => {
+      const hs = r.herramientas.filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura'), chip = (t) => `<span class="badge text-bg-light border fw-normal">${esc(etiqueta(t.name))}</span>`;
+      const lect = hs.filter((t) => t.tipo !== 'escritura'), escr = hs.filter((t) => t.tipo === 'escritura');
+      if (!hs.length) return;
+      const box = $('[data-caps]', el); box.hidden = false;
+      box.innerHTML = `<h2 class="h6 mb-2"><i class="bi bi-stars me-1"></i>Qué puede hacer</h2><div class="small"><div class="fw-semibold mt-1">Consulta</div><div class="d-flex flex-wrap gap-1 mb-2">${lect.map(chip).join('') || '—'}</div>
+        <div class="fw-semibold">Con tu confirmación</div><div class="d-flex flex-wrap gap-1 mb-2">${escr.map(chip).join('') || '—'}</div>
+        <div class="fw-semibold">No hace</div><div class="text-body-secondary">Borrar datos, cambiar dueños o permisos, ni registrar pagos de suscripciones. Las acciones que cambian datos te piden confirmar antes y quedan en la bitácora.</div></div>`;
+    }).catch(() => {});
     // Flujos sugeridos: salen de la guía de cada módulo (el mismo estándar del MCP y de los agentes)
     api(`${B}/guias`).then((r) => {
       const fl = [...(r.entre || []).map((f) => ({ ...f, modulo: f.modulos.join(' + ') })), ...r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))];
@@ -141,9 +161,8 @@ DW.ready.then((me) => {
       hist.push({ role: 'user', content: q }); burbuja('user', esc(q));
       const w = burbuja('assistant', '<span class="text-body-secondary">Pensando…</span>'); f.querySelector('.btn-primary').disabled = true;
       try {
-        const pid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-        const t = setInterval(async () => { try { const g = await api(`${B}/asistente/progreso?id=${pid}`); if (g.pasos?.length || g.actual) { w.innerHTML = `<span class="text-body-secondary">Trabajando…</span>${pintarPasos(g.pasos, g.actual)}`; log.scrollTop = log.scrollHeight; } } catch (_) {} }, 900);
-        let r; try { r = await api(`${B}/asistente`, { method: 'POST', body: { progreso: pid, mensajes: hist.map(({ role, content }) => ({ role, content })) } }); } finally { clearInterval(t); }
+        const pid = nuevoId();
+        const r = await conAvance(pid, (pasos, actual) => { w.innerHTML = `<span class="text-body-secondary">Trabajando…</span>${pintarPasos(pasos, actual)}`; log.scrollTop = log.scrollHeight; }, () => api(`${B}/asistente`, { method: 'POST', body: { progreso: pid, mensajes: hist.map(({ role, content }) => ({ role, content })) } }));
         const props = r.pasos.filter((p) => p.estado === 'propuesta');
         const pasosHtml = pintarPasos(r.pasos);
         w.innerHTML = esc(r.respuesta) + pasosHtml;
@@ -232,9 +251,19 @@ DW.ready.then((me) => {
       if (e.target.closest('[data-edit]')) return editar(a);
       if (e.target.closest('[data-hist]')) return historial(a);
       const run = e.target.closest('[data-run]');
-      if (run) {
-        run.disabled = true; run.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Trabajando…';
-        try { const r = await api(`${B}/agentes/${a.id}/ejecutar`, { method: 'POST' }); toast(r.estado === 'error' ? `Terminó con error: ${r.resumen}` : r.pendientes ? `Listo: ${r.pendientes} propuesta(s) por aprobar` : 'Listo', r.estado !== 'error'); agentes(el); historial(a); } catch (x) { toast(x.message, false); agentes(el); }
+      if (run) {   // ejecutar ahora: pedido puntual opcional y paso a paso en vivo (queda visible al terminar)
+        const { el: mo, m: mm } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Ejecutar «${esc(a.nombre)}»</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+          <div class="modal-body"><label class="form-label small mb-1">¿Algo puntual para esta vez? <span class="text-body-secondary">(opcional)</span></label><input class="form-control" name="pedido" maxlength="500" placeholder="Ej.: revisa solo lo de esta semana"><div data-avance class="mt-3"></div></div>
+          <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button><button class="btn btn-primary" data-go><i class="bi bi-play-fill me-1"></i>Ejecutar</button></div></form>`);
+        mo.querySelector('form').onsubmit = async (ev) => {
+          ev.preventDefault(); const go = mo.querySelector('[data-go]'), av = mo.querySelector('[data-avance]'); go.disabled = true; go.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Trabajando…';
+          const pid = nuevoId();
+          try {
+            const r = await conAvance(pid, (pasos, actual) => { av.innerHTML = pintarPasos(pasos, actual); }, () => api(`${B}/agentes/${a.id}/ejecutar`, { method: 'POST', body: { progreso: pid, pedido: mo.querySelector('[name=pedido]').value } }));
+            av.innerHTML = `<div class="${r.estado === 'error' ? 'text-danger' : ''} small mb-2" style="white-space:pre-wrap">${esc(r.resumen || '')}</div>${pintarPasos(r.pasos)}${r.pendientes ? `<div class="alert alert-warning py-2 small mt-2 mb-0">${r.pendientes} propuesta(s) por aprobar en el historial del agente.</div>` : ''}`;
+            go.innerHTML = 'Listo'; mo.addEventListener('hidden.bs.modal', () => agentes(el), { once: true });
+          } catch (x) { av.innerHTML = `<div class="text-danger small">${esc(x.message)}</div>`; go.disabled = false; go.innerHTML = 'Reintentar'; }
+        };
       }
     };
   }
@@ -320,16 +349,42 @@ DW.ready.then((me) => {
     });
   }
 
+  /* ================= Modelo de IA de la plataforma (solo Diwilo Admin) ================= */
+  async function modelo(el) {
+    el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
+    let m; try { m = await api(`${B}/proveedor`); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const OPC = [['auto', 'Automático', 'Gemini si tiene clave y, si no, Workers AI.', 'bi-magic'], ['claude', 'Claude', 'Anthropic · el más capaz para agentes y textos largos.', 'bi-stars'], ['gemini', 'Gemini', 'Google · rápido y económico.', 'bi-gem'], ['workers-ai', 'Workers AI', 'Cloudflare · cuota gratis diaria, sin clave.', 'bi-cloud']];
+    const estado = (k) => (k === 'auto' ? '' : m.proveedores[k]?.configurado ? '<span class="badge text-bg-success ms-1">Clave lista</span>' : `<span class="badge text-bg-danger ms-1">Falta ${esc(m.proveedores[k].secreto)}</span>`);
+    el.innerHTML = `<div class="dw-card mb-3"><h2 class="h6"><i class="bi bi-cpu me-1"></i>Qué IA responde en todas las apps</h2>
+        <p class="small text-body-secondary">Aplica a los chats de clientes, el asistente y los agentes de <b>todas las apps</b> y al chat y la IA del panel. Esta sección solo se ve aquí, en Diwilo Admin. Si la elegida falla, responde Gemini o Workers AI como respaldo (Claude nunca es respaldo porque cuesta más).</p>
+        <div class="row g-2 mb-3" data-opc>${OPC.map(([k, n, d, ic]) => `<div class="col-md-6 col-xl-3"><label class="dw-card h-100 d-block ${m.proveedor === k ? 'border-primary' : ''}" style="cursor:pointer"><input type="radio" class="form-check-input me-2" name="prov" value="${k}" ${m.proveedor === k ? 'checked' : ''}><b><i class="bi ${ic} me-1"></i>${n}</b>${estado(k)}<div class="small text-body-secondary mt-1">${d}</div></label></div>`).join('')}</div>
+        <div class="row g-3 mb-3"><div class="col-md-6"><label class="form-label small mb-1">Modelo de Claude</label><input class="form-control" list="mcl" name="modelo_claude" value="${esc(m.proveedores.claude.modelo)}" placeholder="claude-sonnet-5-5"><datalist id="mcl">${m.proveedores.claude.modelos.map((x) => `<option value="${x}">`).join('')}</datalist><div class="form-text">Usa el tipo chat (API de mensajes). Sonnet 5.5 es el predeterminado.</div></div>
+          <div class="col-md-6"><label class="form-label small mb-1">Modelo de Gemini</label><input class="form-control" list="mgm" name="modelo_gemini" value="${esc(m.proveedores.gemini.modelo)}" placeholder="gemini-2.5-flash"><datalist id="mgm">${m.proveedores.gemini.modelos.map((x) => `<option value="${x}">`).join('')}</datalist></div></div>
+        <div class="d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary" data-save>Guardar</button><button class="btn btn-outline-secondary" data-test><i class="bi bi-lightning-charge me-1"></i>Probar el elegido</button><span class="small" data-res></span></div>
+        <p class="small text-body-secondary mt-3 mb-0">Responde ahora: <b>${esc(m.activo)}</b>.</p></div>
+      <div class="dw-card"><h2 class="h6">Cómo poner la clave</h2><p class="small text-body-secondary mb-0">Las claves son <b>secretos</b> de Cloudflare, no se guardan en esta pantalla. Para Claude (se crea en console.anthropic.com → API keys): <code>npx wrangler secret put ANTHROPIC_API_KEY</code> en la carpeta de <b>Diwilo Modulos</b> (las apps) y otra vez en la de <b>Diwilo Web Admin</b> (este panel y el chat del sitio). Gemini usa <code>GEMINI_API_KEY</code>; Workers AI no necesita clave. Cuando estén, elige el proveedor y toca «Probar».</p></div>`;
+    const val = (n) => el.querySelector(`[name=${n}]`).value.trim(), elegido = () => el.querySelector('[name=prov]:checked')?.value;
+    el.querySelector('[data-save]').onclick = async () => {
+      try { await api(`${B}/proveedor`, { method: 'PUT', body: { proveedor: elegido(), modelo_claude: val('modelo_claude'), modelo_gemini: val('modelo_gemini') } }); toast('Guardado: ya responde con el modelo elegido'); modelo(el); }
+      catch (x) { toast(x.message, false); }
+    };
+    el.querySelector('[data-test]').onclick = async () => {
+      const res = el.querySelector('[data-res]'); res.textContent = 'Probando…';
+      try { const r = await api(`${B}/proveedor/probar`, { method: 'POST', body: { proveedor: elegido() } }); res.innerHTML = r.ok ? `<span class="text-success">✓ ${esc(r.proveedor)} · ${esc(r.modelo)} respondió en ${r.ms} ms</span>` : `<span class="text-danger">✕ ${esc(r.proveedor)}: ${esc(r.error || 'no respondió')}</span>`; }
+      catch (x) { res.innerHTML = `<span class="text-danger">✕ ${esc(x.message)}</span>`; }
+    };
+  }
+
   /* ================= Conexiones: MCP, claves de API y webhooks ================= */
   async function conexiones(el) {
     el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
     let tk, claves = [];
-    try { tk = await api('/api/ia/tokens'); if (me.canManage) claves = (await api(`${B}/claves`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const { tokens, url } = tk, host = location.origin;
+    try { tk = await api('/api/ia/tokens').catch(() => null); if (me.canManage) claves = (await api(`${B}/claves`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const { tokens, url } = tk || { tokens: [], url: '' }, host = location.origin;   // sin tokens MCP (p. ej. dentro de Diwilo Admin) solo salen las claves de API
     el.innerHTML = `<div class="dw-card mb-3"><h2 class="h6">Asistente externo (MCP)</h2>
         <p class="small text-body-secondary mb-2">Con una conexión, tu asistente (Claude u otro compatible con MCP) puede consultar y registrar datos de este negocio con <b>tu mismo rol</b>. Antes de cambiar algo, el asistente te pide confirmación, y todo queda en la bitácora.</p>
-        <div class="small mb-3">Dirección del servidor: <code>${esc(url)}</code></div>
-        ${CAN ? '<form class="d-flex gap-2 needs-validation" data-new novalidate><input class="form-control" name="name" placeholder="Nombre (ej. «Claude de Ana»)" maxlength="60" required aria-label="Nombre de la conexión"><button class="btn btn-primary text-nowrap"><i class="bi bi-plus-lg me-1"></i>Crear conexión</button></form>' : ''}</div>
+        <div class="small mb-3">${tk ? `Dirección del servidor: <code>${esc(url)}</code>` : 'Las conexiones MCP se crean desde cada app (aquí no aplican).'}</div>
+        ${CAN && tk ? '<form class="d-flex gap-2 needs-validation" data-new novalidate><input class="form-control" name="name" placeholder="Nombre (ej. «Claude de Ana»)" maxlength="60" required aria-label="Nombre de la conexión"><button class="btn btn-primary text-nowrap"><i class="bi bi-plus-lg me-1"></i>Crear conexión</button></form>' : ''}</div>
       <div class="dw-card p-0 p-md-2 mb-3" data-list></div>
       ${me.canManage ? `<div class="dw-card mb-3"><h2 class="h6">API del negocio</h2><p class="small text-body-secondary mb-2">Lee tus conversaciones y contactos desde otros sistemas con una clave (solo lectura).</p>
         ${CAN ? '<form class="d-flex gap-2 mb-3" data-key><input class="form-control" name="nombre" placeholder="Nombre de la clave (ej. «Mi CRM»)" maxlength="60" required aria-label="Nombre de la clave"><button class="btn btn-primary text-nowrap"><i class="bi bi-key me-1"></i>Crear clave</button></form>' : ''}<div data-newkey></div>

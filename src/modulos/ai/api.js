@@ -138,7 +138,8 @@ export function routes(r) {
   r.post(`${B}/agentes/:id/ejecutar`, `manager:${MOD}`, async (c) => {
     const a = await one(c.env, 'SELECT * FROM ia_agentes WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
     if (!a) throw new HttpError(404, 'Agente no encontrado');
-    const res = await correrAgente(c.env, { org: c.businessId, agente: a, disparador: 'manual', ctx: { ...c.ctx, role: c.role === 'owner' ? 'owner' : 'admin', readOnly: false }, por: c.session?.email || null });
+    const b = await readJson(c.req).catch(() => ({})), progresoId = /^[\w-]{8,40}$/.test(b.progreso || '') ? b.progreso : null;
+    const res = await correrAgente(c.env, { org: c.businessId, agente: a, disparador: 'manual', ctx: { ...c.ctx, role: c.role === 'owner' ? 'owner' : 'admin', readOnly: false }, por: c.session?.email || null, pedido: String(b.pedido || '').trim().slice(0, 500), progresoId });
     await audit(c, `Ejecutó el agente «${a.nombre}»`, { modulo: MOD });
     return json(res);
   });

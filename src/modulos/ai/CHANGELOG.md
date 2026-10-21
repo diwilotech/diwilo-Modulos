@@ -1,5 +1,8 @@
 # IA (`ai`) — cambios
 
+## 1.3.1 · 2026-10-23
+- **Igual que «IA» de Diwilo Admin**: «Ejecutar ahora» de un agente pide un pedido puntual opcional y muestra su paso a paso en vivo (queda al terminar); IA Diwilo muestra «Qué puede hacer» según las herramientas de los módulos activos. La sección **Modelo de IA** aparece dentro de Diwilo Admin (que ahora muestra esta misma página) y las conexiones funcionan sin tokens MCP.
+
 ## 1.3.0 · 2026-10-23
 - **Funciona con Claude (Anthropic)** además de Gemini y Workers AI, por la API de mensajes (tipo chat; modelo por defecto `claude-sonnet-5-5`). Necesita el secreto `ANTHROPIC_API_KEY`.
 - **El modelo lo elige Diwilo Admin** (Integraciones e IA → Modelo de IA) y aplica a todas las apps: automático, Claude, Gemini o Workers AI, y el modelo de cada uno. Se guarda en `ia_plataforma` (migración 0016) y solo responde al negocio de Diwilo (`GET/PUT /api/ai/proveedor`, `POST /api/ai/proveedor/probar`); cualquier otro negocio recibe 403. Si el elegido falla, el respaldo es Gemini o Workers AI (Claude nunca es respaldo). El consumo cuenta a Claude con su propio precio estimado.
