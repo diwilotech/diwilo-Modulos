@@ -132,6 +132,39 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   function chatsYConversaciones(el) {
     el.innerHTML = '<div data-chats></div><h2 class="h6 mt-4 mb-2"><i class="bi bi-chat-left-text me-1"></i>Conversaciones</h2><div data-convs></div>';
     chats($('[data-chats]', el)); conversaciones($('[data-convs]', el));
+    if (ES_DIWILO) { el.insertAdjacentHTML('beforeend', '<h2 class="h6 mt-4 mb-2"><i class="bi bi-globe2 me-1"></i>Chat del sitio diwilo.com</h2><div data-sitio></div>'); sitioDiwilo($('[data-sitio]', el)); }
+  }
+
+  /* ================= Chat del sitio diwilo.com (solo Diwilo Admin): sus conversaciones y su configuración ================= */
+  async function sitioDiwilo(el) {
+    const sitio = async (path, opts = {}) => {
+      const r = await fetch(`/admin/api/${path}`, { method: opts.method || 'GET', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(opts.method ? { 'x-app': '1' } : {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || `Error ${r.status}`); return d;
+    };
+    el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
+    let chatsSitio, st;
+    try { [chatsSitio, st] = await Promise.all([sitio('chats'), sitio('settings')]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    el.innerHTML = `<div class="row g-3"><div class="col-lg-5"><div class="d-grid gap-2" style="max-height:70vh;overflow:auto" data-lista>${chatsSitio.length ? chatsSitio.map((c) => `<button class="btn text-start border p-2" data-c="${esc(c.id)}"><span class="d-block fw-semibold text-truncate">${esc(c.first || '(sin mensajes)')}</span><span class="small text-body-secondary">${esc(ago(c.last_at))} · ${c.msg_count} mensajes${c.country ? ` · ${esc(c.country)}` : ''} ${esc(c.device || '')}</span></button>`).join('') : '<p class="text-body-secondary dw-card mb-0">Aún no hay conversaciones.</p>'}</div></div>
+      <div class="col-lg-7"><form class="dw-card" data-aj><div class="d-flex flex-wrap justify-content-between gap-2 mb-2"><span class="text-body-secondary small">Motor de IA: <span class="badge text-bg-secondary fw-normal">${esc(st.ai_provider)}</span></span>
+          <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="chat_enabled" id="sitEn" ${st.chat_enabled ? 'checked' : ''}><label class="form-check-label" for="sitEn">Chat activo en el sitio</label></div></div>
+        <label class="form-label small mb-1">Instrucciones del asistente (qué sabe y cómo responde)</label><textarea class="form-control" name="chat_prompt" rows="12" style="font-family:var(--bs-font-monospace);font-size:12px">${esc(st.chat_prompt)}</textarea>
+        <div class="d-flex gap-2 mt-3"><button class="btn btn-primary">Guardar</button><button type="button" class="btn btn-outline-secondary" data-reset>Restaurar texto original</button></div></form></div></div>`;
+    el.querySelector('[data-aj]').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { await sitio('settings', { method: 'POST', body: { chat_prompt: f.chat_prompt.value, chat_enabled: f.chat_enabled.checked ? '1' : '0' } }); toast('Ajustes guardados'); } catch (x) { toast(x.message, false); } };
+    el.querySelector('[data-reset]').onclick = () => { el.querySelector('[name=chat_prompt]').value = st.default_prompt; };
+    el.querySelector('[data-lista]').onclick = async (e) => {
+      const b = e.target.closest('[data-c]'); if (!b) return;
+      const { el: mo, m: mm } = modal('<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Conversación del sitio</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body" data-cuerpo></div>', { size: 'modal-lg' });
+      const box = mo.querySelector('[data-cuerpo]'); box.innerHTML = '<p class="text-body-secondary mb-0">Cargando…</p>';
+      try {
+        const ms = await sitio(`chats?chat=${encodeURIComponent(b.dataset.c)}`);
+        box.innerHTML = `<div class="d-flex flex-column gap-2" style="max-height:60vh;overflow:auto">${ms.map((m) => `<div class="p-2 px-3 rounded-4 ${m.role === 'user' ? 'align-self-end text-white' : 'align-self-start'}" style="max-width:90%;white-space:pre-wrap;${m.role === 'user' ? 'background:var(--dw-p)' : 'background:rgba(var(--bs-body-color-rgb),.07)'}">${esc(m.content)}<div class="small opacity-75">${esc(ago(m.ts))}</div></div>`).join('')}</div>
+          ${CAN ? '<div class="mt-3"><button class="btn btn-outline-danger btn-sm" data-del><i class="bi bi-trash me-1"></i>Borrar conversación</button></div>' : ''}`;
+        box.querySelector('[data-del]')?.addEventListener('click', async () => {
+          if (!(await confirm({ title: '¿Borrar esta conversación?', text: 'No se puede deshacer.', ok: 'Borrar' }))) return;
+          try { await sitio(`chats?chat=${encodeURIComponent(b.dataset.c)}`, { method: 'DELETE' }); mm.hide(); toast('Conversación borrada'); sitioDiwilo(el); } catch (x) { toast(x.message, false); }
+        });
+      } catch (x) { box.innerHTML = `<p class="text-danger mb-0">${esc(x.message)}</p>`; }
+    };
   }
 
   /* ================= Conversaciones ================= */

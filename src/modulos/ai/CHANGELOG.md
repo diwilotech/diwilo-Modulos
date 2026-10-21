@@ -1,5 +1,8 @@
 # IA (`ai`) — cambios
 
+## 1.4.3 · 2026-10-23
+- **Chat del sitio diwilo.com en Diwilo Admin**: dentro de «Chats y conversaciones» (solo en el panel de Diwilo) vuelven las conversaciones del chat del sitio, con su detalle y borrado, y su configuración (chat activo e instrucciones del asistente). Los datos nunca se borraron: viven en la base del panel.
+
 ## 1.4.2 · 2026-10-23
 - **IA Diwilo en celulares**: el botón flotante es un círculo con el logo y la ventana sube desde abajo con altura segura (la anterior medía el 100 % con la barra del navegador y el botón de cerrar quedaba oculto). Cierra con un botón de 40 px o tocando fuera; texto de 16 px para que el iPhone no haga zoom.
 
