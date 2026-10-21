@@ -78,6 +78,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   await A.app(`${X}/uso`, { method: 'PATCH', body: { tope_tokens: 500000, usd_cop: 4000 } });
   check('IA: B no ve el consumo de A', (await B.app(`${X}/uso`)).data.hoy.calls === 0);
   check('IA: el modelo de IA de la plataforma solo lo elige Diwilo Admin (un negocio recibe 403)', (await A.app(`${X}/proveedor`)).status === 403 && (await A.app(`${X}/proveedor`, { method: 'PUT', body: { proveedor: 'claude' } })).status === 403 && (await A.app(`${X}/proveedor/probar`, { method: 'POST', body: {} })).status === 403);
+  const stt = await A.app(`${X}/starters`);
+  check('IA: trae las plantillas para empezar un agente', stt.status === 200 && Array.isArray(stt.data.agente) && stt.data.agente.length > 0 && !!stt.data.agente[0].instrucciones, JSON.stringify(stt.data).slice(0, 120));
   check('IA: el consumo dice qué motor responde', typeof uso.motor === 'string' && uso.motor.length > 3, uso.motor);
 
   /* ---------- agentes ---------- */

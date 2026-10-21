@@ -16,6 +16,7 @@ import { REG, ejecutarHerramienta } from '../../lib/registro.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
 import { guiasDe } from '../../lib/guias.js';
 import { flujosEntre } from '../../lib/flujos.js';
+import { STARTERS } from '../../lib/marca.js';
 import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe } from './agentes.js';
 import { webhookValido, dispararWebhook } from './chat.js';
 
@@ -245,6 +246,9 @@ export function routes(r) {
       return json({ ok: !!texto, proveedor: p, modelo, ms: Date.now() - t0, texto: String(texto || '').slice(0, 80) });
     } catch (e) { return json({ ok: false, proveedor: p, modelo, ms: Date.now() - t0, error: String(e.message || e).slice(0, 200) }); }
   });
+
+  // Plantillas para empezar un agente (las mismas de la marca): GET /api/ai/starters → { agente: [{ nombre, instrucciones }] }
+  r.get(`${B}/starters`, `tenant:${MOD}`, async () => json({ agente: STARTERS.agente || [] }));
 
   /* claves de la API */
   r.get(`${B}/claves`, `manager:${MOD}`, async (c) => json({ rows: await all(c.env, 'SELECT id, nombre, prefijo, created_at, last_used, revocada FROM ia_claves WHERE business_id = ? ORDER BY id DESC', c.businessId) }));

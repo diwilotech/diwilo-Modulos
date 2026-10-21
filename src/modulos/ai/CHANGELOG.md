@@ -1,5 +1,9 @@
 # IA (`ai`) — cambios
 
+## 1.4.1 · 2026-10-23
+- Las secciones quedan: **Agentes · IA Diwilo · Consumo · Chats y conversaciones · Conexiones y API** (y Modelo de IA solo en Diwilo Admin). Los chats con sus ajustes y sus conversaciones van en el mismo lugar; se quitan Plantillas y Bitácora de esta pantalla.
+- Las plantillas para empezar un agente vienen de `GET /api/ai/starters` (antes de la API de Marca, que no existe en todos los contextos y daba «método no permitido»).
+
 ## 1.4.0 · 2026-10-23
 - **Diseño de «IA» de Diwilo Admin en el módulo** (igual en todas las apps): agentes en tarjetas con icono y chips, plantillas al empezar, IA Diwilo en cuatro tarjetas (abrir, qué puede hacer, modelo, flujos), y Consumo con indicadores, gráfico de 30 días, quién gasta, topes y protecciones.
 

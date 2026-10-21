@@ -1,5 +1,5 @@
 // IA: el módulo general de IA del negocio. Chats de clientes (se despliegan en tarjetas, webs y demás), conversaciones, asistente,
-// agentes, plantillas, consumo, conexiones (MCP, claves de API y webhooks) y bitácora. Reemplaza a «Configuración».
+// agentes, consumo y conexiones (MCP, claves de API y webhooks). Reemplaza a «Configuración».
 // Ver: todo el equipo; configurar: propietario y administrador.
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
@@ -40,9 +40,10 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   const CAN = me.canManage && !me.business.readOnly;
   // «Modelo de IA» (qué IA responde en TODAS las apps) solo existe en Diwilo Admin: el negocio de Diwilo dentro del panel
   const ES_DIWILO = me.app?.id === 'diwilo' && me.business?.id === 'diwilo' && me.canManage;
-  const VIEWS = [['agentes', 'Agentes', 'bi-lightning-charge'], ['asistente', 'IA Diwilo', 'bi-stars'], ['consumo', 'Consumo', 'bi-speedometer2'], ['conversaciones', 'Conversaciones del chat', 'bi-chat-left-text'],
-    ['chats', 'Ajustes del chat', 'bi-sliders'], ['conexiones', 'Conexiones y API', 'bi-plug'], ['plantillas', 'Plantillas', 'bi-file-earmark-text'], ...(me.canManage ? [['bitacora', 'Bitácora', 'bi-journal-text']] : []), ...(ES_DIWILO ? [['modelo', 'Modelo de IA', 'bi-cpu']] : [])];
+  const VIEWS = [['agentes', 'Agentes', 'bi-lightning-charge'], ['asistente', 'IA Diwilo', 'bi-stars'], ['consumo', 'Consumo', 'bi-speedometer2'], ['chats', 'Chats y conversaciones', 'bi-chat-dots'],
+    ['conexiones', 'Conexiones y API', 'bi-plug'], ...(ES_DIWILO ? [['modelo', 'Modelo de IA', 'bi-cpu']] : [])];
   let view = (location.hash || '#agentes').slice(1), filtroChat = null;
+  if (view === 'conversaciones') view = 'chats';
   if (!VIEWS.some(([k]) => k === view)) view = 'agentes';
   const hasMkt = me.modules.some((m) => m.id === 'marketing');
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
@@ -62,7 +63,7 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   function render() {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
-    ({ chats, conversaciones, asistente, agentes, plantillas, consumo, conexiones, bitacora, modelo })[view](el);
+    ({ chats: chatsYConversaciones, asistente, agentes, consumo, conexiones, modelo })[view](el);
   }
   const go = (k) => { view = k; $$('[data-seg] .btn').forEach((b) => b.classList.toggle('active', b.dataset.k === k)); render(); };
 
@@ -122,9 +123,15 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
       const c = rows.find((x) => String(x.id) === card.dataset.id);
       if (e.target.closest('[data-edit]')) return editar(c);
       if (e.target.closest('[data-code]')) return codigo(c);
-      if (e.target.closest('[data-conv]')) { filtroChat = c.id; return go('conversaciones'); }
+      if (e.target.closest('[data-conv]')) { filtroChat = c.id; return render(); }
       if (e.target.closest('[data-hook]')) { try { const r = await api(`${B}/chats/${c.id}/webhook-prueba`, { method: 'POST' }); toast(r.ok ? 'Evento de prueba enviado' : `El webhook no respondió: ${r.error || r.status}`, !!r.ok); } catch (x) { toast(x.message, false); } }
     };
+  }
+
+  // Los chats (con sus ajustes) y sus conversaciones van en el mismo lugar
+  function chatsYConversaciones(el) {
+    el.innerHTML = '<div data-chats></div><h2 class="h6 mt-4 mb-2"><i class="bi bi-chat-left-text me-1"></i>Conversaciones</h2><div data-convs></div>';
+    chats($('[data-chats]', el)); conversaciones($('[data-convs]', el));
   }
 
   /* ================= Conversaciones ================= */
@@ -190,7 +197,7 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   async function agentes(el) {
     el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
     let rows, herr, st, flujos;
-    try { [rows, herr, st, flujos] = await Promise.all([api(`${B}/agentes`).then((r) => r.rows), api(`${B}/herramientas`).then((r) => r.herramientas), CAN ? api(M).then((r) => r.starters.agente) : [], CAN ? api(`${B}/guias`).then((r) => r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))).catch(() => []) : []]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    try { [rows, herr, st, flujos] = await Promise.all([api(`${B}/agentes`).then((r) => r.rows), api(`${B}/herramientas`).then((r) => r.herramientas), CAN ? api(`${B}/starters`).then((r) => r.agente) : [], CAN ? api(`${B}/guias`).then((r) => r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))).catch(() => []) : []]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     const ICON = (a) => (/cobr|cartera/i.test(a.nombre) ? 'bi-cash-coin' : /lead|contact|cliente/i.test(a.nombre) ? 'bi-person-plus' : /blog|texto|escrib/i.test(a.nombre) ? 'bi-journal-text' : /renov|venc/i.test(a.nombre) ? 'bi-arrow-clockwise' : /anali|resumen|informe/i.test(a.nombre) ? 'bi-graph-up' : 'bi-robot');
     el.innerHTML = `<div class="dw-row hubbar"><p class="text-body-secondary grow" style="margin:0;font-size:13px;max-width:760px">Cada agente tiene un rol, las herramientas que puede usar y cuándo trabaja. Si «propone», lo que cambie datos espera tu aprobación; si «actúa solo», lo hace y queda en la bitácora.</p>
         ${CAN ? '<button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nuevo agente</button>' : ''}</div>
@@ -269,47 +276,6 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
           } catch (x) { av.innerHTML = `<div class="text-danger small">${esc(x.message)}</div>`; go.disabled = false; go.innerHTML = 'Reintentar'; }
         };
       }
-    };
-  }
-
-  /* ================= Plantillas de IA ================= */
-  const CANAL = { chat: ['Chat del negocio', 'bi-chat-dots', 'Lo usan los chats de clientes que activan el tono de la marca.'], mcp: ['Asistente externo (MCP)', 'bi-plug', 'Lo lee tu asistente externo (Claude u otro) con la herramienta «guía de marca».'],
-    agente: ['Agentes y automatizaciones', 'bi-lightning-charge', 'Instrucciones para los agentes de IA que trabajan solos.'] };
-  async function plantillas(el) {
-    el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
-    let D; try { D = await api(M); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const rows = D.plantillas;
-    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Las <b>plantillas</b> son instrucciones reutilizables para la IA de tu negocio. El <b>tono</b> de tu marca (Marketing → Tarjetas → Marca) se aplica siempre a los chats.</div>
-      <div class="row g-3">${Object.entries(CANAL).map(([k, [nombre, icono, ayuda]]) => `<div class="col-xl-4 col-md-6"><div class="dw-card h-100" data-canal="${k}">
-        <div class="d-flex align-items-start gap-2 mb-2"><div class="flex-grow-1"><h2 class="h6 mb-0"><i class="bi ${icono} me-1"></i>${nombre}</h2><div class="small text-body-secondary">${ayuda}</div></div>${CAN ? `<button class="btn btn-sm btn-primary" data-new="${k}"><i class="bi bi-plus-lg me-1"></i>Agregar</button>` : ''}</div>
-        <div class="d-grid gap-2" data-list></div>
-        ${CAN ? `<div class="mt-3"><div class="small text-body-secondary mb-1">Empezar con un ejemplo</div><div class="d-flex flex-wrap gap-1">${D.starters[k].map((s, i) => `<button class="btn btn-sm btn-outline-primary" data-starter="${k}:${i}">${esc(s.nombre)}</button>`).join('')}</div></div>` : ''}
-        <details class="mt-3"><summary class="small text-body-secondary" style="cursor:pointer">Lo que recibe la IA</summary><pre class="small mt-2 mb-0 p-2 rounded-3" style="white-space:pre-wrap;background:rgba(var(--bs-body-color-rgb),.06)" data-ctx>Cargando…</pre></details></div></div>`).join('')}</div>`;
-    for (const k of Object.keys(CANAL)) {
-      const box = $(`[data-canal="${k}"]`, el), list = rows.filter((r) => r.canal === k);
-      $('[data-list]', box).innerHTML = list.length ? list.map((r) => `<div class="border rounded-3 p-2 d-flex gap-2 align-items-start ${r.activa ? '' : 'opacity-50'}" data-id="${r.id}">
-          <div class="flex-grow-1" style="min-width:0"><div class="fw-semibold text-truncate">${esc(r.nombre)}</div><div class="small text-body-secondary" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(r.instrucciones)}</div></div>
-          ${CAN ? `<div class="form-check form-switch m-0" title="Activa"><input class="form-check-input" type="checkbox" data-act ${r.activa ? 'checked' : ''} aria-label="Activa"></div><button class="btn btn-sm btn-outline-primary" data-edit aria-label="Editar"><i class="bi bi-pencil"></i></button>` : ''}</div>`).join('')
-        : '<p class="small text-body-secondary mb-0">Aún no hay plantillas. Agrega una o empieza con un ejemplo.</p>';
-      api(`${M}/ia/contexto?canal=${k}`).then((d) => { $('[data-ctx]', box).textContent = d.prompt; }).catch(() => {});
-    }
-    const editar = async (r, base) => {
-      const v = await C.form({ title: r ? 'Editar plantilla' : 'Nueva plantilla', okText: 'Guardar', values: r || base || { canal: 'chat', activa: 1 },
-        fields: [{ k: 'nombre', label: 'Nombre', required: true, full: true }, { k: 'canal', label: 'Para', type: 'select', options: Object.entries(CANAL).map(([k, x]) => [k, x[0]]) },
-          { k: 'activa', label: 'Estado', type: 'bool', check: 'Activa' }, { k: 'instrucciones', label: 'Instrucciones para la IA', type: 'long', required: true, hint: 'máx. 2000 letras' }],
-        onDelete: r ? async () => { await api(`${M}/plantillas/${r.id}`, { method: 'DELETE' }); } : null });
-      if (v === null) return;
-      if (v !== 'deleted') { try { await api(r ? `${M}/plantillas/${r.id}` : `${M}/plantillas`, { method: r ? 'PATCH' : 'POST', body: v }); toast('Plantilla guardada'); } catch (x) { toast(x.message, false); return; } }
-      plantillas(el);
-    };
-    el.onclick = (e) => {
-      const n = e.target.closest('[data-new]'); if (n) return editar(null, { canal: n.dataset.new, activa: 1 });
-      const s = e.target.closest('[data-starter]'); if (s) { const [k, i] = s.dataset.starter.split(':'); return editar(null, { ...D.starters[k][+i], canal: k, activa: 1 }); }
-      const ed = e.target.closest('[data-edit]'); if (ed) return editar(rows.find((x) => String(x.id) === ed.closest('[data-id]').dataset.id));
-    };
-    el.onchange = async (e) => {
-      const sw = e.target.closest('[data-act]'); if (!sw) return;
-      try { await api(`${M}/plantillas/${sw.closest('[data-id]').dataset.id}`, { method: 'PATCH', body: { activa: sw.checked } }); toast(sw.checked ? 'Plantilla activada' : 'Plantilla desactivada'); plantillas(el); } catch (x) { toast(x.message, false); sw.checked = !sw.checked; }
     };
   }
 
@@ -441,15 +407,6 @@ curl -H "Authorization: Bearer dwi_xxx" ${esc(host)}/v1/conversaciones</pre></di
       if (!(await confirm({ title: `¿Revocar la clave «${b.dataset.n}»?`, text: 'Los sistemas que la usan dejarán de funcionar.', ok: 'Revocar' }))) return;
       try { await api(`${B}/claves/${b.dataset.rev}`, { method: 'DELETE' }); toast('Clave revocada'); conexiones(el); } catch (x) { toast(x.message, false); }
     });
-  }
-
-  /* ================= Bitácora ================= */
-  async function bitacora(el) {
-    el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
-    let items; try { ({ items } = await api('/api/settings/bitacora')); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const ORIGEN = { app: 'App', mcp: 'IA (MCP)', diwilo: 'Diwilo' };
-    el.innerHTML = `<div class="dw-card p-0 p-md-2">${items.length ? table([{ label: 'Cuándo', html: (a) => fecha(a.created_at, true) }, { label: 'Quién', html: (a) => esc(a.email || '—') },
-      { label: 'Qué', main: true, html: (a) => esc(a.accion) }, { label: 'Desde', html: (a) => `<span class="badge text-bg-light">${ORIGEN[a.origen] || esc(a.origen)}</span>` }], items) : empty('bi-journal-text', 'Aún no hay movimientos registrados.')}</div>`;
   }
 
   segBtn($('[data-seg]'), VIEWS, (k) => { view = k; render(); }, view);
