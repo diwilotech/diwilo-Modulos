@@ -4,6 +4,7 @@ import { financeSummary, ENTITIES, chargeRecurring, reportData } from './api.js'
 import { crud, today, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { Router } from '../../router.js';
+import control from './control.js';
 
 const api = crud(new Router(), { base: '/ia/finanzas', modulo: 'finanzas', entities: ENTITIES });
 const S = (props, required = []) => ({ type: 'object', properties: props, ...(required.length ? { required } : {}), additionalProperties: false });
@@ -203,4 +204,5 @@ export default [
       return { id: res.meta.last_row_id };
     },
   },
+  ...control,
 ];

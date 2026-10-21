@@ -154,6 +154,19 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const ccIa = (await T('finanzas_crear_centro_costo', { nombre: 'Sede norte' })).structuredContent;
   check('Finanzas: la IA crea un centro de costo sin duplicar', ccIa?.id > 0 && !!(await T('finanzas_crear_centro_costo', { nombre: 'sede norte' })).structuredContent?.ya_existia);
   check('Finanzas: la IA crea una cuenta', (await T('finanzas_crear_cuenta', { nombre: 'Nequi', tipo: 'billetera' })).structuredContent?.id > 0);
+  // Control total por IA: facturas, pagos, recibos, presupuestos, exportes y borrar
+  const sf = (r) => r?.structuredContent ?? { error: r?.content?.[0]?.text };
+  const fv = sf(await T('finanzas_crear_factura', { kind: 'emitida', counterparty: 'Cliente IA', issue_date: '2026-10-01', total: 300000, concept: 'Curso' }));
+  const fp = sf(await T('finanzas_pagar_factura', { factura_id: fv.id, amount: 100000, method: 'Efectivo' }));
+  const fd = sf(await T('finanzas_ver_detalle_factura', { factura_id: fv.id }));
+  check('Finanzas IA: crea una cuenta de cobro y registra un abono con recibo', fv.id > 0 && fp.ok === true && fp.receipt?.id > 0 && JSON.stringify(fd).includes('100000'), JSON.stringify([fv, fp]).slice(0, 300));
+  const rcIA = sf(await T('finanzas_anular_recibo', { recibo_id: fp.receipt?.id }));
+  check('Finanzas IA: anula el recibo', rcIA.ok === true, JSON.stringify(rcIA));
+  const pr = sf(await T('finanzas_crear_presupuesto', { month: '2026-10', category: 'Marketing', amount: 800000 }));
+  check('Finanzas IA: crea y lista presupuestos', pr.id > 0 && sf(await T('finanzas_listar_presupuestos', { f_month: '2026-10' })).presupuestos?.some((x) => x.id === pr.id));
+  check('Finanzas IA: exporta CSV para el contador', String(sf(await T('finanzas_exportar_csv', { kind: 'movements' })).texto || '').includes('Fecha'));
+  check('Finanzas IA: ve los datos de cobro y la TRM', sf(await T('finanzas_ver_datos_de_cobro', {})).prefix !== undefined && !sf(await T('finanzas_ver_trm', {})).error);
+  check('Finanzas IA: borra un presupuesto', !sf(await T('finanzas_borrar_presupuesto', { id: pr.id })).error && !sf(await T('finanzas_listar_presupuestos', {})).presupuestos?.some((x) => x.id === pr.id));
   const sinCentro = (await T('finanzas_buscar_movimientos', { sin_centro: true, texto: 'desde la ia' })).structuredContent?.movimientos || [];
   check('Finanzas: la IA busca movimientos sin centro de costo', sinCentro.length === 1, JSON.stringify(sinCentro));
   check('Finanzas: la IA asigna el centro de costo por nombre', !(await T('finanzas_editar_movimiento', { ids: [sinCentro[0]?.id], centro_costo: 'Sede norte' })).isError

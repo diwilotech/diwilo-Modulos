@@ -1,7 +1,7 @@
 {
   "id": "finanzas",
   "nombre": "Finanzas",
-  "version": "1.11.1",
+  "version": "1.12.0",
   "descripcion": "Finance Hub de Diwilo por negocio: ingresos y gastos (COP o USD con TRM), facturas y cuentas de cobro en PDF con QR de validación, cartera, gastos recurrentes, centros de costo, presupuestos, conciliación bancaria y exportación para el contador, informes del analista de IA.",
   "icono": "bi-cash-coin",
   "menu": {
@@ -56,12 +56,15 @@
   "pagina": "/m/finanzas.js",
   "central": true,
   "mcp": {
-    "guia": "Finanzas del negocio: ingresos, gastos, cuentas de cobro, cartera, gastos recurrentes (incluida la nómina), centros de costo y cuentas. Para cifras usa siempre las herramientas de lectura (resumen_mes, cartera, buscar_movimientos) y no inventes valores. Registrar o editar movimientos y crear cuentas de cobro son escrituras: confirma valor, fecha y centro de costo antes. Los montos van en COP salvo que el movimiento sea en USD. Un gasto recurrente tiene un VALOR TOTAL, cada cuánto se genera (mes, quincena, semana, año) y «cuotas»: cómo se paga ese total (1 de una vez, 2 quincenas, 4 semanas o 12 meses). Antes de crear uno revisa ver_gastos_recurrentes para no duplicar. La nómina es un gasto recurrente de tipo «nomina» con la cédula o NIT de la persona; la crea y actualiza la app de origen (p. ej. Equipo) y se PAGA en Finanzas con el botón «Pagar» (ítems editables, cuentas divididas como efectivo y banco); el pago queda en Movimientos con su documento. Tú no pagas nóminas: indica al usuario que lo haga ahí. Si los ítems de un pago no llegan al valor del gasto, pregunta qué es la diferencia antes de registrar.",
+    "guia": "Finanzas del negocio: ingresos, gastos, cuentas de cobro, cartera, gastos recurrentes (incluida la nómina), centros de costo y cuentas. Para cifras usa siempre las herramientas de lectura (resumen_mes, cartera, buscar_movimientos) y no inventes valores. Registrar o editar movimientos y crear cuentas de cobro son escrituras: confirma valor, fecha y centro de costo antes. Los montos van en COP salvo que el movimiento sea en USD. Un gasto recurrente tiene un VALOR TOTAL, cada cuánto se genera (mes, quincena, semana, año) y «cuotas»: cómo se paga ese total (1 de una vez, 2 quincenas, 4 semanas o 12 meses). Antes de crear uno revisa ver_gastos_recurrentes para no duplicar. La nómina es un gasto recurrente de tipo «nomina» con la cédula o NIT de la persona; la crea y actualiza la app de origen (p. ej. Equipo) y se PAGA en Finanzas con el botón «Pagar» (ítems editables, cuentas divididas como efectivo y banco); el pago queda en Movimientos con su documento. Tú no pagas nóminas: indica al usuario que lo haga ahí. Si los ítems de un pago no llegan al valor del gasto, pregunta qué es la diferencia antes de registrar. CONTROL TOTAL (propietario/administrador): facturas y cuentas de cobro (listar_facturas, crear_factura, editar_factura, borrar_factura, ver_detalle_factura); cobrar o pagar con pagar_factura (genera el recibo de caja; sin monto paga el saldo), listar_recibos y anular_recibo; borrar_movimiento; pagar_gasto_recurrente y ver_estado_recurrentes; presupuestos por mes (listar/crear/editar/borrar_presupuesto); cuentas y centros de costo (editar y borrar, totales_por_centro_costo); conciliación bancaria (ver_extracto, importar_extracto, conciliar_linea, ver_conciliacion_cuenta); exportar_csv para el contador; ver_datos_de_cobro y editar_datos_de_cobro; ver_trm y ver_pagos_del_mes. Borrar, anular y conciliar son irreversibles o delicadas: muestra qué vas a cambiar y pide confirmación. Los pagos de la academia (recibos RC-…) ya se registran solos desde Cuotas: no los dupliques.",
     "ejemplos": [
       "Pídele: «¿Cómo va el mes? Ingresos, gastos y utilidad.»",
       "Pídele: «Registra un gasto de 85.000 de transporte de ayer, centro de costo Eventos.»",
       "Pídele: «Prepara el informe financiero de la semana y guárdalo.»",
-      "Pídele: «Crea el arriendo de 4.000.000 mensual, pagado en 4 semanas, centro de costo Sede.»"
+      "Pídele: «Crea el arriendo de 4.000.000 mensual, pagado en 4 semanas, centro de costo Sede.»",
+      "Pídele: «Cóbrale 100.000 en efectivo a la cuenta de cobro de Laura»",
+      "Pídele: «Ponle un presupuesto de 800.000 a marketing en noviembre»",
+      "Pídele: «Expórtame los movimientos de octubre para el contador»"
     ],
     "flujos": [
       {
@@ -90,6 +93,34 @@
         "pasos": [
           "finanzas.ver_centros_y_cuentas",
           "finanzas.registrar_movimiento"
+        ]
+      },
+      {
+        "id": "cobro",
+        "nombre": "Cobrar una cuenta de cobro",
+        "descripcion": "Buscar la factura pendiente y registrar el abono con su recibo.",
+        "pasos": [
+          "finanzas.listar_facturas",
+          "finanzas.pagar_factura"
+        ]
+      },
+      {
+        "id": "conciliar",
+        "nombre": "Conciliar un extracto bancario",
+        "descripcion": "Importar el extracto y conciliar lo que no coincidió solo.",
+        "pasos": [
+          "finanzas.ver_centros_y_cuentas",
+          "finanzas.importar_extracto",
+          "finanzas.ver_extracto",
+          "finanzas.conciliar_linea"
+        ]
+      },
+      {
+        "id": "contador",
+        "nombre": "Entregar al contador",
+        "descripcion": "Exportar movimientos o facturas de un rango.",
+        "pasos": [
+          "finanzas.exportar_csv"
         ]
       }
     ]

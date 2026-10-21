@@ -1,5 +1,8 @@
 # Finanzas — cambios
 
+## 1.12.0 · 2026-10-20
+- **Control total por IA**: facturas y cuentas de cobro (crear, editar, borrar, pagar con su recibo, ver detalle), recibos (listar, anular), presupuestos, borrar movimientos y gastos recurrentes, pagar un gasto recurrente, cuentas y centros (editar, borrar, totales), conciliación bancaria (extracto, importar, conciliar), exportar CSV, datos de cobro, TRM y pagos del mes. Cada herramienta llama a la misma ruta de la API (`src/lib/interno.js`), con sus mismos permisos, validaciones y bitácora.
+
 ## 1.11.1 · 2026-10-23
 - **La IA conoce los gastos recurrentes nuevos**: crear y editar con `cuotas` (1, 2, 4 o 12), `ciclo` quincenal/semanal, `cedula_nit` y tipo nómina; verlos incluye cuotas y cédula. La guía del módulo explica la nómina y que el pago se hace con el botón «Pagar».
 

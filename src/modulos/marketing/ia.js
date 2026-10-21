@@ -4,6 +4,7 @@ import { marketingSummary, ENTITIES, checkList, reportData, saveReport } from '.
 import { crud, today, all, one } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { Router } from '../../router.js';
+import control from './control.js';
 
 const api = crud(new Router(), { base: '/ia/marketing', modulo: 'marketing', entities: ENTITIES });
 const S = (props, required = []) => ({ type: 'object', properties: props, ...(required.length ? { required } : {}), additionalProperties: false });
@@ -153,4 +154,5 @@ export default [
       return r;
     },
   },
+  ...control,
 ];

@@ -1,7 +1,7 @@
 {
   "id": "marketing",
   "nombre": "Marketing",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "descripcion": "Marketing Hub de Diwilo por negocio: clientes y leads, oportunidades (embudo), campañas con presupuesto, gasto, costo por lead, ROI y links de rastreo por plataforma con QR, tareas con plantillas y automatizaciones (lead nuevo, sin contacto, presupuesto, factura vencida, semanal), listas con revisión de sitios y feeds, informes del analista de IA y suscripciones/herramientas, tarjetas de presentación digitales (la del negocio se crea sola, con su chat de IA opcional) y la marca del negocio (color de la app, modo, logo, fondo, tipografía y tono).",
   "icono": "bi-megaphone",
   "menu": {
@@ -61,11 +61,13 @@
   "pagina": "/m/marketing.js",
   "central": true,
   "mcp": {
-    "guia": "Marketing del negocio: clientes y leads, oportunidades, campañas con presupuesto y links de rastreo, tareas, automatizaciones, listas (competidores, fuentes) e informes. Antes de crear algo, consulta si ya existe (buscar_contactos, ver_listas, tareas_pendientes): las herramientas evitan duplicados pero conviene verificar. Todo lo que escribe pide confirmación. Los leads nuevos disparan las automatizaciones de «lead nuevo».",
+    "guia": "Marketing del negocio: clientes y leads, oportunidades, campañas con presupuesto y links de rastreo, tareas, automatizaciones, listas (competidores, fuentes) e informes. Antes de crear algo, consulta si ya existe (buscar_contactos, ver_listas, tareas_pendientes): las herramientas evitan duplicados pero conviene verificar. Todo lo que escribe pide confirmación. Los leads nuevos disparan las automatizaciones de «lead nuevo». CONTROL TOTAL: además de crear, puedes editar y borrar contactos (editar_contacto, borrar_contacto), tareas, listas y sus elementos (editar_elemento_lista, borrar_elemento_lista), automatizaciones y campañas (editar_campana: estado activa, pausada o terminada, presupuesto, UTM); registrar el gasto de una campaña con crear_gasto_campana (fecha, valor, leads, clics) y consultarlo con listar_gastos_campana; oportunidades del embudo (listar/crear/editar/borrar_oportunidad con etapas nuevo, calificado, propuesta, negociacion, ganado, perdido); links de rastreo (ver_links_campana, crear_link_campana, borrar_link_campana); herramientas y servicios de marketing (listar/crear/editar/borrar_herramienta); revisar_elementos_lista_ahora y listar_tarjetas. Borrar no se puede deshacer: confirma antes. Para mover un lead usa cambiar_etapa_contacto; para el embudo, editar_oportunidad.",
     "ejemplos": [
       "Pídele: «¿Cuántos leads nuevos tuve esta semana y de dónde vienen?»",
       "Pídele: «Crea el lead Ana Pérez, 300…, origen Instagram, y una tarea para llamarla hoy.»",
-      "Pídele: «Escribe el informe de marketing de la semana y guárdalo.»"
+      "Pídele: «Escribe el informe de marketing de la semana y guárdalo.»",
+      "Pídele: «Anota 120.000 de gasto en la campaña de Instagram de hoy, 80 clics»",
+      "Pídele: «Pausa la campaña de Meta Ads»"
     ],
     "flujos": [
       {
@@ -94,6 +96,24 @@
           "marketing.buscar_contactos",
           "marketing.crear_contacto",
           "marketing.crear_tarea"
+        ]
+      },
+      {
+        "id": "embudo",
+        "nombre": "Mover el embudo",
+        "descripcion": "Ver las oportunidades y mover una de etapa.",
+        "pasos": [
+          "marketing.listar_oportunidades",
+          "marketing.editar_oportunidad"
+        ]
+      },
+      {
+        "id": "gasto",
+        "nombre": "Registrar el gasto de una campaña",
+        "descripcion": "Anotar lo invertido y los resultados del día.",
+        "pasos": [
+          "marketing.listar_campanas",
+          "marketing.crear_gasto_campana"
         ]
       }
     ]

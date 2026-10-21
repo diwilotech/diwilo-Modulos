@@ -94,6 +94,19 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Marketing: la IA no duplica listas', (await T('marketing_crear_lista', { nombre: 'competidores' })).structuredContent?.ya_existia === li.data.id);
   check('Marketing: la IA no repite un elemento de la lista', !!(await T('marketing_agregar_a_lista', { lista: 'Competidores', titulo: 'Academia X' })).structuredContent?.ya_existia);
   check('Marketing: la IA lee la lista', (await T('marketing_leer_lista', { lista: 'Competidores' })).structuredContent?.elementos?.length === 1);
+  // Control total por IA: editar, borrar, oportunidades y gasto de campañas
+  const sc = (r) => r?.structuredContent ?? { error: r?.content?.[0]?.text };
+  const ctIa = sc(await T('marketing_crear_contacto', { nombre: 'Contacto para editar' })).creado;
+  const ed = sc(await T('marketing_editar_contacto', { id: ctIa.id, phone: '3109998888', stage: 'cliente' }));
+  check('Marketing IA: edita un contacto', !ed.error && (await A.app(`${M}/contacts/${ctIa.id}`)).status !== 404 && (await A.app(`${M}/contacts?q=Contacto%20para%20editar`)).data.rows?.[0]?.stage === 'cliente');
+  const dl = sc(await T('marketing_crear_oportunidad', { title: 'Matrícula grupal', value: 900000 }));
+  const dl2 = sc(await T('marketing_editar_oportunidad', { id: dl.id, stage: 'ganado' }));
+  check('Marketing IA: crea y mueve una oportunidad en el embudo', dl.id > 0 && !dl2.error && sc(await T('marketing_listar_oportunidades', { f_stage: 'ganado' })).oportunidades?.some((x) => x.id === dl.id && x.stage === 'ganado'));
+  const cp = sc(await T('marketing_crear_campana', { nombre: 'Campaña IA', presupuesto: 500000 }));
+  const gc = sc(await T('marketing_crear_gasto_campana', { campaign_id: cp.id, date: hoy, amount: 120000, clicks: 80 }));
+  check('Marketing IA: registra el gasto de una campaña', gc.id > 0 && sc(await T('marketing_listar_gastos_campana', { f_campaign_id: String(cp.id) })).gastos_campana?.[0]?.amount === 120000);
+  check('Marketing IA: borra el contacto y queda en la bitácora', !sc(await T('marketing_borrar_contacto', { id: ctIa.id })).error && (await A.app(`${M}/contacts?q=Contacto%20para%20editar`)).data.rows?.length === 0);
+  check('Marketing IA: la validación de la API se respeta', !!sc(await T('marketing_crear_gasto_campana', { campaign_id: cp.id, date: 'ayer', amount: 1 })).error);
   await T('marketing_crear_tarea', { titulo: 'Llamar a Laura' });
   check('Marketing: la IA no repite una tarea pendiente', !!(await T('marketing_crear_tarea', { titulo: 'llamar a laura' })).structuredContent?.ya_existia);
   check('Marketing: la IA guarda un informe', !(await T('marketing_guardar_informe', { contenido: 'Informe de prueba' })).isError && (await A.app(`${M}/reports`)).data.rows.some((r) => r.origen === 'ia'));

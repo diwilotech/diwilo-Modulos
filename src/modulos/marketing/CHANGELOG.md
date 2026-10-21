@@ -1,5 +1,8 @@
 # Marketing — cambios
 
+## 1.6.0 · 2026-10-20
+- **Control total por IA**: editar y borrar contactos, tareas, listas y automatizaciones; editar campañas; gasto de campañas; oportunidades del embudo; links de rastreo; herramientas de marketing; revisar listas y ver tarjetas. Cada herramienta llama a la misma ruta de la API (`src/lib/interno.js`).
+
 ## 1.5.0 · 2026-10-17
 - **Tarjetas en vivo, sin modal:** editar una tarjeta abre el editor en la misma página, con el formulario y la **tarjeta real** a un lado que cambia mientras escribes
   (con el color, el fondo y la letra de la marca). Las tarjetas de la lista también se ven así.
