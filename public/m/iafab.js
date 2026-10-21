@@ -111,6 +111,7 @@
       clearInterval(t); form.querySelector('button').disabled = false; save(); draw();
     }
     const open = (on) => { panel.hidden = !on; $('#iaFab').classList.toggle('on', on); if (on) { draw(); setTimeout(() => ta.focus(), 50); } };
+    window.DwIA = { ask: (q) => { open(true); ask(q); } };   // lo usan las secciones de IA (flujos) para abrir el botón y preguntar
     $('#iaFab').onclick = () => open(panel.hidden);
     $('#iaClose').onclick = () => open(false);
     $('#iaNew').onclick = () => { hist = []; save(); draw(); };

@@ -1,5 +1,8 @@
 # IA (`ai`) — cambios
 
+## 1.4.0 · 2026-10-23
+- **Diseño de «IA» de Diwilo Admin en el módulo** (igual en todas las apps): agentes en tarjetas con icono y chips, plantillas al empezar, IA Diwilo en cuatro tarjetas (abrir, qué puede hacer, modelo, flujos), y Consumo con indicadores, gráfico de 30 días, quién gasta, topes y protecciones.
+
 ## 1.3.1 · 2026-10-23
 - **Igual que «IA» de Diwilo Admin**: «Ejecutar ahora» de un agente pide un pedido puntual opcional y muestra su paso a paso en vivo (queda al terminar); IA Diwilo muestra «Qué puede hacer» según las herramientas de los módulos activos. La sección **Modelo de IA** aparece dentro de Diwilo Admin (que ahora muestra esta misma página) y las conexiones funcionan sin tokens MCP.
 

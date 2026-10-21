@@ -11,6 +11,28 @@ DW.ready.then((me) => {
     el.innerHTML = items.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === initial ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
   }
+  // Diseño de «IA» de Diwilo Admin, igual en todas las apps (sus colores salen del tema de cada app)
+  document.body.classList.add('ia-page');
+  if (!document.getElementById('ia-admin-css')) document.head.insertAdjacentHTML('beforeend', `<style id="ia-admin-css">
+body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var(--bs-secondary-color);--ink3:var(--bs-tertiary-color);--lilac:#a78bfa;--violet:#6d28d9;--fill:rgba(var(--bs-emphasis-color-rgb),.05);--hair:inset 0 0 0 1px var(--bs-border-color);--edge:var(--bs-border-color);--line:var(--bs-border-color);--good:#16a34a;--warn:#d97706;--bad:#dc2626;--sky:#0284c7}
+.ia-page .dw-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ia-page .grow{flex:1}.ia-page .hubbar{gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end}
+.ia-page .st{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:12px;white-space:nowrap;box-shadow:inset 0 0 0 1px currentColor}.ia-page .st::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ia-page .st.ok{color:var(--good)}.ia-page .st.soon{color:var(--warn)}.ia-page .st.bad{color:var(--bad)}.ia-page .st.free{color:var(--ink3)}
+.ia-page .ia-caps{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:13px;line-height:1.5}.ia-page .ia-caps b{color:var(--hi);font-weight:500;white-space:nowrap}.ia-page .ia-caps span{color:var(--ink2)}
+.ia-page .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.ia-page .acard{display:grid;gap:10px;align-content:start}.ia-page .acard.off{opacity:.6}.ia-page .acard b{color:var(--hi);font-weight:500}
+.ia-page .aico{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#a855f7,#6d28d9);color:#fff;font-size:19px;flex:none}.ia-page .aitext{margin:0;font-size:12.5px;line-height:1.5;min-height:38px}
+.ia-page .tplgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:10px}
+.ia-page .tplbtn{display:grid;gap:6px;text-align:left;padding:14px;border-radius:14px;border:0;cursor:pointer;background:var(--fill);color:var(--ink);box-shadow:var(--hair);font-size:13px}.ia-page .tplbtn i{font-size:22px;color:var(--lilac)}.ia-page .tplbtn b{color:var(--hi);font-weight:500}.ia-page .tplbtn span{font-size:12px;color:var(--ink3);line-height:1.45}.ia-page .tplbtn:hover{box-shadow:inset 0 0 0 1px var(--line)}
+.ia-page .tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;margin-top:6px}.ia-page .tchk{display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:10px;background:var(--fill);font-size:12px;cursor:pointer}.ia-page .tchk b{display:block;color:var(--hi);font-weight:500;text-transform:capitalize}.ia-page .tchk small{color:var(--ink3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ia-page .arun{padding:12px 0;box-shadow:inset 0 -1px 0 var(--edge);display:grid;gap:8px}.ia-page .aout{font-size:13.5px;line-height:1.6;color:var(--ink2)}.ia-page .aacts{display:grid;gap:6px}
+.ia-page .aact{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(124,58,237,.08);font-size:13px}.ia-page .aact i{margin-right:6px;color:var(--lilac)}.ia-page .aact>span:first-child{min-width:0;overflow-wrap:anywhere}
+.ia-page .kpi .v{font-size:1.5rem;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums;color:var(--hi)}.ia-page .kpi .l{color:var(--ink2);font-size:.85rem;margin-top:2px}
+.ia-page .meter{display:inline-block;width:calc(100% - 44px);height:7px;border-radius:9px;background:var(--fill);vertical-align:middle;margin-right:6px;overflow:hidden}.ia-page .meter i{display:block;height:100%;background:var(--good);border-radius:9px}.ia-page .meter.warn i{background:var(--warn)}.ia-page .meter.over i{background:var(--bad)}
+.ia-page .ubars{display:flex;align-items:flex-end;gap:3px;height:170px;padding-bottom:18px}.ia-page .ubars>div{flex:1;min-width:0;height:100%;display:flex;flex-direction:column-reverse;position:relative;border-radius:4px 4px 0 0}.ia-page .ubars>div:hover{background:rgba(var(--bs-emphasis-color-rgb),.04)}
+.ia-page .ubars i{display:block;background:linear-gradient(180deg,var(--lilac),var(--violet))}.ia-page .ubars b{display:block;background:rgba(var(--bs-emphasis-color-rgb),.55);border-radius:3px 3px 0 0}.ia-page .ubars span{position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--ink3)}
+.ia-page .legend{display:flex;gap:14px;margin-top:10px;font-size:12px;color:var(--ink3);flex-wrap:wrap}.ia-page .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}.ia-page .legend .ba{background:linear-gradient(180deg,var(--lilac),var(--violet))}.ia-page .legend .bb{background:rgba(var(--bs-emphasis-color-rgb),.55)}
+.ia-page .dw-field{display:grid;gap:5px;font-size:.8rem;color:var(--bs-secondary-color);margin-bottom:10px}
+</style>`);
   const C = window.App.Crud;
   const B = '/api/ai', M = '/api/marca';
   const $ = (s, el = document) => el.querySelector(s);
@@ -89,7 +111,13 @@ DW.ready.then((me) => {
         .addEventListener('click', (e) => { const b = e.target.closest('[data-cp]'); if (b) copiar(piezas[+b.dataset.cp][1]); });
     };
     el.onclick = async (e) => {
-      if (e.target.closest('[data-new]')) return editar(null);
+      if (e.target.closest('[data-blank]')) return editar(null);
+      if (e.target.closest('[data-new]')) {   // elegir una plantilla (luego se cambia todo) o empezar en blanco
+        if (!st.length) return editar(null);
+        const { el: pk, m: pm } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Nuevo agente</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><p class="text-body-secondary small">Elige una plantilla (luego puedes cambiar todo) o empieza en blanco.</p><div class="tplgrid">${st.map((t, i) => `<button type="button" class="tplbtn" data-st2="${i}"><i class="bi bi-robot"></i><b>${esc(t.nombre)}</b><span>${esc(String(t.instrucciones || '').split('\n')[0].slice(0, 110))}</span></button>`).join('')}<button type="button" class="tplbtn" data-blank2><i class="bi bi-plus-circle"></i><b>En blanco</b><span>Defines el rol, las herramientas y cuándo trabaja.</span></button></div></div>`, { size: 'modal-lg' });
+        pk.addEventListener('click', (ev) => { const b2 = ev.target.closest('[data-st2],[data-blank2]'); if (!b2) return; pm.hide(); b2.dataset.blank2 !== undefined ? editar(null) : editar(null, { ...st[+b2.dataset.st2], programacion: 'manual', autonomia: 'proponer', activo: 1, herramientas: [] }); });
+        return;
+      }
       const card = e.target.closest('[data-id]'); if (!card) return;
       const c = rows.find((x) => String(x.id) === card.dataset.id);
       if (e.target.closest('[data-edit]')) return editar(c);
@@ -127,61 +155,34 @@ DW.ready.then((me) => {
     };
   }
 
-  /* ================= Asistente del negocio ================= */
-  let hist = [];
+  /* ================= IA Diwilo: el asistente (botón flotante) ================= */
   function asistente(el) {
-    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Pregúntale a la IA por los datos de tu negocio (clientes, ventas, cuentas…). Consulta con las herramientas de tus módulos activos; si quiere <b>crear o cambiar</b> algo, te lo propone y tú lo apruebas.</div>
-      <div class="dw-card mb-3" data-caps hidden></div>
-      <div class="d-flex flex-wrap gap-2 mb-3" data-flujos></div>
-      <div class="dw-card"><div data-log class="d-flex flex-column gap-2 mb-3" style="min-height:160px;max-height:55vh;overflow:auto"></div>
-        <form class="d-flex gap-2" data-f><input class="form-control" name="q" maxlength="2000" placeholder="Ej.: ¿Cuántos leads nuevos tuve esta semana?" autocomplete="off" required aria-label="Pregunta"><button class="btn btn-primary text-nowrap"><i class="bi bi-send me-1"></i>Preguntar</button><button type="button" class="btn btn-light" data-clear title="Empezar de nuevo"><i class="bi bi-eraser"></i></button></form></div>`;
-    // Qué puede hacer: sale de las herramientas de los módulos activos (lo que consulta, lo que hace con confirmación y lo que nunca hace)
+    const fab = () => { for (const w of [window, window.parent, window.top]) { try { const b = w.document.getElementById('iaFab'); if (b) return { b, ia: w.DwIA }; } catch (_) {} } return {}; };
+    el.innerHTML = `<div class="dw-grid" style="--min:340px">
+      <div class="dw-card"><h2 class="h6"><i class="bi bi-robot"></i> IA Diwilo</h2>
+        <p class="text-body-secondary" style="font-size:13px;line-height:1.6">Asistente del negocio (botón flotante abajo a la derecha). Responde con los datos reales de tus módulos activos y, mientras trabaja, te muestra el paso a paso de lo que va haciendo.
+        Las acciones que cambian datos te piden confirmar antes de ejecutarse y quedan en la bitácora.</p>
+        <button class="btn btn-primary" data-open><i class="bi bi-chat-dots me-1"></i>Abrir IA Diwilo</button></div>
+      <div class="dw-card" data-caps><h2 class="h6">Qué puede hacer</h2><p class="text-body-secondary mb-0">Cargando…</p></div>
+      <div class="dw-card"><h2 class="h6">Modelo de IA</h2><p class="text-body-secondary" style="font-size:13px;line-height:1.6" data-provider>…</p></div>
+      <div class="dw-card" data-fl hidden><h2 class="h6"><i class="bi bi-diagram-3"></i> Flujos de trabajo</h2><p class="text-body-secondary" style="font-size:13px">Toca uno y la IA lo hace paso a paso (te pide confirmar antes de cambiar datos).</p><div class="d-flex flex-wrap gap-2" data-fl-btns></div></div></div>`;
+    $('[data-open]', el).onclick = () => { const f = fab(); if (f.b) f.b.click(); else toast('El botón de IA Diwilo no está en esta pantalla', false); };
+    api(`${B}/uso`).then((u) => { $('[data-provider]', el).textContent = `Usa ${u.motor}. Los chats de clientes, el asistente y los agentes comparten este modelo.`; }).catch(() => {});
     api(`${B}/herramientas`).then((r) => {
       const hs = r.herramientas.filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura'), chip = (t) => `<span class="badge text-bg-light border fw-normal">${esc(etiqueta(t.name))}</span>`;
       const lect = hs.filter((t) => t.tipo !== 'escritura'), escr = hs.filter((t) => t.tipo === 'escritura');
-      if (!hs.length) return;
-      const box = $('[data-caps]', el); box.hidden = false;
-      box.innerHTML = `<h2 class="h6 mb-2"><i class="bi bi-stars me-1"></i>Qué puede hacer</h2><div class="small"><div class="fw-semibold mt-1">Consulta</div><div class="d-flex flex-wrap gap-1 mb-2">${lect.map(chip).join('') || '—'}</div>
-        <div class="fw-semibold">Con tu confirmación</div><div class="d-flex flex-wrap gap-1 mb-2">${escr.map(chip).join('') || '—'}</div>
-        <div class="fw-semibold">No hace</div><div class="text-body-secondary">Borrar datos, cambiar dueños o permisos, ni registrar pagos de suscripciones. Las acciones que cambian datos te piden confirmar antes y quedan en la bitácora.</div></div>`;
+      $('[data-caps]', el).innerHTML = `<h2 class="h6">Qué puede hacer</h2><div class="ia-caps"><b>Consulta</b><span class="d-flex flex-wrap gap-1">${lect.map(chip).join('') || '—'}</span>
+        <b>Con tu confirmación</b><span class="d-flex flex-wrap gap-1">${escr.map(chip).join('') || '—'}</span>
+        <b>No hace</b><span>Borrar datos, cambiar dueños o permisos, ni registrar pagos de suscripciones.</span></div>`;
     }).catch(() => {});
-    // Flujos sugeridos: salen de la guía de cada módulo (el mismo estándar del MCP y de los agentes)
+    // Flujos: los de cada módulo y los que cruzan varios (el mismo estándar del MCP y de los agentes)
     api(`${B}/guias`).then((r) => {
       const fl = [...(r.entre || []).map((f) => ({ ...f, modulo: f.modulos.join(' + ') })), ...r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))];
-      $('[data-flujos]', el).innerHTML = fl.length ? `<span class="small text-body-secondary align-self-center"><i class="bi bi-diagram-3 me-1"></i>Flujos:</span>${fl.map((f, i) => `<button type="button" class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('')}` : '';
-      $('[data-flujos]', el).onclick = (e) => { const b = e.target.closest('[data-fl]'); if (b) { const q = $('[data-f] [name=q]', el); q.value = fl[+b.dataset.fl].prompt; q.focus(); } };
+      if (!fl.length) return;
+      const box = $('[data-fl]', el); box.hidden = false;
+      $('[data-fl-btns]', el).innerHTML = fl.map((f, i) => `<button class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('');
+      $('[data-fl-btns]', el).onclick = (e) => { const b = e.target.closest('[data-fl]'); if (!b) return; const f = fab(); if (f.ia?.ask) f.ia.ask(fl[+b.dataset.fl].prompt); else { navigator.clipboard?.writeText(fl[+b.dataset.fl].prompt); toast('Flujo copiado: pégalo en IA Diwilo'); f.b?.click(); } };
     }).catch(() => {});
-    const log = $('[data-log]', el);
-    const burbuja = (rol, html) => { const d = document.createElement('div'); d.className = `p-2 px-3 rounded-4 ${rol === 'user' ? 'align-self-end text-white' : 'align-self-start'}`; d.style.cssText = `max-width:90%;white-space:pre-wrap;${rol === 'user' ? 'background:var(--dw-p)' : 'background:rgba(var(--bs-body-color-rgb),.08)'}`; d.innerHTML = html; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
-    for (const m of hist) burbuja(m.role, m.role === 'user' ? esc(m.content) : esc(m.content) + (m.pasosHtml || ''));
-    if (!hist.length) burbuja('assistant', `¡Hola! Soy la IA de ${esc(me.business.name)}. ¿Qué quieres saber o hacer?`);
-    $('[data-clear]', el).onclick = () => { hist = []; asistente(el); };
-    $('[data-f]', el).onsubmit = async (e) => {
-      e.preventDefault(); const f = e.target, q = f.q.value.trim(); if (!q) return; f.q.value = '';
-      hist.push({ role: 'user', content: q }); burbuja('user', esc(q));
-      const w = burbuja('assistant', '<span class="text-body-secondary">Pensando…</span>'); f.querySelector('.btn-primary').disabled = true;
-      try {
-        const pid = nuevoId();
-        const r = await conAvance(pid, (pasos, actual) => { w.innerHTML = `<span class="text-body-secondary">Trabajando…</span>${pintarPasos(pasos, actual)}`; log.scrollTop = log.scrollHeight; }, () => api(`${B}/asistente`, { method: 'POST', body: { progreso: pid, mensajes: hist.map(({ role, content }) => ({ role, content })) } }));
-        const props = r.pasos.filter((p) => p.estado === 'propuesta');
-        const pasosHtml = pintarPasos(r.pasos);
-        w.innerHTML = esc(r.respuesta) + pasosHtml;
-        hist.push({ role: 'assistant', content: r.respuesta, pasosHtml });
-        for (const p of props) {
-          const card = document.createElement('div'); card.className = 'border rounded-3 p-2 mt-2 bg-body';
-          card.innerHTML = `<div class="small"><b><i class="bi bi-hourglass-split me-1"></i>Propuesta:</b> <code>${esc(p.herramienta)}</code></div><pre class="small mb-2" style="white-space:pre-wrap">${esc(JSON.stringify(p.args, null, 2))}</pre>
-            <div class="d-flex gap-2"><button class="btn btn-sm btn-primary" data-ok>Aprobar</button><button class="btn btn-sm btn-light" data-no>Descartar</button></div>`;
-          w.appendChild(card);
-          $('[data-no]', card).onclick = () => card.remove();
-          $('[data-ok]', card).onclick = async (ev) => {
-            ev.target.disabled = true;
-            try { await api(`${B}/asistente/aprobar`, { method: 'POST', body: { herramienta: p.herramienta, args: p.args } }); card.innerHTML = '<span class="small text-success"><i class="bi bi-check-lg me-1"></i>Hecho</span>'; }
-            catch (x) { card.innerHTML = `<span class="small text-danger">${esc(x.message)}</span>`; }
-          };
-        }
-      } catch (x) { w.innerHTML = `<span class="text-danger">${esc(x.message)}</span>`; hist.pop(); }
-      f.querySelector('.btn-primary').disabled = false; log.scrollTop = log.scrollHeight;
-    };
   }
 
   /* ================= Agentes ================= */
@@ -190,16 +191,19 @@ DW.ready.then((me) => {
     el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
     let rows, herr, st, flujos;
     try { [rows, herr, st, flujos] = await Promise.all([api(`${B}/agentes`).then((r) => r.rows), api(`${B}/herramientas`).then((r) => r.herramientas), CAN ? api(M).then((r) => r.starters.agente) : [], CAN ? api(`${B}/guias`).then((r) => r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))).catch(() => []) : []]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Un <b>agente</b> es una IA que trabaja sola con las herramientas de tus módulos: revisa, prepara y propone. Corre cuando tú lo pidas, cada día o cada lunes.
-        Lo que <b>escribe</b> (crear contactos, tareas…) queda como propuesta para que tú la apruebes, o se ejecuta solo si así lo configuras.</div>
-      ${CAN ? '<div class="mb-3 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nuevo agente</button>' + (st.length ? `<span class="small text-body-secondary">o empieza con:</span>${st.map((s, i) => `<button class="btn btn-sm btn-outline-primary" data-st="${i}">${esc(s.nombre)}</button>`).join('')}` : '') + '</div>' + (flujos.length ? `<div class="mb-3 d-flex flex-wrap gap-2 align-items-center"><span class="small text-body-secondary"><i class="bi bi-diagram-3 me-1"></i>Desde un flujo de tus módulos:</span>${flujos.map((f, i) => `<button class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('')}</div>` : '') : ''}
-      <div class="row g-3">${rows.length ? rows.map((a) => `<div class="col-lg-6"><div class="dw-card h-100 ${a.activo ? '' : 'opacity-75'}" data-id="${a.id}">
-        <div class="d-flex align-items-start gap-2"><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(a.nombre)}</h2><div class="small text-body-secondary">${PROG[a.programacion]} · ${AUTO[a.autonomia]} · ${a.herramientas.length} herramienta${a.herramientas.length === 1 ? '' : 's'}</div></div>
-          ${a.ultima?.pendientes ? `<span class="badge text-bg-warning">${a.ultima.pendientes} por aprobar</span>` : ''}<span class="badge ${a.activo ? 'text-bg-success' : 'text-bg-secondary'}">${a.activo ? 'Activo' : 'Pausado'}</span></div>
-        <p class="small text-body-secondary mt-2 mb-1" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(a.instrucciones)}</p>
-        <div class="small">${a.ultima ? `<i class="bi bi-clock-history me-1"></i>${esc(ago(a.ultima.created_at))} · ${a.ultima.estado === 'error' ? '<span class="text-danger">con error</span>' : 'ok'}` : 'Aún no ha corrido'}</div>
-        <div class="d-flex flex-wrap gap-1 mt-3">${CAN ? '<button class="btn btn-sm btn-primary" data-run><i class="bi bi-play-fill me-1"></i>Ejecutar ahora</button><button class="btn btn-sm btn-outline-primary" data-edit><i class="bi bi-pencil me-1"></i>Editar</button>' : ''}<button class="btn btn-sm btn-outline-primary" data-hist><i class="bi bi-clock-history me-1"></i>Historial</button></div></div></div>`).join('')
-        : `<div class="col-12">${empty('bi-lightning-charge', 'Aún no tienes agentes.', CAN ? '<button class="btn btn-primary" data-new>Crear mi primer agente</button>' : '')}</div>`}</div>`;
+    const ICON = (a) => (/cobr|cartera/i.test(a.nombre) ? 'bi-cash-coin' : /lead|contact|cliente/i.test(a.nombre) ? 'bi-person-plus' : /blog|texto|escrib/i.test(a.nombre) ? 'bi-journal-text' : /renov|venc/i.test(a.nombre) ? 'bi-arrow-clockwise' : /anali|resumen|informe/i.test(a.nombre) ? 'bi-graph-up' : 'bi-robot');
+    el.innerHTML = `<div class="dw-row hubbar"><p class="text-body-secondary grow" style="margin:0;font-size:13px;max-width:760px">Cada agente tiene un rol, las herramientas que puede usar y cuándo trabaja. Si «propone», lo que cambie datos espera tu aprobación; si «actúa solo», lo hace y queda en la bitácora.</p>
+        ${CAN ? '<button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nuevo agente</button>' : ''}</div>
+      ${CAN && flujos.length ? `<div class="mb-3 d-flex flex-wrap gap-2 align-items-center"><span class="small text-body-secondary"><i class="bi bi-diagram-3 me-1"></i>Desde un flujo de tus módulos:</span>${flujos.map((f, i) => `<button class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('')}</div>` : ''}
+      ${rows.length ? `<div class="agrid">${rows.map((a) => `<article class="dw-card acard ${a.activo ? '' : 'off'}" data-id="${a.id}">
+          <div class="dw-row" style="gap:10px"><span class="aico"><i class="bi ${ICON(a)}"></i></span><div style="flex:1;min-width:0"><b>${esc(a.nombre)}</b><br><span class="text-body-secondary" style="font-size:12px">${a.herramientas.length} herramienta${a.herramientas.length === 1 ? '' : 's'}</span></div>
+            ${a.ultima?.pendientes ? `<span class="badge text-bg-primary" title="Ejecuciones con acciones por aprobar">${a.ultima.pendientes}</span>` : ''}</div>
+          <p class="text-body-secondary aitext">${esc(a.instrucciones.slice(0, 160))}${a.instrucciones.length > 160 ? '…' : ''}</p>
+          <div class="dw-row" style="gap:6px;flex-wrap:wrap"><span class="st ${a.activo ? 'ok' : 'free'}">${a.activo ? PROG[a.programacion] : 'Pausado'}</span><span class="st ${a.autonomia === 'ejecutar' ? 'ok' : 'soon'}">${AUTO[a.autonomia]}</span></div>
+          <span class="text-body-secondary" style="font-size:12px">${a.ultima ? `Última vez: ${esc(ago(a.ultima.created_at))}${a.ultima.estado === 'error' ? ' · con error' : ''}` : 'Aún no ha trabajado'}</span>
+          <div class="dw-row" style="gap:6px">${CAN ? '<button class="btn btn-sm btn-primary" data-run><i class="bi bi-play-fill"></i> Ejecutar ahora</button>' : ''}<button class="btn btn-sm btn-outline-secondary" data-hist>Historial</button>${CAN ? '<button class="btn btn-sm btn-outline-secondary" data-edit>Editar</button>' : ''}</div>
+        </article>`).join('')}</div>`
+      : `<div class="dw-card"><h2 class="h6">Empieza con una plantilla</h2>${CAN ? `<div class="tplgrid">${st.map((t, i) => `<button class="tplbtn" data-st="${i}"><i class="bi ${ICON(t)}"></i><b>${esc(t.nombre)}</b><span>${esc(String(t.instrucciones || '').split('\n')[0].slice(0, 110))}</span></button>`).join('')}<button class="tplbtn" data-blank><i class="bi bi-plus-circle"></i><b>En blanco</b><span>Defines el rol, las herramientas y cuándo trabaja.</span></button></div>` : '<p class="text-body-secondary mb-0">Aún no hay agentes.</p>'}</div>`}`;
     const grupos = Object.entries(herr.reduce((g, t) => { (g[t.modulo] ||= []).push(t); return g; }, {}));
     const editar = (a, base) => {
       const d = a || base || { programacion: 'manual', autonomia: 'proponer', activo: 1, herramientas: [] };
@@ -317,31 +321,35 @@ DW.ready.then((me) => {
     const tok = (x) => (x >= 1e6 ? `${(x / 1e6).toLocaleString('es-CO', { maximumFractionDigits: 2 })} M` : x >= 1000 ? `${(x / 1000).toLocaleString('es-CO', { maximumFractionDigits: 1 })} k` : String(x || 0));
     const cop = (usd) => `$${Math.round(usd * aj.usd_cop).toLocaleString('es-CO')}`, usd = (x) => `US$${x.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: x < 1 ? 3 : 2 })}`;
     const hoyT = u.hoy.tin + u.hoy.tout, mesT = u.mes.tin + u.mes.tout, pct = aj.tope_tokens ? Math.min(100, Math.round((hoyT / aj.tope_tokens) * 100)) : 0;
-    const medidor = (v, max) => `<div class="progress mt-2" style="height:6px"><div class="progress-bar ${v / max > .85 ? 'bg-danger' : ''}" style="width:${Math.min(100, Math.round((v / max) * 100))}%"></div></div>`;
-    const kpi = (t, v, sub, extra = '') => `<div class="col-6 col-lg"><div class="dw-card h-100"><div class="small text-body-secondary">${t}</div><div class="fs-5 fw-bold">${v}</div><div class="small text-body-secondary">${sub}</div>${extra}</div></div>`;
-    const max = Math.max(1, ...u.dias.map((d) => d.tin + d.tout));
-    el.innerHTML = `${pct >= 80 ? `<div class="alert ${pct >= 100 ? 'alert-danger' : 'alert-warning'} py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>${pct >= 100 ? 'La IA está en pausa hasta mañana: se llegó al tope diario. Los chats pasan a WhatsApp.' : `Llevas el ${pct}% del tope diario de tokens.`}</div>` : ''}
-      <p class="small text-body-secondary">Cada vez que la IA responde se cuentan los tokens (lo que lee + lo que escribe). Motor: <b>${esc(u.motor)}</b>. Los costos son estimados.</p>
-      <div class="row g-3 mb-3">
-        ${kpi('Tokens hoy', tok(hoyT), aj.tope_tokens ? `tope ${tok(aj.tope_tokens)}` : 'sin tope diario', aj.tope_tokens ? medidor(hoyT, aj.tope_tokens) : '')}
-        ${kpi('Costo hoy', cop(u.hoy.usd), `${usd(u.hoy.usd)} · ${n(u.hoy.calls)} de ${n(u.tope_dia)} llamadas`, medidor(u.hoy.calls, u.tope_dia))}
-        ${u.neuronas_gratis ? kpi('Cuota gratis de Cloudflare', n(u.hoy.neuronas), `de ${n(u.neuronas_gratis)} neuronas · se renueva 7:00 p. m.`, medidor(u.hoy.neuronas, u.neuronas_gratis)) : ''}
+    const max = Math.max(1, ...u.dias.map((d) => d.tin + d.tout)), puede = CAN && me.canManage;
+    const meter = (v, m) => { const p = m ? Math.round((v / m) * 100) : 0; return `<div class="meter ${p > 100 ? 'over' : p >= 80 ? 'warn' : ''}"><i style="width:${Math.min(100, p)}%"></i></div><span class="text-body-secondary" style="font-size:12px">${p}%</span>`; };
+    const kpi = (l, v, sub) => `<div class="dw-card kpi"><div class="v">${v}</div><div class="l">${l}</div>${sub ? `<div class="text-body-secondary" style="font-size:12px;margin-top:4px">${sub}</div>` : ''}</div>`;
+    el.innerHTML = `<p class="text-body-secondary" style="margin:0 0 12px;font-size:13px;max-width:820px">Cada vez que la IA responde se cuentan los tokens (lo que lee + lo que escribe). Motor actual: <b>${esc(u.motor)}</b>. Los costos son estimados.</p>
+      ${pct >= 80 ? `<div class="dw-card" style="border-color:var(--${pct >= 100 ? 'bad' : 'warn'});margin-bottom:12px"><b><i class="bi bi-exclamation-triangle"></i> ${pct >= 100 ? 'La IA está en pausa hasta mañana: se llegó al tope diario.' : `Llevas el ${pct}% del tope diario de tokens.`}</b></div>` : ''}
+      <div class="dw-grid" style="--min:200px">
+        ${kpi('Tokens hoy', tok(hoyT), aj.tope_tokens ? `${meter(hoyT, aj.tope_tokens)}<br>Tope diario: ${tok(aj.tope_tokens)}` : 'Sin tope diario')}
+        ${kpi('Costo hoy', cop(u.hoy.usd), `${usd(u.hoy.usd)} · ${n(u.hoy.calls)} de ${n(u.tope_dia)} llamadas`)}
+        ${u.neuronas_gratis ? kpi('Cuota gratis de Cloudflare hoy', n(u.hoy.neuronas), `${meter(u.hoy.neuronas, u.neuronas_gratis)}<br>de ${n(u.neuronas_gratis)} neuronas · se renueva 7:00 p. m.`) : ''}
         ${kpi('Tokens del mes', tok(mesT), `${tok(u.mes.tin)} leídos · ${tok(u.mes.tout)} escritos`)}
         ${kpi('Costo del mes', cop(u.mes.usd), `${usd(u.mes.usd)} · proyección ${cop(u.mes.proyeccion_usd)}`)}</div>
-      <div class="row g-3 mb-3"><div class="col-lg-7"><div class="dw-card h-100"><h2 class="h6 mb-3">Últimos 30 días</h2>${u.dias.length ? `<div class="d-flex align-items-end gap-1" style="height:120px">${u.dias.map((d) => `<div title="${esc(d.day)}: ${tok(d.tin + d.tout)} tokens · ${cop(d.usd)}" style="flex:1;min-width:3px;height:${Math.max(3, Math.round(((d.tin + d.tout) / max) * 100))}%;background:var(--dw-p);border-radius:3px 3px 0 0"></div>`).join('')}</div><div class="d-flex justify-content-between small text-body-secondary mt-1"><span>${esc(u.dias[0].day)}</span><span>Día más alto: ${tok(max)} tokens</span><span>${esc(u.dias[u.dias.length - 1].day)}</span></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo.</p>'}</div></div>
-        <div class="col-lg-5"><div class="dw-card h-100"><h2 class="h6 mb-3">Quién gasta este mes</h2>${u.fuentes.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Origen</th><th class="text-end">Llamadas</th><th class="text-end">Tokens</th><th class="text-end">Costo</th></tr></thead><tbody>${u.fuentes.map((f) => `<tr><td>${esc(FUENTE[f.fuente] || f.fuente)}</td><td class="text-end">${n(f.calls)}</td><td class="text-end">${tok(f.tin + f.tout)}</td><td class="text-end">${cop(f.usd)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo este mes.</p>'}</div></div></div>
-      <div class="row g-3"><div class="col-lg-6"><form class="dw-card h-100" data-topes><h2 class="h6 mb-3">Topes</h2>
-          <label class="form-label small mb-1">Tope diario de tokens (entre todo)</label><input class="form-control mb-1" name="tope_tokens" type="number" min="0" step="10000" value="${aj.tope_tokens}" ${CAN && me.canManage ? '' : 'disabled'}><div class="small text-body-secondary mb-3">0 = sin tope. Al llegar, la IA se pausa hasta mañana y los chats pasan a WhatsApp.</div>
-          <label class="form-label small mb-1">Tope por ejecución de un agente (tokens)</label><input class="form-control mb-1" name="tope_ejecucion" type="number" min="5000" step="5000" value="${aj.tope_ejecucion}" ${CAN && me.canManage ? '' : 'disabled'}><div class="small text-body-secondary mb-3">Al llegar, el agente para y entrega lo que alcanzó.</div>
-          <label class="form-label small mb-1">Dólar en pesos</label><input class="form-control mb-3" name="usd_cop" type="number" min="1000" step="10" value="${aj.usd_cop}" ${CAN && me.canManage ? '' : 'disabled'}>
-          ${CAN && me.canManage ? '<button class="btn btn-primary">Guardar topes</button>' : ''}</form></div>
-        <div class="col-lg-6"><div class="dw-card h-100"><h2 class="h6 mb-3">Qué te protege de gastar de más</h2><ul class="small mb-0 ps-3">
-          <li><b>Tope diario</b>: nada llama a la IA cuando se llega al tope del día (y máximo ${n(u.tope_dia)} llamadas).</li>
-          <li><b>Tope por agente</b>: cada ejecución tiene su límite de tokens y de pasos (16).</li>
-          <li><b>Sin repeticiones</b>: si un agente pide lo mismo dos veces, se le recuerda que ya lo tiene.</li>
-          <li><b>Memoria recortada</b>: en cada paso los resultados viejos se resumen para no pagarlos otra vez.</li>
-          <li><b>Uno a la vez</b>: un agente no corre dos veces al mismo tiempo; las ejecuciones cortadas se cierran solas a los 15 minutos.</li>
-          <li><b>Chats</b>: máximo 20 mensajes por visitante cada 10 minutos y un tope diario por chat.</li></ul></div></div></div>`;
+      <div class="dw-grid" style="--min:360px;margin-top:14px">
+        <div class="dw-card"><h2 class="h6">Últimos 30 días</h2>${u.dias.length ? `<div class="ubars">${u.dias.map((d, i) => `<div title="${esc(d.day)} · ${tok(d.tin + d.tout)} tokens · ${cop(d.usd)}"><i style="height:${(d.tin / max * 100).toFixed(1)}%"></i><b style="height:${(d.tout / max * 100).toFixed(1)}%"></b><span>${i % 5 === 4 || i === u.dias.length - 1 ? +d.day.slice(8) : ''}</span></div>`).join('')}</div>
+          <div class="legend"><span><i class="ba"></i>Leídos (entrada)</span><span><i class="bb"></i>Escritos (salida)</span><span class="text-body-secondary">Día más alto: ${tok(max)} tokens</span></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo.</p>'}</div>
+        <div class="dw-card"><h2 class="h6">Quién gasta este mes</h2>${u.fuentes.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Origen</th><th>Llamadas</th><th>Tokens</th><th>Costo</th></tr></thead><tbody>${u.fuentes.map((f) => `<tr><td>${esc(FUENTE[f.fuente] || f.fuente)}</td><td>${n(f.calls)}</td><td>${tok(f.tin + f.tout)}</td><td>${cop(f.usd)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo este mes.</p>'}</div></div>
+      <div class="dw-grid" style="--min:360px;margin-top:14px">
+        <form class="dw-card" data-topes><h2 class="h6">Topes y precios</h2>
+          <label class="dw-field"><span>Tope diario de tokens (entre todo)</span><input class="form-control" name="tope_tokens" type="number" min="0" step="10000" value="${aj.tope_tokens}" ${puede ? '' : 'disabled'}><small class="text-body-secondary">0 = sin tope. Al llegar, la IA se pausa hasta mañana y los chats pasan a WhatsApp.</small></label>
+          <label class="dw-field"><span>Tope por ejecución de un agente (tokens)</span><input class="form-control" name="tope_ejecucion" type="number" min="5000" step="5000" value="${aj.tope_ejecucion}" ${puede ? '' : 'disabled'}><small class="text-body-secondary">Al llegar, el agente para y entrega lo que alcanzó.</small></label>
+          <label class="dw-field"><span>Dólar en pesos</span><input class="form-control" name="usd_cop" type="number" min="1000" step="10" value="${aj.usd_cop}" ${puede ? '' : 'disabled'}></label>
+          ${puede ? '<div class="dw-row" style="justify-content:flex-end;margin-top:10px"><button class="btn btn-primary">Guardar</button></div>' : ''}</form>
+        <div class="dw-card"><h2 class="h6">Qué te protege de gastar de más</h2><div class="ia-caps">
+          <b>Tope diario</b><span>Nada llama a la IA cuando se llega al tope del día (y máximo ${n(u.tope_dia)} llamadas).</span>
+          <b>Tope por agente</b><span>Cada ejecución tiene su límite de tokens y de pasos (16).</span>
+          <b>Sin repeticiones</b><span>Si un agente pide lo mismo dos veces, se le recuerda que ya lo tiene.</span>
+          <b>Memoria recortada</b><span>En cada paso los resultados viejos se resumen para no pagarlos otra vez.</span>
+          <b>Uno a la vez</b><span>Un agente no corre dos veces al mismo tiempo; las ejecuciones cortadas se cierran solas a los 15 minutos.</span>
+          <b>Chats</b><span>Máximo 20 mensajes por visitante cada 10 minutos y un tope diario por chat.</span></div></div>
+      </div>`;
     el.querySelector('[data-topes]')?.addEventListener('submit', async (e) => {
       e.preventDefault(); const f = e.target;
       try { await api(`${B}/uso`, { method: 'PATCH', body: { tope_tokens: f.tope_tokens.value, tope_ejecucion: f.tope_ejecucion.value, usd_cop: f.usd_cop.value } }); toast('Topes guardados'); consumo(el); }
