@@ -1,5 +1,8 @@
 # IA (`ai`) — cambios
 
+## 1.4.2 · 2026-10-23
+- **IA Diwilo en celulares**: el botón flotante es un círculo con el logo y la ventana sube desde abajo con altura segura (la anterior medía el 100 % con la barra del navegador y el botón de cerrar quedaba oculto). Cierra con un botón de 40 px o tocando fuera; texto de 16 px para que el iPhone no haga zoom.
+
 ## 1.4.1 · 2026-10-23
 - Las secciones quedan: **Agentes · IA Diwilo · Consumo · Chats y conversaciones · Conexiones y API** (y Modelo de IA solo en Diwilo Admin). Los chats con sus ajustes y sus conversaciones van en el mismo lugar; se quitan Plantillas y Bitácora de esta pantalla.
 - Las plantillas para empezar un agente vienen de `GET /api/ai/starters` (antes de la API de Marca, que no existe en todos los contextos y daba «método no permitido»).

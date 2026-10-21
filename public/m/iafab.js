@@ -39,7 +39,13 @@
 .ia-steps li{display:flex;gap:6px;align-items:baseline}.ia-steps .ok{color:#16a34a}.ia-steps .bad{color:#dc2626}.ia-steps .wait{color:#d97706}.ia-steps .now{color:#6d28d9;font-weight:600}.ia-steps .spin{display:inline-block;animation:iaSpin 1s linear infinite}
 @keyframes iaSpin{to{transform:rotate(360deg)}}
 @keyframes iaDot2{0%,80%,100%{opacity:.25}40%{opacity:1}}
-@media (max-width:991.98px){.ia-fab{right:14px;bottom:calc(var(--dw-bottom-h,64px) + 14px)}.ia-panel{left:8px;right:8px;bottom:8px;width:auto;height:calc(100vh - 16px)}}`;
+@media (max-width:991.98px){
+.ia-fab{right:14px;bottom:calc(var(--dw-bottom-h,64px) + env(safe-area-inset-bottom,0px) + 12px);width:52px;height:52px;padding:0;justify-content:center;gap:0}.ia-fab span{display:none}.ia-fab svg{width:28px;height:28px}
+.ia-back{position:fixed;inset:0;z-index:1044;background:rgba(0,0,0,.45)}.ia-back[hidden]{display:none}
+.ia-panel{left:0;right:0;bottom:0;top:auto;width:auto;height:min(82dvh,calc(100dvh - 56px));max-height:calc(100dvh - 56px);border-radius:18px 18px 0 0;border-bottom:0;padding-bottom:env(safe-area-inset-bottom,0px)}
+.ia-panel header{padding:12px 12px 10px;position:relative}.ia-panel header::before{content:"";position:absolute;top:5px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:4px;background:var(--bs-border-color,#dee2e6)}
+.ia-panel header small{display:none}.ia-panel header button{width:40px;height:40px;font-size:18px}
+.ia-log{padding:12px}.ia-msg{max-width:96%;font-size:14px}.ia-form{padding:8px 10px 10px}.ia-form textarea{font-size:16px}.ia-sugg{padding:0 12px 6px}}}`;
 
   window.DW.ready.then((me) => {
     if (me.pageAllowed === false || !me.modules?.some((m) => m.id === 'ai')) return;
@@ -51,6 +57,7 @@
     document.head.insertAdjacentHTML('beforeend', `<style>${CSS}</style>`);
     document.body.insertAdjacentHTML('beforeend', `
       <button class="ia-fab" id="iaFab" aria-label="Abrir IA Diwilo" title="IA Diwilo">${MARK}<span>IA Diwilo</span></button>
+      <div class="ia-back" id="iaBack" hidden></div>
       <aside class="ia-panel" id="iaPanel" hidden aria-label="IA Diwilo">
         <header><span class="ia-logo">${MARK}</span><div><b>IA Diwilo</b><small>Consulta y gestiona tu negocio. Las acciones te piden confirmar.</small></div>
           <button id="iaNew" title="Nueva conversación" aria-label="Nueva conversación">✎</button><button id="iaClose" aria-label="Cerrar">✕</button></header>
@@ -110,10 +117,11 @@
       } catch (x) { hist.push({ role: 'assistant', content: `No pude responder: ${x.message}` }); }
       clearInterval(t); form.querySelector('button').disabled = false; save(); draw();
     }
-    const open = (on) => { panel.hidden = !on; $('#iaFab').classList.toggle('on', on); if (on) { draw(); setTimeout(() => ta.focus(), 50); } };
+    const open = (on) => { panel.hidden = !on; $('#iaBack').hidden = !on; $('#iaFab').classList.toggle('on', on); if (on) { draw(); setTimeout(() => ta.focus(), 50); } };
     window.DwIA = { ask: (q) => { open(true); ask(q); } };   // lo usan las secciones de IA (flujos) para abrir el botón y preguntar
     $('#iaFab').onclick = () => open(panel.hidden);
     $('#iaClose').onclick = () => open(false);
+    $('#iaBack').onclick = () => open(false);
     $('#iaNew').onclick = () => { hist = []; save(); draw(); };
     $('#iaSugg').onclick = (e) => { const b = e.target.closest('.pill'); if (b) ask(b.dataset.q || b.textContent); };
     form.onsubmit = (e) => { e.preventDefault(); const q = ta.value; ta.value = ''; ta.style.height = ''; ask(q); };
