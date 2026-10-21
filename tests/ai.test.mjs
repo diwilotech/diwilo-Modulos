@@ -76,6 +76,9 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const topes = await A.app(`${X}/uso`, { method: 'PATCH', body: { tope_tokens: 800000, usd_cop: 4200 } });
   check('IA: el administrador cambia los topes; el personal no; un valor inválido se rechaza', topes.status === 200 && topes.data.ajustes.tope_tokens === 800000 && topes.data.ajustes.usd_cop === 4200 && (await staff.app(`${X}/uso`, { method: 'PATCH', body: { tope_tokens: 1 } })).status === 403 && (await A.app(`${X}/uso`, { method: 'PATCH', body: { tope_ejecucion: 10 } })).status === 400 && (await B.app(`${X}/uso`)).data.ajustes.tope_tokens === 500000);
   await A.app(`${X}/uso`, { method: 'PATCH', body: { tope_tokens: 500000, usd_cop: 4000 } });
+  check('IA: B no ve el consumo de A', (await B.app(`${X}/uso`)).data.hoy.calls === 0);
+  check('IA: el modelo de IA de la plataforma solo lo elige Diwilo Admin (un negocio recibe 403)', (await A.app(`${X}/proveedor`)).status === 403 && (await A.app(`${X}/proveedor`, { method: 'PUT', body: { proveedor: 'claude' } })).status === 403 && (await A.app(`${X}/proveedor/probar`, { method: 'POST', body: {} })).status === 403);
+  check('IA: el consumo dice qué motor responde', typeof uso.motor === 'string' && uso.motor.length > 3, uso.motor);
 
   /* ---------- agentes ---------- */
   const herr = (await A.app(`${X}/herramientas`)).data.herramientas;

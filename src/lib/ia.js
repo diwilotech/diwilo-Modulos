@@ -8,11 +8,50 @@ export const TOPE_DIA = 200;                           // llamadas de IA por neg
 export const dayCo = () => new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10);
 const MODELO = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
+// ---- Proveedor de IA de la plataforma: lo elige Diwilo Admin (tabla ia_plataforma) y aplica a TODAS las apps ----
+// 'auto' = como antes (Gemini si hay clave, si no Workers AI). Cada proveedor necesita su secreto: ANTHROPIC_API_KEY, GEMINI_API_KEY o el binding AI.
+export const PROVEEDORES = {
+  claude: { nombre: 'Claude (Anthropic)', secreto: 'ANTHROPIC_API_KEY', modelo: 'claude-sonnet-5-5', modelos: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'] },
+  gemini: { nombre: 'Gemini (Google)', secreto: 'GEMINI_API_KEY', modelo: 'gemini-2.5-flash', modelos: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
+  'workers-ai': { nombre: 'Workers AI (Cloudflare)', secreto: 'binding AI', modelo: MODELO, modelos: [MODELO] },
+};
+export const hayProveedor = (env, p) => (p === 'claude' ? !!env.ANTHROPIC_API_KEY : p === 'gemini' ? !!env.GEMINI_API_KEY : p === 'workers-ai' ? !!env.AI : false);
+let cachePlat = { at: 0, v: null };
+export async function plataformaIA(env, fresco = false) {
+  if (!fresco && cachePlat.v && Date.now() - cachePlat.at < 20000) return cachePlat.v;
+  const v = { proveedor: 'auto', modelo_claude: '', modelo_gemini: '' };
+  try { for (const r of (await env.DB.prepare('SELECT k, v FROM ia_plataforma').all()).results || []) if (r.k in v) v[r.k] = r.v; } catch (_) {}
+  cachePlat = { at: Date.now(), v };
+  return v;
+}
+export const olvidarPlataforma = () => { cachePlat = { at: 0, v: null }; };
+// Orden en que se intenta: el elegido primero y, si falla, los más baratos como respaldo (Claude nunca es respaldo: cuesta más)
+export function ordenIA(env, plat) {
+  const base = plat.proveedor === 'claude' ? ['claude', 'gemini', 'workers-ai'] : plat.proveedor === 'gemini' ? ['gemini', 'workers-ai'] : plat.proveedor === 'workers-ai' ? ['workers-ai'] : ['gemini', 'workers-ai'];
+  return base.filter((p) => hayProveedor(env, p));
+}
+export const modeloDe = (env, plat, p) => (p === 'claude' ? plat.modelo_claude || env.CLAUDE_MODEL || PROVEEDORES.claude.modelo : p === 'gemini' ? plat.modelo_gemini || env.GEMINI_MODEL || PROVEEDORES.gemini.modelo : env.AI_MODEL || MODELO);
+
+// Claude por la API de mensajes de Anthropic. Los turnos seguidos del mismo rol se juntan y siempre empieza un turno del usuario.
+export async function viaClaude(env, { system, history, maxTokens, temperature, modelo }) {
+  const msgs = [];
+  for (const m of history) { const role = m.role === 'assistant' ? 'assistant' : 'user', c = String(m.content ?? ''); if (msgs.length && msgs[msgs.length - 1].role === role) msgs[msgs.length - 1].content += `\n\n${c}`; else msgs.push({ role, content: c }); }
+  if (!msgs.length || msgs[0].role !== 'user') msgs.unshift({ role: 'user', content: '.' });
+  const pedir = (conTemp) => fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: modelo, max_tokens: maxTokens, system, messages: msgs, ...(conTemp ? { temperature } : {}) }) });
+  let r = await pedir(true);
+  if (r.status === 400) { const t = await r.clone().text(); if (/temperature/i.test(t)) r = await pedir(false); }
+  if (!r.ok) throw new Error(`Claude ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const d = await r.json(), text = (d.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+  if (!text) throw new Error('Claude no respondió');
+  return { text, tin: d.usage?.input_tokens ?? 0, tout: d.usage?.output_tokens ?? 0 };
+}
+
 export async function usoDelDia(env, org, day = dayCo()) {
   return (await env.DB.prepare('SELECT COALESCE(SUM(calls), 0) n, COALESCE(SUM(tin), 0) tin, COALESCE(SUM(tout), 0) tout FROM ia_uso WHERE business_id = ? AND day = ?').bind(org, day).first()) || { n: 0, tin: 0, tout: 0 };
 }
 // Topes y precios (los mismos que en IA Diwilo de Diwilo Admin): tokens por día y por ejecución de un agente, dólar en pesos; el negocio puede cambiarlos.
-export const PRECIOS = { gemini: { in: 0.30, out: 2.50 }, 'workers-ai': { in: 0.29, out: 2.25 } };   // US$ por millón de tokens (estimados)
+export const PRECIOS = { claude: { in: 3, out: 15 }, gemini: { in: 0.30, out: 2.50 }, 'workers-ai': { in: 0.29, out: 2.25 } };   // US$ por millón de tokens (estimados)
 export const AJUSTES_BASE = { tope_tokens: 500000, tope_ejecucion: 100000, usd_cop: 4000 };
 export const NEURONAS_GRATIS = 10000;
 export async function ajustesDe(env, org) {
@@ -35,6 +74,7 @@ export async function registrarUso(env, org, { fuente, proveedor, tin = 0, tout 
 
 const est = (t) => Math.ceil(String(t || '').length / 4);
 export const motor = (env) => (env.GEMINI_API_KEY ? 'Gemini' : env.AI ? 'Workers AI' : 'sin configurar');
+export async function motorActivo(env) { const plat = await plataformaIA(env), p = ordenIA(env, plat)[0]; return p ? `${PROVEEDORES[p].nombre.split(' ')[0]} · ${modeloDe(env, plat, p)}` : 'sin configurar'; }
 
 // history: [{ role: 'user'|'assistant', content }]. Devuelve el texto.
 export async function llamarIA(env, org, system, history, { fuente = 'chat', maxTokens = 500, temperature = 0.5, limite } = {}) {
@@ -47,21 +87,27 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
     if (g) { const salidas = g[1].trim().split(/\n---\n/); const paso = history.filter((m) => m.role === 'assistant').length; return (salidas[paso] ?? '{"accion":"fin","respuesta":"Listo."}').trim(); }
     return `Respuesta de prueba: ${lastUser.replace(/^\s*\[prueba\]\s*/, '')}`;
   }
-  if (env.GEMINI_API_KEY) {
-    const model = env.GEMINI_MODEL || 'gemini-2.5-flash';
-    const generationConfig = { maxOutputTokens: maxTokens, temperature };
-    if (/flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  const plat = await plataformaIA(env), orden = ordenIA(env, plat);
+  for (const p of orden) {
+    if (p === 'workers-ai') break;
     try {
+      if (p === 'claude') {
+        const o = await viaClaude(env, { system, history, maxTokens, temperature, modelo: modeloDe(env, plat, 'claude') });
+        await registrarUso(env, org, { fuente, proveedor: 'claude', tin: o.tin || est(system), tout: o.tout || est(o.text) }); return o.text;
+      }
+      const model = modeloDe(env, plat, 'gemini');
+      const generationConfig = { maxOutputTokens: maxTokens, temperature };
+      if (/flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
         body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: history.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig }),
       });
       if (r.ok) {
-        const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((p) => p.text).join('').trim(), u = d.usageMetadata || {};
+        const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((p2) => p2.text).join('').trim(), u = d.usageMetadata || {};
         if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: u.promptTokenCount ?? est(system), tout: (u.candidatesTokenCount ?? est(text)) + (u.thoughtsTokenCount || 0) }); return text; }
       }
-    } catch (e) { console.error('gemini', e.message); }
-    // si Gemini falla seguimos con Workers AI
+    } catch (e) { console.error(p, e.message); }
+    // si falla seguimos con el siguiente de la lista y, al final, con Workers AI
   }
   if (!env.AI) throw new HttpError(503, 'La IA no está configurada');
   let out;

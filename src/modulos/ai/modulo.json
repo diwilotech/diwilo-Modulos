@@ -1,7 +1,7 @@
 {
   "id": "ai",
   "nombre": "IA",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "descripcion": "El módulo general de IA del negocio: chats de clientes que se despliegan en tarjetas, webs y demás (varios, cada uno con su configuración y su conversación guardada), asistente del negocio, agentes que trabajan solos con las herramientas de los demás módulos, plantillas de IA, consumo con tope diario, conexiones MCP, claves de API y webhooks, y la bitácora.",
   "icono": "bi-robot",
   "menu": {

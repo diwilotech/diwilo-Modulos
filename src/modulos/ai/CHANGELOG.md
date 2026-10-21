@@ -1,5 +1,9 @@
 # IA (`ai`) — cambios
 
+## 1.3.0 · 2026-10-23
+- **Funciona con Claude (Anthropic)** además de Gemini y Workers AI, por la API de mensajes (tipo chat; modelo por defecto `claude-sonnet-5-5`). Necesita el secreto `ANTHROPIC_API_KEY`.
+- **El modelo lo elige Diwilo Admin** (Integraciones e IA → Modelo de IA) y aplica a todas las apps: automático, Claude, Gemini o Workers AI, y el modelo de cada uno. Se guarda en `ia_plataforma` (migración 0016) y solo responde al negocio de Diwilo (`GET/PUT /api/ai/proveedor`, `POST /api/ai/proveedor/probar`); cualquier otro negocio recibe 403. Si el elegido falla, el respaldo es Gemini o Workers AI (Claude nunca es respaldo). El consumo cuenta a Claude con su propio precio estimado.
+
 ## 1.2.0 · 2026-10-23
 - **Secciones en el orden de Diwilo Admin**: Agentes · IA Diwilo · Consumo · Conversaciones del chat · Ajustes del chat · Conexiones y API (MCP, claves, webhooks) · Plantillas · Bitácora. Abre en Agentes. Cada conversación se abre en una ventana (modal).
 - **Paso a paso visible**: al preguntar, el botón flotante y la sección IA Diwilo muestran en vivo lo que el asistente va haciendo (qué módulo consulta o qué cambia) y la lista queda debajo de la respuesta. Se guarda en `ia_progreso` y la pantalla lo consulta cada segundo (`GET /api/ai/asistente/progreso`).

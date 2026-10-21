@@ -11,7 +11,7 @@
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
-import { motor, usoDelDia, TOPE_DIA, dayCo, ajustesDe, AJUSTES_BASE, costoUsd, neuronas, NEURONAS_GRATIS } from '../../lib/ia.js';
+import { motor, motorActivo, PROVEEDORES, hayProveedor, plataformaIA, olvidarPlataforma, ordenIA, modeloDe, viaClaude, usoDelDia, TOPE_DIA, dayCo, ajustesDe, AJUSTES_BASE, costoUsd, neuronas, NEURONAS_GRATIS } from '../../lib/ia.js';
 import { REG, ejecutarHerramienta } from '../../lib/registro.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
 import { guiasDe } from '../../lib/guias.js';
@@ -185,7 +185,7 @@ export function routes(r) {
     const dias = [...new Set(filas.filter((r) => r.day >= desde).map((r) => r.day))].sort().map((d) => ({ day: d, ...suma(filas.filter((r) => r.day === d)) }));
     const porFuente = {}; for (const r of delMes) (porFuente[r.fuente] ||= []).push(r);
     const m = suma(delMes), diaDelMes = Number(dia.slice(8)), diasMes = new Date(Date.UTC(+mes.slice(0, 4), +mes.slice(5, 7), 0)).getUTCDate();
-    return json({ motor: motor(c.env), tope_dia: TOPE_DIA, hoy: { calls: hoy.n, tin: hoy.tin, tout: hoy.tout, usd: costoUsd(delDia), neuronas: neuronas(delDia) }, dia, dias,
+    return json({ motor: await motorActivo(c.env), tope_dia: TOPE_DIA, hoy: { calls: hoy.n, tin: hoy.tin, tout: hoy.tout, usd: costoUsd(delDia), neuronas: neuronas(delDia) }, dia, dias,
       mes: { ...m, proyeccion_usd: m.usd / diaDelMes * diasMes }, neuronas_gratis: c.env.GEMINI_API_KEY ? null : NEURONAS_GRATIS, ajustes: aj,
       fuentes: Object.entries(porFuente).map(([fuente, l]) => ({ fuente, ...suma(l) })).sort((a, b) => b.usd - a.usd || b.calls - a.calls) });
   });
@@ -197,6 +197,52 @@ export function routes(r) {
     for (const [k, v] of put) await c.env.DB.prepare('INSERT INTO ia_ajustes (business_id, k, v) VALUES (?, ?, ?) ON CONFLICT(business_id, k) DO UPDATE SET v = excluded.v').bind(c.businessId, k, String(v)).run();
     if (put.length) await audit(c, `Cambió los topes de IA (${put.map(([k, v]) => `${k}: ${v}`).join(', ')})`, { modulo: MOD });
     return json({ ok: true, ajustes: await ajustesDe(c.env, c.businessId) });
+  });
+
+  /* Modelo de IA de la plataforma: SOLO Diwilo Admin (el negocio «diwilo» de la app «diwilo»). Aplica a todas las apps.
+     GET  /api/ai/proveedor           → elegido, modelo de cada uno y cuáles tienen su clave configurada
+     PUT  /api/ai/proveedor           { proveedor: auto|claude|gemini|workers-ai, modelo_claude?, modelo_gemini? }
+     POST /api/ai/proveedor/probar    { proveedor? }  llama al modelo con una pregunta mínima y dice si responde */
+  const soloDiwilo = (c) => { if (c.ctx?.app !== 'diwilo' || c.ctx?.business?.id !== 'diwilo' || c.ctx?.via === 'mcp') throw new HttpError(403, 'El modelo de IA lo elige Diwilo Admin'); };
+  const estadoProveedor = async (c) => {
+    const plat = await plataformaIA(c.env, true);
+    return { proveedor: plat.proveedor, activo: await motorActivo(c.env), orden: ordenIA(c.env, plat),
+      proveedores: Object.fromEntries(Object.entries(PROVEEDORES).map(([k, v]) => [k, { nombre: v.nombre, secreto: v.secreto, configurado: hayProveedor(c.env, k), modelo: k === 'workers-ai' ? v.modelo : modeloDe(c.env, plat, k), modelos: v.modelos }])) };
+  };
+  r.get(`${B}/proveedor`, `manager:${MOD}`, async (c) => { soloDiwilo(c); return json(await estadoProveedor(c)); });
+  r.put(`${B}/proveedor`, `manager:${MOD}`, async (c) => {
+    soloDiwilo(c);
+    const b = await readJson(c.req), put = [];
+    if (b.proveedor !== undefined) {
+      if (!['auto', 'claude', 'gemini', 'workers-ai'].includes(b.proveedor)) throw new HttpError(400, 'Proveedor no válido');
+      if (b.proveedor !== 'auto' && !hayProveedor(c.env, b.proveedor)) throw new HttpError(400, `Falta la clave de ${PROVEEDORES[b.proveedor].nombre}: créala como secreto ${PROVEEDORES[b.proveedor].secreto} en Cloudflare y vuelve a elegirlo`);
+      put.push(['proveedor', b.proveedor]);
+    }
+    for (const [k, p] of [['modelo_claude', 'claude'], ['modelo_gemini', 'gemini']]) if (b[k] !== undefined) {
+      const m = String(b[k] || '').trim();
+      if (m && !/^[\w.\-:/]{3,80}$/.test(m)) throw new HttpError(400, `El modelo de ${PROVEEDORES[p].nombre} no es válido`);
+      put.push([k, m]);
+    }
+    for (const [k, v] of put) await c.env.DB.prepare('INSERT INTO ia_plataforma (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').bind(k, v).run();
+    olvidarPlataforma();
+    if (put.length) await audit(c, `Cambió el modelo de IA de la plataforma (${put.map(([k, v]) => `${k}: ${v || 'por defecto'}`).join(', ')})`, { modulo: MOD });
+    return json(await estadoProveedor(c));
+  });
+  r.post(`${B}/proveedor/probar`, `manager:${MOD}`, async (c) => {
+    soloDiwilo(c);
+    const b = await readJson(c.req), plat = await plataformaIA(c.env, true), p = ['claude', 'gemini', 'workers-ai'].includes(b.proveedor) ? b.proveedor : (ordenIA(c.env, plat)[0] || 'workers-ai');
+    if (!hayProveedor(c.env, p)) return json({ ok: false, proveedor: p, error: `Falta ${PROVEEDORES[p].secreto}` });
+    const t0 = Date.now(), modelo = modeloDe(c.env, plat, p);
+    try {
+      let texto;
+      if (p === 'claude') texto = (await viaClaude(c.env, { system: 'Responde en español, muy breve.', history: [{ role: 'user', content: 'Di solo: listo' }], maxTokens: 20, temperature: 0, modelo })).text;
+      else if (p === 'gemini') {
+        const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': c.env.GEMINI_API_KEY }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Di solo: listo' }] }], generationConfig: { maxOutputTokens: 20 } }) });
+        if (!r2.ok) throw new Error(`Gemini ${r2.status}`);
+        texto = (await r2.json()).candidates?.[0]?.content?.parts?.map((x) => x.text).join('').trim();
+      } else { const o = await c.env.AI.run(modelo, { messages: [{ role: 'user', content: 'Di solo: listo' }], max_tokens: 20 }); texto = String(o?.response ?? '').trim(); }
+      return json({ ok: !!texto, proveedor: p, modelo, ms: Date.now() - t0, texto: String(texto || '').slice(0, 80) });
+    } catch (e) { return json({ ok: false, proveedor: p, modelo, ms: Date.now() - t0, error: String(e.message || e).slice(0, 200) }); }
   });
 
   /* claves de la API */
