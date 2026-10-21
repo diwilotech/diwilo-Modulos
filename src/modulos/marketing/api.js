@@ -130,16 +130,60 @@ export async function saveReport(env, biz, { title, content, origen = 'ia', by =
   return { id: res.meta.last_row_id };
 }
 
+
+// Crea un link de rastreo de una campaña. El destino es una dirección https:// o una ruta de la propia app (/matricula).
+async function createLink(env, biz, k, platform, targetRaw, title) {
+  const key = PLATFORMS[platform] ? platform : 'otro', p = PLATFORMS[key];
+  const target = String(targetRaw || '').trim();
+  if (!/^\/[a-z0-9][\w\-/]*$/i.test(target)) { try { if (!/^https?:$/.test(new URL(target).protocol)) throw 0; } catch { throw new HttpError(400, 'El destino debe empezar por https:// o ser una página de la app (por ejemplo /matricula)'); } }
+  const base = slugify(`${k.utm_campaign || k.name}-${p[1]}`).slice(0, 60) || 'link';
+  let slug = base;
+  for (let i = 2; await one(env, 'SELECT 1 FROM mk_links WHERE slug = ?', slug); i++) slug = `${base}-${i}`;
+  const t = now();
+  const res = await env.DB.prepare('INSERT INTO mk_links (business_id, campaign_id, slug, platform, title, target, utm_source, utm_medium, utm_campaign, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(biz, k.id, slug, key, String(title || `${k.name} · ${p[0]}`).slice(0, 200), target.slice(0, 1000), p[1], p[2], k.utm_campaign, t, t).run();
+  return { id: res.meta.last_row_id, slug, platform: p[0] };
+}
+const CANAL_PLATAFORMA = { meta_ads: 'facebook', google_ads: 'google', whatsapp: 'whatsapp', correo: 'correo' };
+
 /* ---------------- links públicos (/l/:slug en el dominio de cada app) ---------------- */
 // Busca el link de esa app; la app revisa que el negocio esté activo y con Marketing, y después cuenta el clic.
 export async function linkBySlug(env, app, slug) {
   const l = await one(env, 'SELECT * FROM mk_links WHERE slug = ? AND business_id LIKE ?', String(slug || '').toLowerCase().slice(0, 80), `${app}:%`);
   if (!l) return null;
-  const u = new URL(l.target);
+  const rel = l.target.startsWith('/'), u = new URL(l.target, 'https://app.invalid');
   for (const k of ['utm_source', 'utm_medium', 'utm_campaign']) if (l[k] && !u.searchParams.has(k)) u.searchParams.set(k, l[k]);
-  return { id: l.id, business_id: l.business_id.slice(app.length + 1), url: u.toString() };
+  if (rel) u.searchParams.set('ref', l.slug);   // las páginas de la app (matrícula) reconocen de qué link llegó la persona
+  return { id: l.id, business_id: l.business_id.slice(app.length + 1), url: rel ? `${u.pathname}${u.search}` : u.toString() };
 }
 export const countClick = (env, app, id) => env.DB.prepare('UPDATE mk_links SET clicks = clicks + 1, last_click_at = ? WHERE id = ? AND business_id LIKE ?').bind(now(), Number(id), `${app}:%`).run();
+
+// Embudo de conversión: una persona deja sus datos en la página de matrícula (lead del link) y, al matricularse, pasa a cliente.
+export async function registrarLead(env, app, negocio, d) {
+  const biz = `${app}:${negocio}`, name = String(d.name || '').trim().slice(0, 120);
+  const email = String(d.email || '').trim().toLowerCase().slice(0, 120), phone = String(d.phone || '').trim().slice(0, 40);
+  if (!name || (!email && !phone)) throw new HttpError(400, 'Escribe tu nombre y un teléfono o correo');
+  const l = d.ref ? await one(env, 'SELECT id, campaign_id, platform, utm_source FROM mk_links WHERE slug = ? AND business_id = ?', String(d.ref).toLowerCase().slice(0, 80), biz) : null;
+  const dup = await one(env, "SELECT id, link_id FROM mk_contacts WHERE business_id = ? AND ((? <> '' AND lower(email) = ?) OR (? <> '' AND phone = ?)) LIMIT 1", biz, email, email, phone, phone);
+  const t = now(), nota = String(d.note || '').slice(0, 300);
+  if (dup) {
+    await env.DB.prepare('UPDATE mk_contacts SET link_id = COALESCE(link_id, ?), campaign_id = COALESCE(campaign_id, ?), notes = CASE WHEN ? <> \'\' THEN COALESCE(notes || char(10), \'\') || ? ELSE notes END, updated_at = ? WHERE id = ?')
+      .bind(l?.id ?? null, l?.campaign_id ?? null, nota, nota, t, dup.id).run();
+    return { id: dup.id, nuevo: false };
+  }
+  const res = await env.DB.prepare("INSERT INTO mk_contacts (business_id, name, email, phone, stage, source, campaign_id, link_id, notes, created_at, updated_at) VALUES (?, ?, ?, ?, 'lead', ?, ?, ?, ?, ?, ?)")
+    .bind(biz, name, email || null, phone || null, l ? `${l.utm_source || 'link'}` : 'matricula', l?.campaign_id ?? null, l?.id ?? null, nota || null, t, t).run();
+  await onNewContact(env, biz, { id: res.meta.last_row_id, name, email, phone, stage: 'lead', campaign_id: l?.campaign_id ?? null });
+  return { id: res.meta.last_row_id, nuevo: true };
+}
+export async function marcarMatriculado(env, app, negocio, d) {
+  const biz = `${app}:${negocio}`, email = String(d.email || '').trim().toLowerCase(), tel = String(d.phone || '').replace(/\D/g, '').slice(-10);
+  if (!email && tel.length < 7) return { n: 0 };
+  const rows = await all(env, "SELECT id, email, phone FROM mk_contacts WHERE business_id = ? AND stage = 'lead'", biz);
+  const ids = rows.filter((r) => (email && String(r.email || '').toLowerCase() === email) || (tel.length >= 7 && String(r.phone || '').replace(/\D/g, '').slice(-10) === tel)).map((r) => r.id);
+  for (const id of ids) await env.DB.prepare("UPDATE mk_contacts SET stage = 'cliente', updated_at = ? WHERE id = ?").bind(now(), id).run();
+  return { n: ids.length };
+}
 
 /* ---------------- listas: revisar sitios y feeds ---------------- */
 export async function checkList(c, listId) {
@@ -174,6 +218,11 @@ export const ENTITIES = {
   campaigns: { table: 'mk_campaigns', label: 'la campaña', title: 'name', search: ['name', 'utm_campaign'], order: "CASE status WHEN 'activa' THEN 0 WHEN 'pausada' THEN 1 ELSE 2 END, start_date DESC",
     fields: { name: 'text!', channel: ['meta_ads', 'google_ads', 'whatsapp', 'correo', 'organico', 'otro'], status: ['activa', 'pausada', 'terminada'], start_date: 'date', end_date: 'date', budget: 'money', goal_leads: 'int', utm_campaign: 'text', notes: 'long' },
     async beforeCreate(c, row) { row.utm_campaign = await uniqueUtm(c, row.utm_campaign || row.name); },
+    // Cada campaña nueva de una academia nace con su link de rastreo hacia la página de matrícula (vistas + embudo hasta la matrícula).
+    async afterCreate(c, id, row) {
+      if (!c.businessId.startsWith('cdacademia:')) return;
+      await createLink(c.env, c.businessId, { id, name: row.name, utm_campaign: row.utm_campaign }, CANAL_PLATAFORMA[row.channel] || 'otro', '/matricula', `${row.name} · matrícula`).catch(() => {});
+    },
     async beforeUpdate(c, row, before) { if ('utm_campaign' in row) row.utm_campaign = await uniqueUtm(c, row.utm_campaign || before.name, before.id); },
     async afterDelete(c, before) { await c.env.DB.prepare('DELETE FROM mk_links WHERE campaign_id = ? AND business_id = ?').bind(before.id, c.businessId).run(); } },
   spend: { table: 'mk_spend', label: 'el gasto de campaña', search: ['note'], order: 'date DESC',
@@ -292,23 +341,15 @@ export function routes(r) {
   // Links de rastreo por campaña y plataforma
   r.get(`${B}/campaigns/:id/links`, `tenant:${MOD}`, async (c) => {
     const k = await api.get(c, 'campaigns', Number(c.params.id));
-    const links = await all(c.env, 'SELECT id, slug, platform, title, target, utm_source, utm_medium, utm_campaign, clicks, last_click_at, created_at FROM mk_links WHERE business_id = ? AND campaign_id = ? ORDER BY created_at', c.businessId, k.id);
+    const links = await all(c.env, "SELECT l.id, l.slug, l.platform, l.title, l.target, l.utm_source, l.utm_medium, l.utm_campaign, l.clicks, l.last_click_at, l.created_at, (SELECT COUNT(*) FROM mk_contacts x WHERE x.link_id = l.id) AS leads, (SELECT COUNT(*) FROM mk_contacts x WHERE x.link_id = l.id AND x.stage = 'cliente') AS matriculados FROM mk_links l WHERE l.business_id = ? AND l.campaign_id = ? ORDER BY l.created_at", c.businessId, k.id);
     return json({ campaign: { id: k.id, name: k.name, utm_campaign: k.utm_campaign }, links });
   });
   r.post(`${B}/campaigns/:id/links`, `tenant:${MOD}`, async (c) => {
     const k = await api.get(c, 'campaigns', Number(c.params.id));
     const body = await readJson(c.req);
-    const key = PLATFORMS[body.platform] ? body.platform : 'otro', p = PLATFORMS[key];
-    const target = String(body.target || '').trim();
-    try { if (!/^https?:$/.test(new URL(target).protocol)) throw 0; } catch { throw new HttpError(400, 'La dirección de destino debe empezar por https://'); }
-    const base = slugify(`${k.utm_campaign || k.name}-${p[1]}`).slice(0, 60) || 'link';
-    let slug = base;
-    for (let i = 2; await one(c.env, 'SELECT 1 FROM mk_links WHERE slug = ?', slug); i++) slug = `${base}-${i}`;
-    const t = now();
-    const res = await c.env.DB.prepare('INSERT INTO mk_links (business_id, campaign_id, slug, platform, title, target, utm_source, utm_medium, utm_campaign, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(c.businessId, k.id, slug, key, String(body.title || `${k.name} · ${p[0]}`).slice(0, 200), target.slice(0, 1000), p[1], p[2], k.utm_campaign, t, t).run();
-    await audit(c, `Creó el link de rastreo /l/${slug} (${p[0]}) de la campaña «${k.name}»`, { modulo: MOD });
-    return json({ id: res.meta.last_row_id, slug }, 201);
+    const out = await createLink(c.env, c.businessId, k, body.platform, body.target, body.title);
+    await audit(c, `Creó el link de rastreo /l/${out.slug} (${out.platform}) de la campaña «${k.name}»`, { modulo: MOD });
+    return json({ id: out.id, slug: out.slug }, 201);
   });
   r.delete(`${B}/links/:id`, `manager:${MOD}`, async (c) => {
     const l = await one(c.env, 'SELECT slug FROM mk_links WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);

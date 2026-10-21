@@ -1,5 +1,10 @@
 # Marketing — cambios
 
+## 1.7.0 · 2026-10-20
+- **Menos pantallas:** se quitan de la interfaz Tareas y automatizaciones e Informes (la API y las herramientas de IA siguen igual).
+- **Embudo por link:** cada link de rastreo es una tarjeta con **Vistas → Interesados → Matriculados**. Los interesados son quienes dejan sus datos en la página de matrícula (`mk_contacts.link_id`, migración 0017); al matricularlos en la app pasan a cliente (RPC `lead` y `matriculado`).
+- **Campaña nueva en una academia** nace con su link de rastreo hacia `/matricula` (el destino puede ser una ruta de la app o una dirección https://).
+
 ## 1.6.0 · 2026-10-20
 - **Control total por IA**: editar y borrar contactos, tareas, listas y automatizaciones; editar campañas; gasto de campañas; oportunidades del embudo; links de rastreo; herramientas de marketing; revisar listas y ver tarjetas. Cada herramienta llama a la misma ruta de la API (`src/lib/interno.js`).
 

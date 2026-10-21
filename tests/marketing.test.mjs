@@ -24,12 +24,13 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Marketing: costo por lead y ROI de la campaña', camp?.cpl === 50000 && camp.roi === 200, JSON.stringify(camp));
   check('Marketing: el widget responde', (await A.app(`${M}/resumen`)).data.titulo?.length > 0);
 
-  // Links de rastreo
+  // Links de rastreo (la campaña de una academia ya nace con su link a /matricula)
+  check('Marketing: la campaña nace con su link a /matricula', (await A.app(`${M}/campaigns/${k.data.id}/links`)).data.links?.[0]?.target === '/matricula');
   const ln = await A.app(`${M}/campaigns/${k.data.id}/links`, { method: 'POST', body: { platform: 'instagram', target: 'https://ejemplo.com/curso' } });
   check('Marketing: crea un link de rastreo', ln.status === 201 && /^lanzamiento-octubre-instagram(-\d+)?$/.test(ln.data.slug || ''));
   const go = await fetch(`${APP}/l/${ln.data.slug}`, { redirect: 'manual' });
   check('Marketing: el link redirige con los UTM', go.status === 302 && /utm_source=instagram/.test(go.headers.get('location') || '') && /utm_campaign=lanzamiento-octubre/.test(go.headers.get('location') || ''));
-  check('Marketing: el clic se cuenta', (await A.app(`${M}/campaigns/${k.data.id}/links`)).data.links?.[0]?.clicks === 1);
+  check('Marketing: el clic se cuenta', (await A.app(`${M}/campaigns/${k.data.id}/links`)).data.links?.find((x) => x.slug === ln.data.slug)?.clicks === 1);
   check('Marketing: destino sin https se rechaza', (await A.app(`${M}/campaigns/${k.data.id}/links`, { method: 'POST', body: { platform: 'qr', target: 'javascript:alert(1)' } })).status === 400);
 
   // Listas

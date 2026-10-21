@@ -71,7 +71,7 @@ DW.ready.then((me) => {
   };
 
   const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['contactos', 'Clientes y leads', 'bi-person-lines-fill'], ['oportunidades', 'Oportunidades', 'bi-funnel'],
-    ['campanas', 'Campañas', 'bi-megaphone'], ['tarjetas', 'Tarjetas y marca', 'bi-person-vcard'], ['tareas', 'Tareas y automatizaciones', 'bi-check2-square'], ['listas', 'Listas', 'bi-list-ul'], ['informes', 'Informes', 'bi-journal-text'], ['herramientas', 'Suscripciones y herramientas', 'bi-plug']];
+    ['campanas', 'Campañas', 'bi-megaphone'], ['tarjetas', 'Tarjetas y marca', 'bi-person-vcard'], ['listas', 'Listas', 'bi-list-ul'], ['herramientas', 'Suscripciones y herramientas', 'bi-plug']];
   let view = (location.hash || '#resumen').slice(1), subTar = 'tarjetas';
   if (view === 'marca' || view === 'kit') { subTar = view; view = 'tarjetas'; }   // enlaces a Marketing → Tarjetas → Marca
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
@@ -79,7 +79,7 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false);
     old.replaceWith(el);
-    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, campanas: campaigns, tarjetas: tarjetasYMarca, tareas: tasks, listas: lists, informes: reports, herramientas: tools })[view](el);
+    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, campanas: campaigns, tarjetas: tarjetasYMarca, listas: lists, herramientas: tools })[view](el);
   }
 
   async function summary(el) {
@@ -101,7 +101,6 @@ DW.ready.then((me) => {
         ['Ganado en el periodo', money(s.deals.won_value), `${num(s.deals.won)} cerradas · ${pct(s.deals.win_rate)} de éxito`, 'bi-trophy'],
         ['Gasto del periodo', money(s.totals.spend_period), `Presupuesto total ${money(s.totals.budget)}`, 'bi-cash'],
         ['Costo por lead', money(s.totals.cpl), '', 'bi-tag'], ['Retorno (ROI)', pct(s.totals.roi), `Ingresos atribuidos ${money(s.totals.revenue)}`, 'bi-graph-up-arrow'],
-        ['Tareas', num(s.tasks.open), s.tasks.overdue ? `<span class="text-danger">${num(s.tasks.overdue)} vencidas</span>` : 'al día', 'bi-check2-square'],
         ['Herramientas', money(s.tools.monthly), `${num(s.tools.active)} activas · al mes`, 'bi-plug']]);
       const maxF = Math.max(1, ...s.deals.pipeline.map((p) => p.n));
       $('[data-funnel]', el).innerHTML = s.deals.pipeline.map((p) => `<div class="d-flex align-items-center gap-2 small mb-2"><span style="width:96px">${STAGE_D[p.stage]}</span><div class="progress flex-grow-1" style="height:8px"><div class="progress-bar" style="width:${(p.n / maxF * 100).toFixed(1)}%"></div></div><b style="width:28px" class="text-end">${num(p.n)}</b><span class="text-body-secondary text-end" style="width:96px">${money(p.value)}</span></div>`).join('')
@@ -260,14 +259,18 @@ DW.ready.then((me) => {
       let d; try { d = await api(`${B}/campaigns/${id}/links`); } catch (x) { toast(x.message, false); return; }
       const base = location.origin;
       box.innerHTML = `<div class="dw-card"><div class="d-flex justify-content-between align-items-center mb-1"><h2 class="h6 mb-0"><i class="bi bi-link-45deg"></i> Links de rastreo · ${esc(d.campaign.name)}</h2><button class="btn btn-sm btn-light" data-close>Cerrar</button></div>
-        <p class="small text-body-secondary">Cada plataforma tiene su link corto con los UTM puestos (utm_campaign <code>${esc(d.campaign.utm_campaign || '')}</code>). Cada clic se cuenta aquí.</p>
+        <p class="small text-body-secondary">Cada link cuenta las vistas y sigue el embudo: vistas → interesados (dejaron sus datos en la matrícula) → matriculados. UTM: <code>${esc(d.campaign.utm_campaign || '')}</code>.</p>
         ${RO ? '' : `<div class="d-flex flex-wrap gap-1">${PLAT.map(([k, l, ic]) => `<button class="btn btn-sm btn-outline-primary" data-plat="${k}"><i class="bi ${ic} me-1"></i>${esc(l)}</button>`).join('')}</div>`}
-        ${d.links.length ? window.App.table([
-          { label: 'Plataforma', main: true, html: (l) => { const p = PLAT.find((x) => x[0] === l.platform) || PLAT[9]; return `<i class="bi ${p[2]}"></i> ${esc(p[1])}`; } },
-          { label: 'Link corto', html: (l) => `<button class="btn btn-sm btn-light" data-copy="${esc(`${base}/l/${l.slug}`)}"><i class="bi bi-clipboard me-1"></i>/l/${esc(l.slug)}</button>` },
-          { label: 'Lleva a', html: (l) => `<span class="small text-body-secondary text-truncate d-inline-block" style="max-width:240px" title="${esc(l.target)}">${esc(l.target)}</span>` },
-          { label: 'Clics', cls: 'text-end', html: (l) => `<b>${num(l.clicks)}</b>` },
-          { label: '', cls: 'text-end text-nowrap', html: (l) => `<button class="btn btn-sm btn-outline-secondary" data-qr="${esc(`${base}/l/${l.slug}`)}" data-slug="${esc(l.slug)}" title="Descargar QR" aria-label="Descargar QR"><i class="bi bi-qr-code"></i></button>${me.canManage && !RO ? ` <button class="btn btn-sm btn-outline-danger" data-dellink="${l.id}" aria-label="Borrar link"><i class="bi bi-trash"></i></button>` : ''}` }], d.links)
+        ${d.links.length ? `<div class="dw-grid mt-3">${d.links.map((l) => {
+          const p = PLAT.find((x) => x[0] === l.platform) || PLAT[9], url = `${base}/l/${l.slug}`, pc = (n, t) => (t ? `${Math.round((n / t) * 100)}%` : '—');
+          return `<div class="dw-card"><div class="d-flex align-items-center gap-2 mb-2"><i class="bi ${p[2]} fs-5"></i><b class="flex-grow-1 text-truncate">${esc(p[1])}</b>
+              <button class="btn btn-sm btn-outline-secondary" data-qr="${esc(url)}" data-slug="${esc(l.slug)}" title="Descargar QR" aria-label="Descargar QR"><i class="bi bi-qr-code"></i></button>${me.canManage && !RO ? `<button class="btn btn-sm btn-outline-danger" data-dellink="${l.id}" title="Borrar link" aria-label="Borrar link"><i class="bi bi-trash"></i></button>` : ''}</div>
+            <button class="btn btn-sm btn-light w-100 text-start text-truncate mb-1" data-copy="${esc(url)}" title="Copiar link"><i class="bi bi-clipboard me-1"></i>/l/${esc(l.slug)}</button>
+            <div class="small text-body-secondary text-truncate mb-2" title="${esc(l.target)}">Lleva a: ${esc(l.target)}</div>
+            <div class="d-flex align-items-stretch gap-1 text-center">
+              <div class="flex-fill border rounded p-2"><div class="fs-5 fw-bold">${num(l.clicks)}</div><div class="small text-body-secondary">Vistas</div></div><i class="bi bi-chevron-right align-self-center text-body-secondary"></i>
+              <div class="flex-fill border rounded p-2"><div class="fs-5 fw-bold">${num(l.leads)}</div><div class="small text-body-secondary">Interesados</div><div class="small text-body-secondary">${pc(l.leads, l.clicks)}</div></div><i class="bi bi-chevron-right align-self-center text-body-secondary"></i>
+              <div class="flex-fill border rounded p-2 ${l.matriculados ? 'border-success' : ''}"><div class="fs-5 fw-bold ${l.matriculados ? 'text-success' : ''}">${num(l.matriculados)}</div><div class="small text-body-secondary">Matriculados</div><div class="small text-body-secondary">${pc(l.matriculados, l.leads)}</div></div></div></div>`; }).join('')}</div>`
           : '<p class="small text-body-secondary mt-2 mb-0">Aún no hay links: elige una plataforma arriba.</p>'}</div>`;
       box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       box.onclick = async (e) => {
@@ -275,8 +278,8 @@ DW.ready.then((me) => {
         const pl = e.target.closest('[data-plat]');
         if (pl) {
           const label = PLAT.find((p) => p[0] === pl.dataset.plat)[1];
-          const out = await C.form({ title: `Link para ${label}`, base: B, okText: 'Crear link', values: { target: d.links[d.links.length - 1]?.target || 'https://' },
-            fields: [{ k: 'target', label: '¿A qué página lleva? Los UTM se agregan solos.', type: 'url', required: true, full: true }] });
+          const out = await C.form({ title: `Link para ${label}`, base: B, okText: 'Crear link', values: { target: d.links[d.links.length - 1]?.target || '/matricula' },
+            fields: [{ k: 'target', label: '¿A qué página lleva? (https://… o /matricula). Los UTM se agregan solos.', required: true, full: true }] });
           if (!out) return;
           try {
             const r = await api(`${B}/campaigns/${id}/links`, { method: 'POST', body: { platform: pl.dataset.plat, target: out.target } });
