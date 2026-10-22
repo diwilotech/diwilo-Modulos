@@ -1,5 +1,8 @@
 # Nómina — cambios
 
+## 1.4.0 · 2026-10-22
+- **Prestaciones sociales:** vista que reúne lo causado hasta hoy por persona (cesantías, intereses, prima del semestre y vacaciones pendientes en días y en pesos), cuánto se debe en total, las fechas de pago (31 ene, 14 feb, 30 jun, 20 dic) con su estado, y el acceso directo para liquidar la prima y las cesantías.
+
 ## 1.3.0 · 2026-10-22
 - **Calendario de pagos** (negocio y por empleado): fechas de pago según sea mensual, quincenal o semanal, a quién va cada peso (empleado, EPS, pensión, ARL, caja, SENA, ICBF, DIAN, provisiones), cuánto cuesta cada persona y las obligaciones del mes (PILA, retención, prima, cesantías). Aviso del calendario administrativo de 360 días.
 - Pago **semanal** (se liquida por mes y se paga en partes).

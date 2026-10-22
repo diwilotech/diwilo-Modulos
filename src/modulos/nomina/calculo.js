@@ -194,10 +194,11 @@ export function liquidarEmpleado(emp, nov, p, { period, half = 'M', previa = nul
 }
 
 // Prima de servicios (semestre) o cesantías e intereses (año) a partir de los días de la persona en el rango.
-export function prestacion(emp, p, tipo, { period, promedioVariable = 0 }) {
+export function prestacion(emp, p, tipo, { period, promedioVariable = 0, corte = null }) {
   const y = period.slice(0, 4);
   const [ini, fin] = tipo === 'cesantias' ? [`${y}-01-01`, `${y}-12-30`] : period.slice(5, 7) <= '06' ? [`${y}-01-01`, `${y}-06-30`] : [`${y}-07-01`, `${y}-12-30`];
-  const desde = emp.start_date > ini ? emp.start_date : ini, hasta = emp.end_date && emp.end_date < fin ? emp.end_date : fin;
+  const desde = emp.start_date > ini ? emp.start_date : ini; let hasta = emp.end_date && emp.end_date < fin ? emp.end_date : fin;
+  if (corte && corte < hasta) hasta = corte;   // causado hasta hoy
   const dias = desde > hasta ? 0 : dias360(desde, hasta);
   const sal = +emp.salary || 0, aux = !emp.salary_type.startsWith('integral') && emp.aux_transporte && sal <= 2 * p.smmlv ? p.aux_transporte : 0;
   const base = sal + aux + promedioVariable;

@@ -6,7 +6,7 @@ DW.ready.then((me) => {
   const B = '/api/nomina', RO = me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const hoy = C.todayCo(), mesHoy = hoy.slice(0, 7);
-  const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['calendario', 'Calendario de pagos', 'bi-calendar3'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
+  const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['calendario', 'Calendario de pagos', 'bi-calendar3'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['prestaciones', 'Prestaciones', 'bi-piggy-bank'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
   let view = (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   const ESTADO = { borrador: ['soon', 'Borrador'], aprobada: ['ok', 'Aprobada'], pagada: ['free', 'Pagada'] };
@@ -43,7 +43,7 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     $('[data-acciones]').innerHTML = '';
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
-    ({ resumen, calendario, empleados, contratistas, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
+    ({ resumen, calendario, empleados, contratistas, prestaciones, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
   }
   const cuentas = async () => (await api('/api/finanzas/accounts?limit=200').catch(() => ({ rows: [] }))).rows;
 
@@ -122,6 +122,34 @@ DW.ready.then((me) => {
       const r = e.target.closest('tr[data-emp]'); if (r) { calEmp = r.dataset.emp; render(); }
     };
     $('[data-emp]', el).addEventListener('change', (e) => { calEmp = e.target.value; render(); });
+  }
+
+  /* ---------------- prestaciones sociales ---------------- */
+  async function prestaciones(el) {
+    const d = await api(`${B}/prestaciones?year=${mesHoy.slice(0, 4)}`), t = d.totales, mesN = +mesHoy.slice(5, 7);
+    const estadoChip = (h) => (h.estado ? chip(h.estado.status === 'pagada' ? 'ok' : h.estado.status === 'aprobada' ? 'soon' : 'free', h.estado.status === 'pagada' ? 'Pagada' : h.estado.status === 'aprobada' ? 'Aprobada: falta pagar' : 'Borrador') : h.vencida ? chip('bad', 'Fecha pasada') : chip('free', 'Pendiente'));
+    const hito = (h) => `<div class="nom-card"><div class="d-flex align-items-center gap-2"><i class="bi bi-calendar-event fs-4"></i><div class="flex-grow-1"><b>${esc(h.que)}</b><div class="small text-body-secondary">Hasta el ${day(h.fecha)}</div></div>${estadoChip(h)}</div>
+      ${h.valor != null ? `<div class="nom-big">${money(h.valor)}</div>` : '<div class="small text-body-secondary">Se consigna lo liquidado con las cesantías del año.</div>'}
+      ${h.tipo && !RO ? (h.estado ? `<button class="btn btn-sm btn-outline-primary" data-run="${h.estado.run_id}">Abrir la liquidación</button>` : `<button class="btn btn-sm btn-primary" data-liq="${h.tipo}|${h.period}" ${+h.period.slice(5) === 6 ? (mesN >= 6 ? '' : 'disabled title="Se liquida desde junio"') : (mesN >= 12 ? '' : 'disabled title="Se liquida en diciembre"')}>Liquidar la prima</button>`) : ''}</div>`;
+    const ces = d.cesantias_anio;
+    el.innerHTML = `<div class="alert alert-info py-2 small d-flex gap-2"><i class="bi bi-info-circle fs-5"></i><div><b>Qué se causa.</b> Cesantías: un mes de sueldo por año (1/12). Intereses: 12 % anual de las cesantías. Prima: medio mes por semestre. Vacaciones: 15 días hábiles por año trabajado. Todo con el calendario de 360 días y sobre el sueldo más el auxilio de transporte. No aplica a salario integral, aprendices ni contratistas por prestación de servicios.${d.parametros_estimados ? ' <b>Parámetros del año estimados: revísalos en Parámetros.</b>' : ''}</div></div>
+      <div class="dw-grid dw-grid--kpi mb-3" data-k></div>
+      <h2 class="h6">Fechas y pagos del año</h2><div class="nom-grid mb-4">${d.hitos.map(hito).join('')}
+        <div class="nom-card"><div class="d-flex align-items-center gap-2"><i class="bi bi-bank fs-4"></i><div class="flex-grow-1"><b>Cesantías e intereses ${d.year}</b><div class="small text-body-secondary">Se consignan al fondo hasta el ${day(ces.fecha)}</div></div>${ces.estado ? chip(ces.estado.status === 'pagada' ? 'ok' : 'soon', ces.estado.status === 'pagada' ? 'Pagada' : 'En proceso') : chip('free', 'Causándose')}</div>
+          <div class="nom-big">${money(ces.valor + ces.intereses)}</div><div class="small text-body-secondary">${money(ces.valor)} cesantías + ${money(ces.intereses)} intereses, causado hasta hoy</div>
+          ${RO ? '' : ces.estado ? `<button class="btn btn-sm btn-outline-primary" data-run="${ces.estado.run_id}">Abrir la liquidación</button>` : `<button class="btn btn-sm btn-primary" data-liq="cesantias|${d.year}-12" ${mesN >= 12 ? '' : 'disabled title="Se liquida en diciembre"'}>Liquidar cesantías e intereses</button>`}</div></div>
+      <h2 class="h6">Por persona (causado hasta hoy)</h2><div class="nom-grid">${d.personas.map((x) => `<div class="nom-card"><div class="d-flex align-items-center gap-2"><span class="nom-av">${esc(iniciales(x.name))}</span><div class="flex-grow-1" style="min-width:0"><b class="d-block text-truncate">${esc(x.name)}</b><span class="small text-body-secondary">${esc(x.position || 'Empleado')} · desde ${day(x.start_date)}</span></div></div>
+        ${x.motivo ? `<div class="small text-body-secondary">${esc(x.motivo)}.</div>` : `<div>${[['Cesantías', x.cesantias], ['Intereses de cesantías', x.intereses], [`Prima del ${d.semestre === '06' ? '1.er' : '2.º'} semestre`, x.prima]].map(([l, v]) => `<div class="nom-line"><span>${l}</span><b>${money(v)}</b></div>`).join('')}</div>`}
+        <div><div class="nom-line"><span>Vacaciones pendientes</span><b>${money(x.vacaciones.valor)}</b></div><div class="progress mt-1" style="height:6px" role="progressbar" aria-label="Vacaciones pendientes" aria-valuenow="${Math.min(100, Math.round((x.vacaciones.pendientes / 15) * 100))}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:${Math.min(100, Math.round((x.vacaciones.pendientes / 15) * 100))}%"></div></div>
+          <div class="small text-body-secondary">${x.vacaciones.pendientes} días pendientes · ${x.vacaciones.tomadas} tomados · ${x.vacaciones.causadas} causados</div></div>
+        <div class="nom-tot" style="grid-template-columns:1fr"><div><small>Se le debe en total</small><b>${money(x.total)}</b></div></div></div>`).join('') || '<div class="dw-card text-body-secondary">Aún no hay empleados con prestaciones.</div>'}</div>`;
+    C.kpis($('[data-k]', el), [['Cesantías causadas', money(t.cesantias), `del ${d.year}`, 'bi-bank'], ['Intereses de cesantías', money(t.intereses), '12 % anual', 'bi-percent'], ['Prima del semestre', money(t.prima), d.semestre === '06' ? 'se paga hasta el 30 de junio' : 'se paga hasta el 20 de diciembre', 'bi-gift'], ['Vacaciones pendientes', money(t.vacaciones), `${Math.round(t.vacaciones_dias * 100) / 100} días en total`, 'bi-umbrella'], ['Se debe en total', money(t.total), 'a hoy, por prestaciones', 'bi-piggy-bank']]);
+    el.onclick = async (e) => {
+      const r = e.target.closest('[data-run]'); if (r) return detalle(+r.dataset.run);
+      const b = e.target.closest('[data-liq]'); if (!b) return;
+      const [tipo, period] = b.dataset.liq.split('|');
+      try { const x = await api(`${B}/runs`, { method: 'POST', body: { tipo, period } }); toast(`Liquidada: ${x.empleados} personas, ${money(x.neto)}`); detalle(x.id); } catch (x) { toast(x.message, false); }
+    };
   }
 
   /* ---------------- empleados ---------------- */

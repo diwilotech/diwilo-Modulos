@@ -84,6 +84,14 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   check('Nómina: B no ve el calendario de A', (await B.app(`${N}/calendario?period=2026-02&employee_id=${eQ.id}`)).data.empleados.length === 0);
   void eq; void es;
 
+  // Prestaciones sociales
+  const pe = (await A.app(`${N}/prestaciones`)).data;
+  const pl = pe.personas.find((x) => x.name === 'Pedro Ruiz');
+  check('Nómina: prestaciones por persona (cesantías, intereses, prima y vacaciones)', pl && pl.cesantias > 0 && pl.intereses > 0 && pl.prima > 0 && pl.vacaciones.causadas > 0 && pe.totales.total >= pl.total, JSON.stringify(pl).slice(0, 250));
+  check('Nómina: los contratistas no causan prestaciones', !pe.personas.some((x) => x.name === 'Docente Contratista'));
+  check('Nómina: trae las fechas de intereses, cesantías y prima', pe.hitos.length === 4 && pe.hitos.some((h) => h.fecha.endsWith('06-30')) && pe.hitos.some((h) => h.fecha.endsWith('12-20')));
+  check('Nómina: B no ve las prestaciones de A', (await B.app(`${N}/prestaciones`)).data.personas.length === 0);
+
   // Parámetros
   const pa = await A.app(`${N}/parametros?year=2026`);
   check('Nómina: parámetros oficiales', pa.data.smmlv === 1750905 && pa.data.aux_transporte === 249095);

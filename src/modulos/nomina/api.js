@@ -17,7 +17,7 @@ import { crud, cast, today, now, addDays, all, one, DATE, MONTH } from '../../li
 import { audit } from '../../lib/audit.js';
 import { orgUsa } from '../../lib/contexto.js';
 import { recomputeInvoice } from '../finanzas/api.js';
-import { KINDS, paramsDe, liquidarEmpleado, prestacion, liquidacionFinal, r0 } from './calculo.js';
+import { KINDS, paramsDe, liquidarEmpleado, prestacion, liquidacionFinal, dias360, r0 } from './calculo.js';
 
 const MOD = 'nomina', B = '/api/nomina';
 const HALF = ['M', '1', '2'];
@@ -183,6 +183,8 @@ export function routes(r) {
     const q = c.url.searchParams, period = MONTH.test(q.get('period') || '') ? q.get('period') : today().slice(0, 7), emp = Number(q.get('employee_id')) || null;
     return json(await calendarioMes(c.env, c.businessId, period, emp));
   });
+  // Prestaciones sociales del año: lo causado hasta hoy por persona, lo que vence y el estado de cada pago. GET /api/nomina/prestaciones?year=
+  r.get(`${B}/prestaciones`, `tenant:${MOD}`, async (c) => json(await prestacionesAnio(c.env, c.businessId, Number(c.url.searchParams.get('year')) || +today().slice(0, 4))));
   // Contratistas del mes con sus cargos separados y su cuenta de cobro en Finanzas. POST genera o actualiza todo el mes de una vez.
   r.get(`${B}/servicios`, `manager:${MOD}`, async (c) => {
     const period = MONTH.test(c.url.searchParams.get('period') || '') ? c.url.searchParams.get('period') : today().slice(0, 7);
@@ -467,4 +469,34 @@ export async function calendarioMes(env, biz, period, empId = null) {
   }
   eventos.sort((a, b) => a.fecha.localeCompare(b.fecha) || (a.tipo === 'pago' ? -1 : 1));
   return { period, ultimo_dia: ultimoDia(period), totales: tot, empleados, eventos };
+}
+
+/* ---------------- prestaciones sociales: lo causado, lo que se debe y cuándo vence ---------------- */
+export async function prestacionesAnio(env, biz, year) {
+  const hoy = today(), p = await paramsNegocio(env, biz, year), semestre = hoy.slice(0, 4) !== String(year) ? '12' : hoy.slice(5, 7) <= '06' ? '06' : '12';
+  const emps = (await all(env, "SELECT * FROM nom_employees WHERE business_id = ? AND status = 'activo' ORDER BY name", biz)).filter((e) => e.start_date.slice(0, 4) <= String(year));
+  const corte = `${year}-12-30` < hoy ? `${year}-12-30` : hoy;
+  const runs = await all(env, "SELECT tipo, period, status, neto, id FROM nom_runs WHERE business_id = ? AND tipo IN ('prima', 'cesantias') AND substr(period, 1, 4) = ?", biz, String(year));
+  const personas = [], tot = { cesantias: 0, intereses: 0, prima: 0, vacaciones: 0, vacaciones_dias: 0 };
+  for (const e of emps) {
+    if (e.contract_type === 'prestacion') continue;   // los contratistas no causan prestaciones
+    const ces = prestacion(e, p, 'cesantias', { period: `${year}-12`, corte }), pri = prestacion(e, p, 'prima', { period: `${year}-${semestre}`, corte });
+    const tomadas = (await one(env, "SELECT COALESCE(SUM(quantity), 0) s FROM nom_novedades WHERE business_id = ? AND employee_id = ? AND kind = 'vacaciones'", biz, e.id)).s;
+    const causadas = Math.round(((15 * dias360(e.start_date, hoy > (e.end_date || '9999') ? e.end_date : hoy)) / 360) * 100) / 100, pend = Math.max(0, Math.round((causadas - tomadas) * 100) / 100);
+    const valorVac = e.contract_type === 'aprendizaje' ? 0 : r0(((+e.salary || 0) / 30) * pend);
+    const aplica = ces.valor > 0 || pri.valor > 0;
+    personas.push({ id: e.id, name: e.name, position: e.position, start_date: e.start_date, aplica, motivo: e.salary_type === 'integral' ? 'Salario integral: no causa cesantías ni prima' : e.contract_type === 'aprendizaje' ? 'Aprendizaje: sin prestaciones' : null,
+      cesantias: ces.valor, intereses: ces.intereses, prima: pri.valor, base: ces.base, dias_anio: ces.dias, dias_semestre: pri.dias, vacaciones: { causadas, tomadas, pendientes: pend, valor: valorVac }, total: ces.valor + ces.intereses + pri.valor + valorVac });
+    tot.cesantias += ces.valor; tot.intereses += ces.intereses; tot.prima += pri.valor; tot.vacaciones += valorVac; tot.vacaciones_dias += pend;
+  }
+  const estado = (tipo, period) => { const r = runs.find((x) => x.tipo === tipo && x.period === period); return r ? { status: r.status, run_id: r.id, neto: r.neto } : null; };
+  const f = (fecha, que, tipo, period, valor) => ({ fecha, que, tipo, period, valor, estado: tipo ? estado(tipo, period) : null, vencida: fecha < hoy });
+  const hitos = [
+    f(`${year}-01-31`, `Intereses de cesantías ${year - 1}`, null, null, null),
+    f(`${year}-02-14`, `Cesantías ${year - 1} al fondo`, null, null, null),
+    f(`${year}-06-30`, 'Prima de servicios (1.er semestre)', 'prima', `${year}-06`, semestre === '06' ? tot.prima : null),
+    f(`${year}-12-20`, 'Prima de servicios (2.º semestre)', 'prima', `${year}-12`, semestre === '12' ? tot.prima : null),
+  ];
+  return { year, hoy, semestre, parametros_estimados: p.estimado, personas, totales: { ...tot, total: tot.cesantias + tot.intereses + tot.prima + tot.vacaciones },
+    hitos, cesantias_anio: { fecha: `${year + 1}-02-14`, valor: tot.cesantias, intereses: tot.intereses, estado: estado('cesantias', `${year}-12`) } };
 }
