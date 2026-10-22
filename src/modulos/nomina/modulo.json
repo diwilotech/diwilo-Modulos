@@ -1,7 +1,7 @@
 {
   "id": "nomina",
   "nombre": "Nómina",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "descripcion": "Nómina completa para Colombia, conectada con Finanzas: empleados y contratos, novedades (horas extras con recargos, incapacidades, vacaciones, comisiones, descuentos), liquidación mensual o quincenal con salud, pensión, FSP, retención en la fuente, aportes del empleador (con exoneración art. 114-1), provisiones, prima, cesantías, desprendibles, archivo de pago y de aportes, y liquidación de contrato. Incluye contratistas por prestación de servicios (honorarios con retención) y la importación del equipo de una app.",
   "icono": "bi-people-fill",
   "menu": {
@@ -35,7 +35,9 @@
     "nomina.reabrir_corrida",
     "nomina.pagar_corrida",
     "nomina.simular_liquidacion",
-    "nomina.liquidar_contrato"
+    "nomina.liquidar_contrato",
+    "nomina.cuentas_de_contratistas",
+    "nomina.actualizar_mes"
   ],
   "tablas": [
     "nom_employees",
@@ -50,7 +52,7 @@
   "pagina": "/m/nomina.js",
   "central": true,
   "mcp": {
-    "guia": "Nómina de Colombia del negocio. Flujo: registra empleados (salario mensual, contrato, riesgo ARL, fecha de ingreso, centro de costo), anota las novedades del periodo (horas extras con quantity en horas, comisiones y bonos con amount en pesos, incapacidades, vacaciones y licencias en días, descuentos), liquida el periodo (nomina.liquidar_periodo), revisa la corrida, apruébala y págala: al pagar se crean los egresos en Finanzas (neto a empleados, seguridad social y parafiscales, retención). Prima en junio y diciembre; cesantías en diciembre. Los parámetros (SMMLV, auxilio, UVT) son los oficiales y se pueden ajustar por año. Para cifras usa siempre las herramientas de lectura; nunca inventes valores. Pide confirmación antes de aprobar, pagar o liquidar un contrato.",
+    "guia": "Nómina de Colombia del negocio. Flujo: registra empleados (salario mensual, contrato, riesgo ARL, fecha de ingreso, centro de costo), anota las novedades del periodo (horas extras con quantity en horas, comisiones y bonos con amount en pesos, incapacidades, vacaciones y licencias en días, descuentos), liquida el periodo (nomina.liquidar_periodo), revisa la corrida, apruébala y págala: al pagar se crean los egresos en Finanzas (neto a empleados, seguridad social y parafiscales, retención). Prima en junio y diciembre; cesantías en diciembre. Los parámetros (SMMLV, auxilio, UVT) son los oficiales y se pueden ajustar por año. Para cifras usa siempre las herramientas de lectura; nunca inventes valores. Pide confirmación antes de aprobar, pagar o liquidar un contrato. La nómina del mes y las cuentas de cobro de los contratistas (con cada clase y cargo por separado) se mantienen al día solas cada día; nomina.actualizar_mes lo fuerza.",
     "ejemplos": [
       "Pídele: «Crea a Laura Gómez, auxiliar, salario 1.800.000, ingreso 2026-03-01»",
       "Pídele: «Registra 12 horas extras diurnas de Pedro en octubre»",
@@ -94,5 +96,6 @@
         ]
       }
     ]
-  }
+  },
+  "tarea_diaria": "deja al día la nómina del mes y las cuentas de cobro de los contratistas"
 }

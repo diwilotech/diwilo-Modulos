@@ -52,7 +52,7 @@ async function applyFx(c, entity, row, before = {}) {
 /* ---------------- facturas ---------------- */
 const invoiceState = (i, t = today()) => (i.status === 'anulada' ? 'anulada' : i.status === 'pagada' ? 'pagada' : i.due_date && i.due_date < t ? 'vencida' : 'pendiente');
 // Pagado = suma de los movimientos ligados. Estado: pagada si cubre el total (anulada se respeta).
-async function recomputeInvoice(env, biz, invoiceId) {
+export async function recomputeInvoice(env, biz, invoiceId) {
   const inv = await one(env, 'SELECT total, status FROM fin_invoices WHERE id = ? AND business_id = ?', invoiceId, biz);
   if (!inv) return;
   const s = await one(env, 'SELECT COALESCE(SUM(amount), 0) n FROM fin_movements WHERE invoice_id = ? AND business_id = ?', invoiceId, biz);

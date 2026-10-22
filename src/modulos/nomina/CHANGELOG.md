@@ -1,5 +1,10 @@
 # Nómina — cambios
 
+## 1.2.0 · 2026-10-22
+- **Todo automático:** cada día (y al traer el equipo de una app) la nómina del mes queda en borrador al día y cada contratista por prestación de servicios recibe su **cuenta de cobro** en Finanzas (factura recibida) con cada cargo por separado: honorarios, cada clase o servicio entregado, descuentos y la retención. Mientras no esté pagada se actualiza con lo que se va entregando.
+- Al pagar la nómina, los contratistas se pagan contra su cuenta de cobro (no se duplica el gasto) y la retención va a la DIAN.
+- Vista **Contratistas** con una tarjeta por persona y su cuenta de cobro; Empleados en tarjetas; resumen renovado. Tipo de documento NIT. Migración `0020_nomina_automatica.sql`.
+
 ## 1.1.0 · 2026-10-22
 - **Prestación de servicios:** nuevo tipo de contrato para contratistas (docentes por clases, por ejemplo). Cobran honorarios con retención en la fuente (10 % por defecto, ajustable por persona), sin seguridad social, aportes ni prestaciones; el desprendible y el pago a Finanzas funcionan igual.
 - **Novedad «Honorarios»** (clases o servicios) y campo de retención de honorarios.

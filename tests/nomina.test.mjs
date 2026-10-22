@@ -40,6 +40,13 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   check('Nómina: desprendible de pago', pd.status === 200 && pd.data.text?.includes('NETO A PAGAR') && pd.data.text.includes('Laura Gómez'));
   check('Nómina: archivo de pago en CSV', (await A.app(`${N}/runs/${run.data.id}/export?kind=pago`)).data.text?.includes('Pedro Ruiz'));
 
+  // Automático: cuenta de cobro del contratista con cada cargo separado
+  const gen = await A.app(`${N}/servicios/generar`, { method: 'POST', body: { period: mes } });
+  const sv = (await A.app(`${N}/servicios?period=${mes}`)).data.contratistas.find((x) => x.empleado.name === 'Docente Contratista');
+  check('Nómina: genera la cuenta de cobro del contratista con la retención separada', gen.status === 200 && sv.factura?.total === 900000 && sv.lineas.some((l) => l.concepto === 'Clases del mes' && l.valor === 1000000) && sv.lineas.some((l) => l.concepto.startsWith('Retención') && l.valor === -100000), JSON.stringify(sv));
+  const fin = (await A.app('/api/finanzas/invoices?limit=100')).data.rows.find((f) => f.ref === `nomina:serv:${ct.data.id}:${mes}`);
+  check('Nómina: la cuenta de cobro es una factura recibida en Finanzas', fin?.kind === 'recibida' && fin.total === 900000 && fin.status === 'pendiente');
+
   // Flujo de estados y pago a Finanzas
   check('Nómina: no se paga sin aprobar', (await A.app(`${N}/runs/${run.data.id}/pagar`, { method: 'POST', body: {} })).status === 409);
   check('Nómina: aprueba', (await A.app(`${N}/runs/${run.data.id}/aprobar`, { method: 'POST' })).status === 200);
@@ -48,7 +55,9 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   const pg = await A.app(`${N}/runs/${run.data.id}/pagar`, { method: 'POST', body: { date: hoy, account_id: cta.data.id } });
   check('Nómina: paga y registra egresos en Finanzas', pg.status === 200 && pg.data.egresos_en_finanzas >= 2, JSON.stringify(pg.data));
   const gastos = ((await A.app('/api/finanzas/movements?limit=100')).data.rows || []).filter((m) => (m.ref || '').startsWith(`nomina:run:${run.data.id}:`));
-  check('Nómina: el neto, la seguridad social y la retención quedan en Finanzas', gastos.filter((m) => m.ref.includes(':neto:')).reduce((t, m) => t + m.amount, 0) === run.data.neto && gastos.filter((m) => m.ref.includes(':neto:')).length === 2 && gastos.every((m) => m.account_id === cta.data.id) && gastos.some((m) => m.ref.endsWith(':aportes')));
+  check('Nómina: el neto, la seguridad social y la retención quedan en Finanzas', gastos.filter((m) => m.ref.includes(':neto:')).reduce((t, m) => t + m.amount, 0) === run.data.neto - 900000 && gastos.filter((m) => m.ref.includes(':neto:')).length === 2 && gastos.every((m) => m.account_id === cta.data.id) && gastos.some((m) => m.ref.endsWith(':aportes')));
+  const cs = (await A.app(`${N}/servicios?period=${mes}`)).data.contratistas.find((x) => x.empleado.name === 'Docente Contratista');
+  check('Nómina: la cuenta de cobro del contratista queda pagada con la nómina', cs?.factura?.status === 'pagada' && gastos.some((m) => m.ref.includes(':serv:') && m.amount === 900000 && m.invoice_id === cs.factura.id), JSON.stringify(cs?.factura));
   check('Nómina: una nómina pagada no se borra', (await A.app(`${N}/runs/${run.data.id}`, { method: 'DELETE' })).status === 409);
 
   // Prima y liquidación de contrato
