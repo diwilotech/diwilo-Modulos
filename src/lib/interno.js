@@ -5,10 +5,11 @@ import { HttpError } from './http.js';
 import { authorize } from './contexto.js';
 import * as finanzasApi from '../modulos/finanzas/api.js';
 import * as marketingApi from '../modulos/marketing/api.js';
+import * as nominaApi from '../modulos/nomina/api.js';
 
 let router;
 const rutas = () => {
-  if (!router) { router = new Router(); finanzasApi.routes(router); marketingApi.routes(router); }
+  if (!router) { router = new Router(); finanzasApi.routes(router); marketingApi.routes(router); nominaApi.routes(router); }
   return router;
 };
 

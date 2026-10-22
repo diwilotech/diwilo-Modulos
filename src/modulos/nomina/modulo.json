@@ -1,0 +1,98 @@
+{
+  "id": "nomina",
+  "nombre": "Nómina",
+  "version": "1.0.0",
+  "descripcion": "Nómina completa para Colombia, conectada con Finanzas: empleados y contratos, novedades (horas extras con recargos, incapacidades, vacaciones, comisiones, descuentos), liquidación mensual o quincenal con salud, pensión, FSP, retención en la fuente, aportes del empleador (con exoneración art. 114-1), provisiones, prima, cesantías, desprendibles, archivo de pago y de aportes, y liquidación de contrato.",
+  "icono": "bi-people-fill",
+  "menu": {
+    "ruta": "/staff/nomina.html",
+    "orden": 85
+  },
+  "permisos": {
+    "ver": "admin",
+    "configurar": "admin"
+  },
+  "widgets": [
+    {
+      "id": "mes",
+      "api": "/api/nomina/summary"
+    }
+  ],
+  "ia": [
+    "nomina.resumen",
+    "nomina.ver_parametros",
+    "nomina.listar_empleados",
+    "nomina.crear_empleado",
+    "nomina.editar_empleado",
+    "nomina.borrar_empleado",
+    "nomina.listar_novedades",
+    "nomina.registrar_novedad",
+    "nomina.borrar_novedad",
+    "nomina.liquidar_periodo",
+    "nomina.listar_corridas",
+    "nomina.ver_corrida",
+    "nomina.aprobar_corrida",
+    "nomina.reabrir_corrida",
+    "nomina.pagar_corrida",
+    "nomina.simular_liquidacion",
+    "nomina.liquidar_contrato"
+  ],
+  "tablas": [
+    "nom_employees",
+    "nom_novedades",
+    "nom_params",
+    "nom_runs",
+    "nom_run_lines",
+    "nom_settlements"
+  ],
+  "rutas_publicas": [],
+  "depende_de": [],
+  "pagina": "/m/nomina.js",
+  "central": true,
+  "mcp": {
+    "guia": "Nómina de Colombia del negocio. Flujo: registra empleados (salario mensual, contrato, riesgo ARL, fecha de ingreso, centro de costo), anota las novedades del periodo (horas extras con quantity en horas, comisiones y bonos con amount en pesos, incapacidades, vacaciones y licencias en días, descuentos), liquida el periodo (nomina.liquidar_periodo), revisa la corrida, apruébala y págala: al pagar se crean los egresos en Finanzas (neto a empleados, seguridad social y parafiscales, retención). Prima en junio y diciembre; cesantías en diciembre. Los parámetros (SMMLV, auxilio, UVT) son los oficiales y se pueden ajustar por año. Para cifras usa siempre las herramientas de lectura; nunca inventes valores. Pide confirmación antes de aprobar, pagar o liquidar un contrato.",
+    "ejemplos": [
+      "Pídele: «Crea a Laura Gómez, auxiliar, salario 1.800.000, ingreso 2026-03-01»",
+      "Pídele: «Registra 12 horas extras diurnas de Pedro en octubre»",
+      "Pídele: «Liquida la nómina de octubre y dime cuánto cuesta»",
+      "Pídele: «Paga la nómina 5 desde la cuenta Bancolombia»",
+      "Pídele: «Simula la liquidación de Ana si se retira el 30 de noviembre sin justa causa»"
+    ],
+    "flujos": [
+      {
+        "id": "cierre_nomina",
+        "nombre": "Cerrar la nómina del mes",
+        "descripcion": "Revisar novedades, liquidar, aprobar y pagar.",
+        "pasos": [
+          "nomina.resumen",
+          "nomina.listar_novedades",
+          "nomina.liquidar_periodo",
+          "nomina.ver_corrida",
+          "nomina.aprobar_corrida",
+          "nomina.pagar_corrida"
+        ]
+      },
+      {
+        "id": "retiro",
+        "nombre": "Retiro de un empleado",
+        "descripcion": "Simular y guardar la liquidación del contrato.",
+        "pasos": [
+          "nomina.listar_empleados",
+          "nomina.simular_liquidacion",
+          "nomina.liquidar_contrato"
+        ]
+      },
+      {
+        "id": "prima",
+        "nombre": "Pagar la prima de servicios",
+        "descripcion": "Liquidar la prima del semestre y pagarla.",
+        "pasos": [
+          "nomina.liquidar_periodo",
+          "nomina.ver_corrida",
+          "nomina.aprobar_corrida",
+          "nomina.pagar_corrida"
+        ]
+      }
+    ]
+  }
+}

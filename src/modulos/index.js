@@ -6,6 +6,9 @@ import finanzasManifest from './finanzas/modulo.json';
 import * as marketing from './marketing/api.js';
 import marketingIa from './marketing/ia.js';
 import marketingManifest from './marketing/modulo.json';
+import * as nomina from './nomina/api.js';
+import nominaIa from './nomina/ia.js';
+import nominaManifest from './nomina/modulo.json';
 import * as marca from './marca/api.js';
 import marcaIa from './marca/ia.js';
 import marcaManifest from './marca/modulo.json';
@@ -16,6 +19,7 @@ import aiManifest from './ai/modulo.json';
 export const MODULOS = [
   { manifest: finanzasManifest, api: finanzas, tools: finanzasIa },
   { manifest: marketingManifest, api: marketing, tools: marketingIa },
+  { manifest: nominaManifest, api: nomina, tools: nominaIa },
   { manifest: marcaManifest, api: marca, tools: marcaIa },
   { manifest: aiManifest, api: ai, tools: aiTools },
 ];
