@@ -6,7 +6,7 @@ DW.ready.then((me) => {
   const B = '/api/nomina', RO = me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const hoy = C.todayCo(), mesHoy = hoy.slice(0, 7);
-  const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
+  const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['calendario', 'Calendario de pagos', 'bi-calendar3'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
   let view = (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   const ESTADO = { borrador: ['soon', 'Borrador'], aprobada: ['ok', 'Aprobada'], pagada: ['free', 'Pagada'] };
@@ -23,6 +23,14 @@ DW.ready.then((me) => {
     .nom-line:last-child{border-bottom:0}.nom-line span:first-child{min-width:0;overflow-wrap:anywhere}.nom-neg{color:var(--bs-danger,#dc3545)}
     .nom-auto{border-radius:16px;padding:14px 16px;background:linear-gradient(135deg,rgba(var(--dw-p-rgb,109,63,214),.14),rgba(var(--dw-p-rgb,109,63,214),.03));border:1px solid rgba(var(--dw-p-rgb,109,63,214),.25)}
     .nom-tot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}.nom-tot>div{background:rgba(128,128,128,.08);border-radius:12px;padding:8px 4px}
+    .nom-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.nom-cal .h{font-size:.7rem;text-align:center;color:var(--bs-secondary-color);text-transform:uppercase}
+    .nom-day{min-height:92px;border:1px solid var(--dw-borde,rgba(128,128,128,.25));border-radius:10px;padding:4px;display:flex;flex-direction:column;gap:3px;background:var(--dw-tarjeta,var(--bs-body-bg));overflow:hidden}
+    .nom-day.off{opacity:.35;border-style:dashed}.nom-day .n{font-size:.75rem;font-weight:600;color:var(--bs-secondary-color)}.nom-day.hoy{outline:2px solid var(--dw-p,#6d3fd6)}
+    .nom-ev{font-size:.68rem;line-height:1.15;border-radius:6px;padding:2px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .nom-ev.pago{background:rgba(13,148,136,.18);color:var(--bs-body-color)}.nom-ev.obligacion{background:rgba(234,88,12,.18)}.nom-ev.prestacion{background:rgba(var(--dw-p-rgb,109,63,214),.2)}
+    .nom-agenda{display:none}.nom-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:rgba(128,128,128,.12)}.nom-bar i{display:block;height:100%}
+    .nom-part{display:flex;align-items:center;gap:8px;font-size:.9rem;padding:4px 0}.nom-part .dot{width:10px;height:10px;border-radius:3px;flex:none}
+    @media (max-width:700px){.nom-cal{display:none}.nom-agenda{display:block}}
     .nom-tot small{display:block;color:var(--bs-secondary-color);font-size:.7rem}.nom-click{cursor:pointer;transition:box-shadow .15s}.nom-click:hover{box-shadow:0 4px 18px rgba(0,0,0,.12)}
   </style>`);
   const iniciales = (n) => String(n || '?').split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase();
@@ -35,7 +43,7 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     $('[data-acciones]').innerHTML = '';
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
-    ({ resumen, empleados, contratistas, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
+    ({ resumen, calendario, empleados, contratistas, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
   }
   const cuentas = async () => (await api('/api/finanzas/accounts?limit=200').catch(() => ({ rows: [] }))).rows;
 
@@ -59,13 +67,70 @@ DW.ready.then((me) => {
     await load();
   }
 
+  /* ---------------- calendario de pagos: del negocio y por empleado ---------------- */
+  const PARTES = [['empleado', 'Empleado (neto)', '#0d9488'], ['eps', 'Salud (EPS)', '#2563eb'], ['afp', 'Pensión (AFP)', '#7c3aed'], ['arl', 'ARL', '#db2777'], ['caja', 'Caja de compensación', '#ea580c'], ['sena', 'SENA', '#ca8a04'], ['icbf', 'ICBF', '#65a30d'],
+    ['dian', 'DIAN (retención)', '#64748b'], ['cesantias', 'Cesantías', '#0891b2'], ['intereses', 'Intereses de cesantías', '#06b6d4'], ['prima', 'Prima de servicios', '#9333ea'], ['vacaciones', 'Vacaciones', '#16a34a']];
+  const FREQ = { mensual: 'Mensual · último día del mes', quincenal: 'Quincenal · el 15 y el último día', semanal: 'Semanal · cada viernes' };
+  let calMes = mesHoy, calEmp = '';
+  async function calendario(el) {
+    const emps = (await api(`${B}/employees?limit=1000`)).rows.filter((e) => e.status === 'activo');
+    if (calEmp && !emps.some((e) => String(e.id) === String(calEmp))) calEmp = '';
+    const mover = (n) => { const [y, m] = calMes.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); calMes = d.toISOString().slice(0, 7); render(); };
+    const d = await api(`${B}/calendario?period=${calMes}${calEmp ? `&employee_id=${calEmp}` : ''}`);
+    const t = d.totales, uno = d.empleados.length === 1 && calEmp ? d.empleados[0] : null;
+    const [y, m] = calMes.split('-').map(Number), primero = new Date(Date.UTC(y, m - 1, 1)), dias = +d.ultimo_dia.slice(8), lead = (primero.getUTCDay() + 6) % 7;
+    const evDe = (f) => d.eventos.filter((e) => e.fecha === f);
+    const celdas = [...Array(lead).fill(null), ...Array.from({ length: dias }, (_, i) => `${calMes}-${String(i + 1).padStart(2, '0')}`)];
+    while (celdas.length % 7) celdas.push(null);
+    const nombreMes = primero.toLocaleDateString('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const partesTot = PARTES.map(([k, l, c]) => [k, l, c, uno ? uno.partes[k] : t[k === 'empleado' ? 'empleados' : k]]).filter((x) => x[3] > 0);
+    const suma = partesTot.reduce((a, x) => a + x[3], 0) || 1;
+    el.innerHTML = `<div class="alert alert-info py-2 small d-flex gap-2"><i class="bi bi-info-circle fs-5"></i><div><b>Calendario administrativo de 360 días.</b> Para la nómina todos los meses valen 30 días (febrero también): un mes completo siempre paga lo mismo, y el sueldo se divide en 30. Las fechas de pago son las de cada mes calendario (si cae en fin de semana o festivo, se paga el día hábil anterior) y puedes cambiarlas pactándolo con cada persona.</div></div>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-3"><div class="btn-group"><button class="btn btn-outline-secondary" data-mv="-1" aria-label="Mes anterior"><i class="bi bi-chevron-left"></i></button><button class="btn btn-outline-secondary text-capitalize" style="min-width:160px" data-hoy>${esc(nombreMes)}</button><button class="btn btn-outline-secondary" data-mv="1" aria-label="Mes siguiente"><i class="bi bi-chevron-right"></i></button></div>
+        <select class="form-select w-auto" data-emp aria-label="Ver"><option value="">Todo el negocio · ${emps.length} personas</option>${emps.map((e) => `<option value="${e.id}" ${String(e.id) === String(calEmp) ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+        <span class="small text-body-secondary">${uno ? esc(FREQ[uno.pay_freq]) : 'Cada color es un tipo de fecha: pagos, obligaciones y prestaciones'}</span></div>
+      <div class="dw-grid dw-grid--kpi mb-3" data-k></div>
+      <div class="row g-3 mb-3"><div class="col-lg-8"><div class="nom-card h-100"><div class="d-flex flex-wrap gap-3 small"><span><i class="bi bi-square-fill" style="color:#0d9488"></i> Pago a la persona</span><span><i class="bi bi-square-fill" style="color:#ea580c"></i> Obligación (aportes, retención)</span><span><i class="bi bi-square-fill" style="color:#9333ea"></i> Prestación social</span></div>
+          <div class="nom-cal">${['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map((x) => `<div class="h">${x}</div>`).join('')}${celdas.map((f) => !f ? '<div class="nom-day off"></div>' : `<div class="nom-day ${f === hoy ? 'hoy' : ''}"><span class="n">${+f.slice(8)}${+f.slice(8) === 30 && dias !== 30 ? '<span title="Cierre comercial: el día 30 del mes de 360 días" class="text-body-secondary"> · c30</span>' : ''}</span>${evDe(f).map((e) => `<div class="nom-ev ${e.tipo}" title="${esc(`${e.titulo}${e.detalle ? ` · ${e.detalle}` : ''}${e.valor ? ` · ${money(e.valor)}` : ''}`)}">${e.tipo === 'pago' ? `${esc(e.titulo.split(' ')[0])} ${money(e.valor)}` : esc(e.titulo)}</div>`).join('')}</div>`).join('')}</div>
+          <div class="nom-agenda">${d.eventos.map((e) => `<div class="nom-line"><span><b>${day(e.fecha)}${e.hasta ? ` a ${day(e.hasta)}` : ''}</b> · ${esc(e.titulo)}${e.detalle ? `<span class="text-body-secondary"> · ${esc(e.detalle)}</span>` : ''}</span>${e.valor ? `<b>${money(e.valor)}</b>` : ''}</div>`).join('') || '<div class="small text-body-secondary">Sin fechas este mes.</div>'}</div></div></div>
+        <div class="col-lg-4"><div class="nom-card h-100"><h2 class="h6 mb-0">${uno ? `¿A quién va lo de ${esc(uno.name.split(' ')[0])}?` : '¿A quién se le paga este mes?'}</h2>
+          <div class="nom-bar">${partesTot.map(([, l, c, v]) => `<i style="width:${(v / suma) * 100}%;background:${c}" title="${esc(l)} ${money(v)}"></i>`).join('')}</div>
+          <div>${partesTot.map(([, l, c, v]) => `<div class="nom-part"><span class="dot" style="background:${c}"></span><span class="flex-grow-1">${esc(l)}</span><b>${money(v)}</b><span class="small text-body-secondary" style="width:38px;text-align:right">${Math.round((v / suma) * 100)}%</span></div>`).join('') || '<div class="small text-body-secondary">No hay personas vinculadas este mes.</div>'}</div></div></div></div>
+      <div data-detalle></div>`;
+    C.kpis($('[data-k]', el), [['A pagar a las personas', money(uno ? uno.neto : t.empleados), 'neto después de descuentos', 'bi-wallet2'], ['Seguridad social y parafiscales', money(uno ? uno.aportes : t.aportes), 'a cargo del empleador', 'bi-shield-check'], ['Retención (DIAN)', money(uno ? uno.partes.dian : t.dian), 'se paga el mes siguiente', 'bi-bank'],
+      ['Provisiones', money(uno ? uno.provisiones : t.provisiones), 'cesantías, intereses, prima y vacaciones', 'bi-piggy-bank'], [uno ? `Cuánto cuesta ${uno.name.split(' ')[0]}` : 'Costo total del mes', money(uno ? uno.costo : t.costo), 'devengado + aportes + provisiones', 'bi-calculator']]);
+    const det = $('[data-detalle]', el);
+    if (uno) {
+      const lin = (a, v, neg) => (v ? `<div class="nom-line"><span>${esc(a)}</span><b class="${neg ? 'nom-neg' : ''}">${neg ? '−' : ''}${money(v)}</b></div>` : '');
+      const x = uno.desglose;
+      det.innerHTML = `<div class="row g-3"><div class="col-lg-6"><div class="nom-card h-100"><h2 class="h6 mb-0">Lo que se le paga a ${esc(uno.name.split(' ')[0])}</h2>
+          ${uno.conceptos.filter((c) => c.tipo === 'dev').map((c) => lin(c.c, c.valor)).join('')}<div class="nom-line"><span><b>Devengado</b></span><b>${money(uno.devengado)}</b></div>
+          ${uno.conceptos.filter((c) => c.tipo === 'ded').map((c) => lin(c.c, c.valor, true)).join('')}<div class="nom-line"><span><b>Neto a pagar</b></span><b>${money(uno.neto)}</b></div>
+          <h3 class="h6 mt-2 mb-0">Fechas de pago</h3>${uno.pagos.map((g) => `<div class="nom-line"><span><i class="bi bi-calendar-check me-1"></i>${day(g.fecha)} · ${esc(g.etiqueta)}</span><b>${money(g.valor)}</b></div>`).join('')}</div></div>
+        <div class="col-lg-6"><div class="nom-card h-100"><h2 class="h6 mb-0">Cuánto cuesta al mes</h2>${lin('Devengado', uno.devengado)}${lin('Salud del empleador', x.aportes.salud)}${lin('Pensión del empleador', x.aportes.pension)}${lin('ARL', x.aportes.arl)}${lin('Caja de compensación', x.aportes.caja)}${lin('SENA', x.aportes.sena)}${lin('ICBF', x.aportes.icbf)}
+          ${lin('Cesantías (provisión)', x.provisiones.cesantias)}${lin('Intereses de cesantías (provisión)', x.provisiones.intereses)}${lin('Prima (provisión)', x.provisiones.prima)}${lin('Vacaciones (provisión)', x.provisiones.vacaciones)}
+          <div class="nom-line"><span><b>Costo total</b></span><b>${money(uno.costo)}</b></div>${x.aportes.exonerado ? '<div class="small text-body-secondary">Exonerado de salud, SENA e ICBF (art. 114-1 E.T.).</div>' : ''}</div></div></div>`;
+    } else {
+      det.innerHTML = `<div class="nom-card"><h2 class="h6 mb-0">Cada empleado: cuándo se le paga y cuánto cuesta</h2><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Empleado</th><th>Fechas de pago</th><th class="text-end">Neto</th><th class="text-end">Aportes</th><th class="text-end">Provisiones</th><th class="text-end">Costo</th></tr></thead>
+        <tbody>${d.empleados.map((e) => `<tr class="nom-click" data-emp="${e.id}"><td><b>${esc(e.name)}</b>${sub(`${FREQ[e.pay_freq].split(' · ')[0]}${e.contract_type === 'prestacion' ? ' · contratista' : ''}`)}</td>
+          <td>${e.pagos.map((g) => `<span class="badge text-bg-light me-1" title="${esc(`${g.etiqueta}: ${money(g.valor)}`)}">${+g.fecha.slice(8)}</span>`).join('')}<span class="small text-body-secondary">de ${esc(nombreMes.split(' ')[0])}</span></td>
+          <td class="text-end">${money(e.neto)}</td><td class="text-end">${money(e.aportes)}</td><td class="text-end">${money(e.provisiones)}</td><td class="text-end"><b>${money(e.costo)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="text-body-secondary">No hay personas vinculadas este mes.</td></tr>'}</tbody></table></div><div class="small text-body-secondary">Toca una persona para ver su calendario y cuánto cuesta.</div></div>`;
+    }
+    el.onclick = (e) => {
+      const mv = e.target.closest('[data-mv]'); if (mv) return mover(+mv.dataset.mv);
+      if (e.target.closest('[data-hoy]')) { calMes = mesHoy; return render(); }
+      const r = e.target.closest('tr[data-emp]'); if (r) { calEmp = r.dataset.emp; render(); }
+    };
+    $('[data-emp]', el).addEventListener('change', (e) => { calEmp = e.target.value; render(); });
+  }
+
   /* ---------------- empleados ---------------- */
   const FE = [
     { k: 'name', label: 'Nombre completo', required: true, full: true }, { k: 'doc_type', label: 'Tipo de documento', type: 'select', options: ['CC', 'NIT', 'CE', 'PPT', 'PEP', 'PA', 'TI'].map((x) => [x, x]) }, { k: 'doc_number', label: 'Número de documento' },
     { k: 'position', label: 'Cargo' }, { k: 'email', label: 'Correo', type: 'email' }, { k: 'phone', label: 'Celular' },
     { k: 'contract_type', label: 'Contrato', type: 'select', options: [['indefinido', 'Término indefinido'], ['fijo', 'Término fijo'], ['obra_labor', 'Obra o labor'], ['aprendizaje', 'Aprendizaje (SENA)'], ['prestacion', 'Prestación de servicios (contratista)']] },
     { k: 'salary_type', label: 'Tipo de salario', type: 'select', options: [['ordinario', 'Ordinario'], ['integral', 'Integral (≥ 13 SMMLV)']] },
-    { k: 'salary', label: 'Salario mensual', type: 'money', required: true }, { k: 'pay_freq', label: 'Se paga', type: 'select', options: [['mensual', 'Mensual'], ['quincenal', 'Quincenal']] },
+    { k: 'salary', label: 'Salario mensual', type: 'money', required: true }, { k: 'pay_freq', label: 'Se paga', type: 'select', options: [['mensual', 'Mensual (último día del mes)'], ['quincenal', 'Quincenal (15 y último día)'], ['semanal', 'Semanal (cada viernes)']] },
     { k: 'start_date', label: 'Fecha de ingreso', type: 'date', required: true }, { k: 'contract_end', label: 'Fin del contrato (si es fijo)', type: 'date' },
     { k: 'arl_risk', label: 'Riesgo ARL (1 a 5)', type: 'int', hint: '1 oficina · 2 · 3 · 4 · 5 alto riesgo' }, { k: 'aux_transporte', label: 'Auxilio de transporte', type: 'bool', check: 'Lo recibe (si gana hasta 2 SMMLV)', default: true },
     { k: 'cost_center', label: 'Centro de costo en Finanzas', placeholder: 'Administración, Ventas…' },

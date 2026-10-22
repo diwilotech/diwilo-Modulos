@@ -25,7 +25,7 @@ const HALF = ['M', '1', '2'];
 export const ENTITIES = {
   employees: { table: 'nom_employees', label: 'el empleado', title: 'name', search: ['name', 'doc_number', 'position'], order: "status, name", leer: 'manager', crear: 'manager',
     fields: { name: 'text!', doc_type: ['CC', 'NIT', 'CE', 'PPT', 'PEP', 'PA', 'TI'], doc_number: 'text', email: 'email', phone: 'text', position: 'text',
-      contract_type: ['indefinido', 'fijo', 'obra_labor', 'aprendizaje', 'prestacion'], salary_type: ['ordinario', 'integral'], salary: 'money', aux_transporte: 'bool+', arl_risk: 'int', pay_freq: ['mensual', 'quincenal'],
+      contract_type: ['indefinido', 'fijo', 'obra_labor', 'aprendizaje', 'prestacion'], salary_type: ['ordinario', 'integral'], salary: 'money', aux_transporte: 'bool+', arl_risk: 'int', pay_freq: ['mensual', 'quincenal', 'semanal'],
       start_date: 'date!', contract_end: 'date', end_date: 'date', status: ['activo', 'retirado'], eps: 'text', afp: 'text', arl: 'text', caja: 'text', cesantias_fund: 'text',
       bank: 'text', account_type: 'text', account_number: 'text', cost_center: 'text', dependientes: 'bool', deduc_vivienda: 'money', deduc_prepagada: 'money', retencion_pct: 'num', ext_ref: 'text', notes: 'long' },
     beforeCreate(c, row) { validarEmpleado(row, c.params); },
@@ -69,7 +69,7 @@ async function liquidarCorrida(c, run) {
   const filas = [];
   for (const e of emps) {
     if (run.tipo === 'nomina') {
-      if ((run.half === 'M') !== (e.pay_freq === 'mensual')) continue;
+      if ((run.half === 'M') !== (e.pay_freq !== 'quincenal')) continue;   // mensual y semanal se liquidan por mes (la semanal se paga en partes)
       const nov = await all(c.env, `SELECT kind, quantity, amount, note FROM nom_novedades WHERE business_id = ? AND employee_id = ? AND period = ? AND half IN (${novedadesDe(run.half).map(() => '?').join(',')})`, c.businessId, e.id, run.period, ...novedadesDe(run.half));
       let previa = null;
       if (run.half === '2') {
@@ -178,6 +178,11 @@ export function routes(r) {
       finanzas: await orgUsa(c.env, c.businessId, 'finanzas') });
   });
 
+  // Calendario de pagos: fechas de cada empleado y del negocio, a quién se paga y cuánto cuesta. GET /api/nomina/calendario?period=AAAA-MM&employee_id=
+  r.get(`${B}/calendario`, `tenant:${MOD}`, async (c) => {
+    const q = c.url.searchParams, period = MONTH.test(q.get('period') || '') ? q.get('period') : today().slice(0, 7), emp = Number(q.get('employee_id')) || null;
+    return json(await calendarioMes(c.env, c.businessId, period, emp));
+  });
   // Contratistas del mes con sus cargos separados y su cuenta de cobro en Finanzas. POST genera o actualiza todo el mes de una vez.
   r.get(`${B}/servicios`, `manager:${MOD}`, async (c) => {
     const period = MONTH.test(c.url.searchParams.get('period') || '') ? c.url.searchParams.get('period') : today().slice(0, 7);
@@ -414,4 +419,52 @@ export async function daily(env) {
   let n = 0;
   for (const { business_id } of orgs) { if (await orgUsa(env, business_id, 'nomina')) { await automatizarMes(env, business_id, today().slice(0, 7)).catch((e) => console.error('nómina automática', e.message)); n++; } }
   return n;
+}
+
+/* ---------------- calendario: cuándo se paga, a quién y cuánto cuesta cada persona ---------------- */
+const pad2 = (n) => String(n).padStart(2, '0');
+// Fechas de pago por defecto de un mes: mensual el último día del mes, quincenal el 15 y el último, semanal cada viernes.
+export function fechasDePago(period, freq) {
+  const ult = ultimoDia(period), [y, m] = period.split('-').map(Number);
+  if (freq === 'quincenal') return [{ fecha: `${period}-15`, etiqueta: 'Primera quincena', parte: 0.5 }, { fecha: ult, etiqueta: 'Segunda quincena', parte: 0.5 }];
+  if (freq === 'semanal') {
+    const dias = [];
+    for (let d = 1; d <= +ult.slice(8); d++) if (new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 5) dias.push(`${period}-${pad2(d)}`);
+    return dias.map((fecha, i) => ({ fecha, etiqueta: `Semana ${i + 1}`, parte: 1 / dias.length }));
+  }
+  return [{ fecha: ult, etiqueta: 'Pago del mes', parte: 1 }];
+}
+export async function calendarioMes(env, biz, period, empId = null) {
+  const p = await paramsNegocio(env, biz, +period.slice(0, 4));
+  let emps = (await all(env, "SELECT * FROM nom_employees WHERE business_id = ? ORDER BY name", biz)).filter((e) => vinculada(e, period));
+  if (empId) emps = emps.filter((e) => e.id === empId);
+  const eventos = [], tot = { empleados: 0, eps: 0, afp: 0, arl: 0, caja: 0, sena: 0, icbf: 0, dian: 0, cesantias: 0, intereses: 0, prima: 0, vacaciones: 0, devengado: 0, aportes: 0, provisiones: 0, costo: 0 };
+  const empleados = [];
+  for (const e of emps) {
+    const nov = await all(env, 'SELECT kind, quantity, amount, note FROM nom_novedades WHERE business_id = ? AND employee_id = ? AND period = ?', biz, e.id, period);
+    const d = liquidarEmpleado({ ...e, pay_freq: 'mensual' }, nov, p, { period, half: 'M' });
+    const a = d.aportes, pr = d.provisiones;
+    const partes = { empleado: d.neto, eps: d.salud + a.salud, afp: d.pension + d.fsp + a.pension, arl: a.arl, caja: a.caja, sena: a.sena, icbf: a.icbf, dian: d.retencion, cesantias: pr.cesantias, intereses: pr.intereses, prima: pr.prima, vacaciones: pr.vacaciones };
+    const fechas = fechasDePago(period, e.pay_freq);
+    let resto = d.neto;
+    const pagos = fechas.map((f, i) => { const valor = i === fechas.length - 1 ? resto : Math.round(d.neto * f.parte); resto -= valor; return { fecha: f.fecha, etiqueta: f.etiqueta, valor }; });
+    for (const g of pagos) eventos.push({ fecha: g.fecha, tipo: 'pago', titulo: e.name, detalle: g.etiqueta, valor: g.valor, empleado_id: e.id });
+    for (const k of ['eps', 'afp', 'arl', 'caja', 'sena', 'icbf', 'dian', 'cesantias', 'intereses', 'prima', 'vacaciones']) tot[k] += partes[k];
+    tot.empleados += d.neto; tot.devengado += d.devengado; tot.aportes += a.total; tot.provisiones += pr.total; tot.costo += d.costo;
+    empleados.push({ id: e.id, name: e.name, position: e.position, contract_type: e.contract_type, pay_freq: e.pay_freq, status: e.status, pagos, devengado: d.devengado, neto: d.neto, deducciones: d.deducciones, aportes: a.total, provisiones: pr.total, costo: d.costo, ibc: d.ibc, partes,
+      desglose: { salud_empleado: d.salud, pension_empleado: d.pension, fsp: d.fsp, retencion: d.retencion, otros_descuentos: d.otros_descuentos, aportes: a, provisiones: pr }, conceptos: d.conceptos });
+  }
+  // Obligaciones del mes: aportes y retención del mes anterior (según el último dígito del NIT) y las prestaciones sociales
+  const y = +period.slice(0, 4), mm = period.slice(5, 7);
+  const prest = async (tipo, mes) => emps.reduce((v, e) => { const x = prestacion(e, p, tipo, { period: `${y}-${mes}` }); return v + x.valor + x.intereses; }, 0);
+  if (!empId || emps.length) {
+    eventos.push({ fecha: `${period}-02`, hasta: `${period}-15`, tipo: 'obligacion', titulo: 'Planilla de aportes (PILA) del mes anterior', detalle: 'Entre el 2.º y el 15.º día hábil, según el último dígito del NIT o documento', valor: null });
+    eventos.push({ fecha: `${period}-10`, hasta: `${period}-24`, tipo: 'obligacion', titulo: 'Retención en la fuente del mes anterior', detalle: 'Según el último dígito del NIT (calendario tributario de la DIAN)', valor: null });
+    if (mm === '01') eventos.push({ fecha: `${period}-31`, tipo: 'prestacion', titulo: 'Consignar los intereses sobre cesantías', detalle: 'Hasta el 31 de enero (o pagarlos directo al empleado)', valor: null });
+    if (mm === '02') eventos.push({ fecha: `${period}-14`, tipo: 'prestacion', titulo: 'Consignar las cesantías al fondo', detalle: 'Hasta el 14 de febrero', valor: null });
+    if (mm === '06') eventos.push({ fecha: `${period}-30`, tipo: 'prestacion', titulo: 'Prima de servicios (1.er semestre)', detalle: 'Hasta el 30 de junio', valor: await prest('prima', '06') });
+    if (mm === '12') eventos.push({ fecha: `${period}-20`, tipo: 'prestacion', titulo: 'Prima de servicios (2.º semestre)', detalle: 'Hasta el 20 de diciembre', valor: await prest('prima', '12') });
+  }
+  eventos.sort((a, b) => a.fecha.localeCompare(b.fecha) || (a.tipo === 'pago' ? -1 : 1));
+  return { period, ultimo_dia: ultimoDia(period), totales: tot, empleados, eventos };
 }

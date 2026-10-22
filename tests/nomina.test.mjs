@@ -70,6 +70,20 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   check('Nómina: liquida el contrato, retira y paga', liq.status === 201 && liq.data.en_finanzas === true && (await A.app(`${N}/employees`)).data.rows.find((x) => x.id === e1.data.id).status === 'retirado');
   check('Nómina: no se liquida dos veces', (await A.app(`${N}/employees/${e1.data.id}/liquidacion`, { method: 'POST', body: { fin: hoy } })).status === 409);
 
+  // Calendario de pagos: mensual, quincenal y semanal; por negocio y por empleado
+  const eq = await A.app(`${N}/employees`, { method: 'POST', body: { name: 'Quincenal Q', salary: 2400000, start_date: '2024-01-01', pay_freq: 'quincenal' } });
+  const es = await A.app(`${N}/employees`, { method: 'POST', body: { name: 'Semanal S', salary: 1800000, start_date: '2024-01-01', pay_freq: 'semanal' } });
+  const cal = (await A.app(`${N}/calendario?period=2026-02`)).data;
+  const eQ = cal.empleados.find((x) => x.name === 'Quincenal Q'), eS = cal.empleados.find((x) => x.name === 'Semanal S'), eM = cal.empleados.find((x) => x.name === 'Pedro Ruiz');
+  check('Nómina: calendario mensual paga el último día del mes (febrero también)', eM.pagos.length === 1 && eM.pagos[0].fecha === '2026-02-28');
+  check('Nómina: calendario quincenal paga el 15 y el último día, y suma el neto', eQ.pagos.map((x) => x.fecha).join() === '2026-02-15,2026-02-28' && eQ.pagos.reduce((t, x) => t + x.valor, 0) === eQ.neto);
+  check('Nómina: calendario semanal paga cada viernes y suma el neto', eS.pagos.length === 4 && eS.pagos.every((x) => new Date(`${x.fecha}T12:00:00Z`).getUTCDay() === 5) && eS.pagos.reduce((t, x) => t + x.valor, 0) === eS.neto);
+  check('Nómina: el calendario reparte el costo entre empleado, EPS, pensión, ARL, caja y DIAN', cal.totales.empleados === cal.empleados.reduce((t, x) => t + x.neto, 0) && cal.totales.eps > 0 && cal.totales.afp > 0 && cal.totales.arl > 0 && cal.totales.costo === cal.empleados.reduce((t, x) => t + x.costo, 0));
+  check('Nómina: el calendario trae las obligaciones del mes', cal.eventos.some((x) => x.tipo === 'obligacion' && /PILA/.test(x.titulo)) && (await A.app(`${N}/calendario?period=2026-06`)).data.eventos.some((x) => x.tipo === 'prestacion' && /Prima/.test(x.titulo)));
+  check('Nómina: el calendario de una persona solo trae lo suyo', (await A.app(`${N}/calendario?period=2026-02&employee_id=${eQ.id}`)).data.empleados.length === 1);
+  check('Nómina: B no ve el calendario de A', (await B.app(`${N}/calendario?period=2026-02&employee_id=${eQ.id}`)).data.empleados.length === 0);
+  void eq; void es;
+
   // Parámetros
   const pa = await A.app(`${N}/parametros?year=2026`);
   check('Nómina: parámetros oficiales', pa.data.smmlv === 1750905 && pa.data.aux_transporte === 249095);
@@ -88,5 +102,5 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [{ modulo: 'nomina', activo: false }] });
   check('Nómina: módulo inactivo responde 403', (await A.app(`${N}/summary`)).status === 403);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Nómina: al reactivarlo los datos siguen ahí', (await A.app(`${N}/employees`)).data.rows?.length === 3);
+  check('Nómina: al reactivarlo los datos siguen ahí', (await A.app(`${N}/employees`)).data.rows?.length === 5);
 }

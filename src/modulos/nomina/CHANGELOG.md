@@ -1,5 +1,9 @@
 # Nómina — cambios
 
+## 1.3.0 · 2026-10-22
+- **Calendario de pagos** (negocio y por empleado): fechas de pago según sea mensual, quincenal o semanal, a quién va cada peso (empleado, EPS, pensión, ARL, caja, SENA, ICBF, DIAN, provisiones), cuánto cuesta cada persona y las obligaciones del mes (PILA, retención, prima, cesantías). Aviso del calendario administrativo de 360 días.
+- Pago **semanal** (se liquida por mes y se paga en partes).
+
 ## 1.2.0 · 2026-10-22
 - **Todo automático:** cada día (y al traer el equipo de una app) la nómina del mes queda en borrador al día y cada contratista por prestación de servicios recibe su **cuenta de cobro** en Finanzas (factura recibida) con cada cargo por separado: honorarios, cada clase o servicio entregado, descuentos y la retención. Mientras no esté pagada se actualiza con lo que se va entregando.
 - Al pagar la nómina, los contratistas se pagan contra su cuenta de cobro (no se duplica el gasto) y la retención va a la DIAN.
