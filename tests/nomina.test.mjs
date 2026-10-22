@@ -82,6 +82,9 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   check('Nómina: el calendario trae las obligaciones del mes', cal.eventos.some((x) => x.tipo === 'obligacion' && /PILA/.test(x.titulo)) && (await A.app(`${N}/calendario?period=2026-06`)).data.eventos.some((x) => x.tipo === 'prestacion' && /Prima/.test(x.titulo)));
   check('Nómina: el calendario de una persona solo trae lo suyo', (await A.app(`${N}/calendario?period=2026-02&employee_id=${eQ.id}`)).data.empleados.length === 1);
   check('Nómina: B no ve el calendario de A', (await B.app(`${N}/calendario?period=2026-02&employee_id=${eQ.id}`)).data.empleados.length === 0);
+  const sumaPartes = (e) => Object.entries(e.partes).reduce((t, [k, v]) => t + v, 0);
+  check('Nómina: el reparto por destino suma el costo de cada persona', cal.empleados.every((e) => sumaPartes(e) === e.costo), JSON.stringify(cal.empleados.map((e) => [e.name, sumaPartes(e), e.costo])).slice(0, 300));
+  check('Nómina: los contratistas traen el estado de la nómina del mes', (await A.app(`${N}/servicios?period=${mes}`)).data.corrida !== undefined);
   void eq; void es;
 
   // Prestaciones sociales

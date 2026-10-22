@@ -1,5 +1,10 @@
 # Nómina — cambios
 
+## 1.5.0 · 2026-10-22
+- **Resumen y calendario en una sola vista.** Al tocar un día, un pago o un color de la gráfica se abre su detalle (quién cobra ese día y cómo se reparte; quién aporta a cada destino).
+- **Gráfica del dinero:** barra apilada «¿a quién llega el costo?» (empleado, EPS, pensión, ARL, caja/SENA/ICBF, DIAN, provisiones, otros descuentos) con su leyenda en pesos y porcentaje; por empleado, además, cuánto le llega y cuánto se le descuenta de lo que gana. Paleta categórica validada, con valores al pasar el cursor.
+- **Contratistas:** gráfica del movimiento del dinero (pagado, por pagar, retención a la DIAN, otros descuentos), etapas del proceso (servicios → cuenta de cobro → aprobada → pagada) y la misma barra en cada tarjeta.
+
 ## 1.4.0 · 2026-10-22
 - **Prestaciones sociales:** vista que reúne lo causado hasta hoy por persona (cesantías, intereses, prima del semestre y vacaciones pendientes en días y en pesos), cuánto se debe en total, las fechas de pago (31 ene, 14 feb, 30 jun, 20 dic) con su estado, y el acceso directo para liquidar la prima y las cesantías.
 

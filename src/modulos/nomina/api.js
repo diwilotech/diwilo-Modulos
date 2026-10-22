@@ -188,7 +188,8 @@ export function routes(r) {
   // Contratistas del mes con sus cargos separados y su cuenta de cobro en Finanzas. POST genera o actualiza todo el mes de una vez.
   r.get(`${B}/servicios`, `manager:${MOD}`, async (c) => {
     const period = MONTH.test(c.url.searchParams.get('period') || '') ? c.url.searchParams.get('period') : today().slice(0, 7);
-    return json({ period, contratistas: await cuentasServicios(c.env, c.businessId, period), finanzas: await orgUsa(c.env, c.businessId, 'finanzas') });
+    const run = await one(c.env, "SELECT id, status FROM nom_runs WHERE business_id = ? AND tipo = 'nomina' AND period = ? AND half = 'M'", c.businessId, period);
+    return json({ period, contratistas: await cuentasServicios(c.env, c.businessId, period), corrida: run || null, finanzas: await orgUsa(c.env, c.businessId, 'finanzas') });
   });
   r.post(`${B}/servicios/generar`, `manager:${MOD}`, async (c) => {
     const b = await readJson(c.req).catch(() => ({})), period = MONTH.test(b.period || '') ? b.period : today().slice(0, 7);
@@ -440,18 +441,18 @@ export async function calendarioMes(env, biz, period, empId = null) {
   const p = await paramsNegocio(env, biz, +period.slice(0, 4));
   let emps = (await all(env, "SELECT * FROM nom_employees WHERE business_id = ? ORDER BY name", biz)).filter((e) => vinculada(e, period));
   if (empId) emps = emps.filter((e) => e.id === empId);
-  const eventos = [], tot = { empleados: 0, eps: 0, afp: 0, arl: 0, caja: 0, sena: 0, icbf: 0, dian: 0, cesantias: 0, intereses: 0, prima: 0, vacaciones: 0, devengado: 0, aportes: 0, provisiones: 0, costo: 0 };
+  const eventos = [], tot = { otros: 0, empleados: 0, eps: 0, afp: 0, arl: 0, caja: 0, sena: 0, icbf: 0, dian: 0, cesantias: 0, intereses: 0, prima: 0, vacaciones: 0, devengado: 0, aportes: 0, provisiones: 0, costo: 0 };
   const empleados = [];
   for (const e of emps) {
     const nov = await all(env, 'SELECT kind, quantity, amount, note FROM nom_novedades WHERE business_id = ? AND employee_id = ? AND period = ?', biz, e.id, period);
     const d = liquidarEmpleado({ ...e, pay_freq: 'mensual' }, nov, p, { period, half: 'M' });
     const a = d.aportes, pr = d.provisiones;
-    const partes = { empleado: d.neto, eps: d.salud + a.salud, afp: d.pension + d.fsp + a.pension, arl: a.arl, caja: a.caja, sena: a.sena, icbf: a.icbf, dian: d.retencion, cesantias: pr.cesantias, intereses: pr.intereses, prima: pr.prima, vacaciones: pr.vacaciones };
+    const partes = { empleado: d.neto, eps: d.salud + a.salud, afp: d.pension + d.fsp + a.pension, arl: a.arl, caja: a.caja, sena: a.sena, icbf: a.icbf, dian: d.retencion, otros: d.otros_descuentos, cesantias: pr.cesantias, intereses: pr.intereses, prima: pr.prima, vacaciones: pr.vacaciones };
     const fechas = fechasDePago(period, e.pay_freq);
     let resto = d.neto;
     const pagos = fechas.map((f, i) => { const valor = i === fechas.length - 1 ? resto : Math.round(d.neto * f.parte); resto -= valor; return { fecha: f.fecha, etiqueta: f.etiqueta, valor }; });
     for (const g of pagos) eventos.push({ fecha: g.fecha, tipo: 'pago', titulo: e.name, detalle: g.etiqueta, valor: g.valor, empleado_id: e.id });
-    for (const k of ['eps', 'afp', 'arl', 'caja', 'sena', 'icbf', 'dian', 'cesantias', 'intereses', 'prima', 'vacaciones']) tot[k] += partes[k];
+    for (const k of ['otros', 'eps', 'afp', 'arl', 'caja', 'sena', 'icbf', 'dian', 'cesantias', 'intereses', 'prima', 'vacaciones']) tot[k] += partes[k];
     tot.empleados += d.neto; tot.devengado += d.devengado; tot.aportes += a.total; tot.provisiones += pr.total; tot.costo += d.costo;
     empleados.push({ id: e.id, name: e.name, position: e.position, contract_type: e.contract_type, pay_freq: e.pay_freq, status: e.status, pagos, devengado: d.devengado, neto: d.neto, deducciones: d.deducciones, aportes: a.total, provisiones: pr.total, costo: d.costo, ibc: d.ibc, partes,
       desglose: { salud_empleado: d.salud, pension_empleado: d.pension, fsp: d.fsp, retencion: d.retencion, otros_descuentos: d.otros_descuentos, aportes: a, provisiones: pr }, conceptos: d.conceptos });

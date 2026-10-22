@@ -6,7 +6,7 @@ DW.ready.then((me) => {
   const B = '/api/nomina', RO = me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const hoy = C.todayCo(), mesHoy = hoy.slice(0, 7);
-  const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['calendario', 'Calendario de pagos', 'bi-calendar3'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['prestaciones', 'Prestaciones', 'bi-piggy-bank'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
+  const VIEWS = [['resumen', 'Resumen y calendario', 'bi-calendar3'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['prestaciones', 'Prestaciones', 'bi-piggy-bank'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
   let view = (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
   const ESTADO = { borrador: ['soon', 'Borrador'], aprobada: ['ok', 'Aprobada'], pagada: ['free', 'Pagada'] };
@@ -15,6 +15,16 @@ DW.ready.then((me) => {
   const MOTIVO = [['renuncia', 'Renuncia'], ['sin_justa_causa', 'Despido sin justa causa'], ['con_justa_causa', 'Despido con justa causa'], ['mutuo_acuerdo', 'Mutuo acuerdo'], ['terminacion_contrato', 'Terminación del contrato']];
 
   if (!document.getElementById('nom-css')) document.head.insertAdjacentHTML('beforeend', `<style id="nom-css">
+    .nom-viz{--v1:#2a78d6;--v2:#eb6834;--v3:#1baf7a;--v4:#eda100;--v5:#e87ba4;--v6:#008300;--v7:#6250d6;--vo:#8b8a85}
+    @media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .nom-viz{--v1:#3987e5;--v2:#d95926;--v3:#199e70;--v4:#c98500;--v5:#d55181;--v6:#008300;--v7:#9085e9;--vo:#9a9993}}
+    :root[data-theme="dark"] .nom-viz{--v1:#3987e5;--v2:#d95926;--v3:#199e70;--v4:#c98500;--v5:#d55181;--v6:#008300;--v7:#9085e9;--vo:#9a9993}
+    .nom-stack{display:flex;gap:2px;height:22px}.nom-stack i{display:block;min-width:2px;cursor:pointer;transition:opacity .15s}.nom-stack i:first-child{border-radius:4px 0 0 4px}.nom-stack i:last-child{border-radius:0 4px 4px 0}.nom-stack i:only-child{border-radius:4px}
+    .nom-stack.dim i:not(.on){opacity:.35}.nom-stack.sm{height:12px}.nom-tex{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.55) 0 2px,transparent 2px 6px)}
+    .nom-leg{display:flex;align-items:center;gap:8px;font-size:.88rem;padding:5px 6px;border-radius:8px;cursor:pointer}.nom-leg:hover,.nom-leg.on{background:rgba(128,128,128,.12)}.nom-leg .dot{width:10px;height:10px;border-radius:3px;flex:none}
+    .nom-day{cursor:pointer}.nom-day.sel{outline:2px solid var(--dw-p,#6d3fd6)}.nom-ev{cursor:pointer}
+    .nom-tip{position:fixed;z-index:2000;pointer-events:none;background:var(--bs-body-bg);color:var(--bs-body-color);border:1px solid var(--dw-borde,rgba(128,128,128,.4));border-radius:8px;padding:6px 9px;font-size:.78rem;box-shadow:0 4px 16px rgba(0,0,0,.18);max-width:260px;display:none}
+    .nom-track{display:flex;align-items:center;gap:0;font-size:.68rem;text-align:center}.nom-track>div{flex:1;position:relative;color:var(--bs-secondary-color)}.nom-track>div::before{content:"";display:block;width:14px;height:14px;border-radius:50%;margin:0 auto 3px;border:2px solid var(--dw-borde,rgba(128,128,128,.5));background:var(--bs-body-bg)}
+    .nom-track>div.ok{color:var(--bs-body-color)}.nom-track>div.ok::before{background:var(--v6,#008300);border-color:var(--v6,#008300)}.nom-track>div:not(:last-child)::after{content:"";position:absolute;top:7px;left:calc(50% + 10px);right:calc(-50% + 10px);height:2px;background:var(--dw-borde,rgba(128,128,128,.4))}
     .nom-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr))}
     .nom-card{border:1px solid var(--dw-borde,rgba(128,128,128,.25));border-radius:16px;background:var(--dw-tarjeta,var(--bs-body-bg));padding:16px;display:flex;flex-direction:column;gap:10px}
     .nom-av{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;background:var(--dw-p,#6d3fd6);flex:none}
@@ -34,6 +44,23 @@ DW.ready.then((me) => {
     .nom-tot small{display:block;color:var(--bs-secondary-color);font-size:.7rem}.nom-click{cursor:pointer;transition:box-shadow .15s}.nom-click:hover{box-shadow:0 4px 18px rgba(0,0,0,.12)}
   </style>`);
   const iniciales = (n) => String(n || '?').split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase();
+  // Tooltip de las gráficas: se muestra al pasar o tocar cualquier marca con data-tip
+  if (!document.getElementById('nom-tip')) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="nom-tip" id="nom-tip" role="tooltip"></div>');
+    const tp = document.getElementById('nom-tip');
+    const mover = (e) => { tp.style.left = `${Math.min(window.innerWidth - 270, e.clientX + 12)}px`; tp.style.top = `${e.clientY + 14}px`; };
+    document.addEventListener('mouseover', (e) => { const t = e.target.closest('[data-tip]'); if (!t) { tp.style.display = 'none'; return; } tp.textContent = t.dataset.tip; tp.style.display = 'block'; mover(e); });
+    document.addEventListener('mousemove', (e) => { if (tp.style.display === 'block') mover(e); });
+    document.addEventListener('click', () => { setTimeout(() => { tp.style.display = 'none'; }, 1500); });
+  }
+  // Destinos del dinero, en orden fijo (cada uno conserva su color en todas las gráficas)
+  const GRUPOS = [['empleado', 'Empleado (neto)', 'var(--v1)'], ['eps', 'Salud (EPS)', 'var(--v2)'], ['afp', 'Pensión (AFP)', 'var(--v3)'], ['arl', 'ARL', 'var(--v4)'], ['paraf', 'Caja, SENA e ICBF', 'var(--v5)'], ['dian', 'DIAN (retención)', 'var(--v6)'], ['prov', 'Provisiones (cesantías, prima, vacaciones)', 'var(--v7)'], ['otros', 'Otros descuentos (préstamos, embargos)', 'var(--vo)']];
+  const grupos = (p) => ({ empleado: p.empleado || 0, eps: p.eps || 0, afp: p.afp || 0, arl: p.arl || 0, paraf: (p.caja || 0) + (p.sena || 0) + (p.icbf || 0), dian: p.dian || 0, prov: (p.cesantias || 0) + (p.intereses || 0) + (p.prima || 0) + (p.vacaciones || 0), otros: p.otros || 0 });
+  const totalesPartes = (t) => grupos({ ...t, empleado: t.empleados });
+  const pct = (v, tot) => `${tot ? Math.round((v / tot) * 100) : 0}%`;
+  // Barra apilada 100 %: segmentos con 2 px entre sí y sobre fondo; cada uno con su valor al pasar el cursor
+  const pila = (items, { sm = false, on = null } = {}) => { const tot = items.reduce((a, x) => a + x.v, 0) || 1;
+    return `<div class="nom-stack ${sm ? 'sm' : ''} ${on ? 'dim' : ''}" role="img" aria-label="${esc(items.filter((x) => x.v > 0).map((x) => `${x.l} ${money(x.v)}`).join(', '))}">${items.filter((x) => x.v > 0).map((x) => `<i class="${on === x.k ? 'on' : ''} ${x.tex ? 'nom-tex' : ''}" data-parte="${x.k || ''}" data-tip="${esc(`${x.l} · ${money(x.v)} · ${pct(x.v, tot)}`)}" style="flex:${x.v};background:${x.c}"></i>`).join('')}</div>`; };
   const sub = (t) => (t ? `<div class="small text-body-secondary fw-normal">${esc(t)}</div>` : '');
   let KINDS = {};
 
@@ -43,85 +70,91 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     $('[data-acciones]').innerHTML = '';
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
-    ({ resumen, calendario, empleados, contratistas, prestaciones, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
+    ({ resumen, empleados, contratistas, prestaciones, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
   }
   const cuentas = async () => (await api('/api/finanzas/accounts?limit=200').catch(() => ({ rows: [] }))).rows;
 
-  /* ---------------- resumen ---------------- */
-  async function resumen(el) {
-    el.innerHTML = `<div class="nom-auto d-flex flex-wrap align-items-center gap-3 mb-3"><i class="bi bi-magic fs-3"></i><div class="flex-grow-1"><b>La nómina se mantiene sola.</b>
-        <div class="small text-body-secondary">Cada día deja al día el borrador del mes y la cuenta de cobro de cada contratista (cada clase y cada cargo por separado). Tú solo revisas, apruebas y pagas.</div></div>
-        <label class="small text-body-secondary mb-0">Mes <input class="form-control form-control-sm d-inline-block w-auto" type="month" data-mes value="${mesHoy}"></label>${RO ? '' : '<button class="btn btn-primary btn-sm" data-gen><i class="bi bi-arrow-repeat me-1"></i>Actualizar ahora</button>'}</div>
-      <div class="dw-grid dw-grid--kpi mb-3" data-kpis></div><div class="row g-3"><div class="col-lg-7"><div class="nom-card h-100"><h2 class="h6 mb-0">Nóminas del mes</h2><div data-runs></div></div></div>
-      <div class="col-lg-5"><div class="nom-card h-100"><h2 class="h6 mb-0">Próximas obligaciones</h2><div data-obl></div><p class="small text-body-secondary mb-0">Los aportes (PILA) y la retención en la fuente se pagan cada mes según el último dígito del NIT.</p></div></div></div>`;
-    const load = async () => {
-      const s = await api(`${B}/summary?period=${$('[data-mes]', el).value || mesHoy}`);
-      C.kpis($('[data-kpis]', el), [['Personas activas', num(s.empleados), '', 'bi-people'], ['Devengado estimado', money(s.devengado), `neto ${money(s.neto)}`, 'bi-cash-stack'], ['Aportes del empleador', money(s.aportes), 'salud, pensión, ARL, caja, SENA, ICBF', 'bi-shield-check'],
-        ['Provisiones', money(s.provisiones), 'cesantías, intereses, prima, vacaciones', 'bi-piggy-bank'], ['Costo total del mes', money(s.costo), s.parametros_estimados ? 'con parámetros estimados' : `SMMLV ${money(s.smmlv)}`, 'bi-calculator']]);
-      $('[data-runs]', el).innerHTML = s.corridas.length ? s.corridas.map((r) => `<div class="d-flex align-items-center gap-2 py-1"><i class="bi bi-cash-stack"></i><span class="flex-grow-1">${esc(TIPO[r.tipo])}${r.tipo === 'nomina' && r.half !== 'M' ? ` · ${esc(HALF[r.half])}` : ''}</span><b>${money(r.neto)}</b>${chip(...ESTADO[r.status])}<button class="btn btn-sm btn-outline-primary" data-run="${r.id}">Abrir</button></div>`).join('') : '<div class="small text-body-secondary">Todavía no hay empleados: regístralos y la nómina del mes aparece aquí sola.</div>';
-      $('[data-obl]', el).innerHTML = s.obligaciones.map((o) => `<div class="d-flex gap-2 py-1"><i class="bi bi-calendar-event"></i><span><b>${day(o.fecha)}</b> · ${esc(o.que)}</span></div>`).join('') || '<div class="small text-body-secondary">Sin fechas próximas.</div>';
-    };
-    $('[data-mes]', el).addEventListener('change', load);
-    $('[data-gen]', el)?.addEventListener('click', async () => { try { const r = await api(`${B}/servicios/generar`, { method: 'POST', body: { period: $('[data-mes]', el).value || mesHoy } }); toast(`Al día: ${r.cuentas_de_cobro || 0} cuentas de cobro de contratistas`); load(); } catch (x) { toast(x.message, false); } });
-    el.onclick = (e) => { const b = e.target.closest('[data-run]'); if (b) detalle(+b.dataset.run); };
-    await load();
-  }
-
-  /* ---------------- calendario de pagos: del negocio y por empleado ---------------- */
-  const PARTES = [['empleado', 'Empleado (neto)', '#0d9488'], ['eps', 'Salud (EPS)', '#2563eb'], ['afp', 'Pensión (AFP)', '#7c3aed'], ['arl', 'ARL', '#db2777'], ['caja', 'Caja de compensación', '#ea580c'], ['sena', 'SENA', '#ca8a04'], ['icbf', 'ICBF', '#65a30d'],
-    ['dian', 'DIAN (retención)', '#64748b'], ['cesantias', 'Cesantías', '#0891b2'], ['intereses', 'Intereses de cesantías', '#06b6d4'], ['prima', 'Prima de servicios', '#9333ea'], ['vacaciones', 'Vacaciones', '#16a34a']];
+  /* ---------------- resumen y calendario (juntos) ---------------- */
   const FREQ = { mensual: 'Mensual · último día del mes', quincenal: 'Quincenal · el 15 y el último día', semanal: 'Semanal · cada viernes' };
-  let calMes = mesHoy, calEmp = '';
-  async function calendario(el) {
+  let calMes = mesHoy, calEmp = '', calSel = null;
+  async function resumen(el) {
     const emps = (await api(`${B}/employees?limit=1000`)).rows.filter((e) => e.status === 'activo');
     if (calEmp && !emps.some((e) => String(e.id) === String(calEmp))) calEmp = '';
-    const mover = (n) => { const [y, m] = calMes.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); calMes = d.toISOString().slice(0, 7); render(); };
-    const d = await api(`${B}/calendario?period=${calMes}${calEmp ? `&employee_id=${calEmp}` : ''}`);
-    const t = d.totales, uno = d.empleados.length === 1 && calEmp ? d.empleados[0] : null;
+    const [d, sm] = await Promise.all([api(`${B}/calendario?period=${calMes}${calEmp ? `&employee_id=${calEmp}` : ''}`), api(`${B}/summary?period=${calMes}`)]);
+    const t = d.totales, uno = calEmp && d.empleados.length === 1 ? d.empleados[0] : null;
     const [y, m] = calMes.split('-').map(Number), primero = new Date(Date.UTC(y, m - 1, 1)), dias = +d.ultimo_dia.slice(8), lead = (primero.getUTCDay() + 6) % 7;
-    const evDe = (f) => d.eventos.filter((e) => e.fecha === f);
+    const nombreMes = primero.toLocaleDateString('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
     const celdas = [...Array(lead).fill(null), ...Array.from({ length: dias }, (_, i) => `${calMes}-${String(i + 1).padStart(2, '0')}`)];
     while (celdas.length % 7) celdas.push(null);
-    const nombreMes = primero.toLocaleDateString('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-    const partesTot = PARTES.map(([k, l, c]) => [k, l, c, uno ? uno.partes[k] : t[k === 'empleado' ? 'empleados' : k]]).filter((x) => x[3] > 0);
-    const suma = partesTot.reduce((a, x) => a + x[3], 0) || 1;
-    el.innerHTML = `<div class="alert alert-info py-2 small d-flex gap-2"><i class="bi bi-info-circle fs-5"></i><div><b>Calendario administrativo de 360 días.</b> Para la nómina todos los meses valen 30 días (febrero también): un mes completo siempre paga lo mismo, y el sueldo se divide en 30. Las fechas de pago son las de cada mes calendario (si cae en fin de semana o festivo, se paga el día hábil anterior) y puedes cambiarlas pactándolo con cada persona.</div></div>
+    const evDe = (f) => d.eventos.filter((e) => e.fecha === f);
+    const g = uno ? grupos(uno.partes) : totalesPartes(t), gTot = GRUPOS.reduce((a, [k]) => a + g[k], 0);
+    const items = GRUPOS.map(([k, l, c]) => ({ k, l, c, v: g[k] }));
+    el.innerHTML = `<div class="nom-viz">
+      <div class="nom-auto d-flex flex-wrap align-items-center gap-3 mb-3"><i class="bi bi-magic fs-3"></i><div class="flex-grow-1" style="min-width:220px"><b>La nómina se mantiene sola.</b>
+        <div class="small text-body-secondary">Cada día deja al día el borrador del mes y la cuenta de cobro de cada contratista. Tú revisas, apruebas y pagas.</div></div>${RO ? '' : '<button class="btn btn-primary btn-sm" data-gen><i class="bi bi-arrow-repeat me-1"></i>Actualizar ahora</button>'}</div>
+      <details class="mb-3"><summary class="small text-body-secondary" style="cursor:pointer"><i class="bi bi-info-circle me-1"></i><b>Calendario administrativo de 360 días</b> · cómo se cuentan los días</summary>
+        <div class="small mt-2">Para la nómina todos los meses valen 30 días (febrero también): un mes completo siempre paga lo mismo y el sueldo se divide en 30. Las fechas de pago son las del mes calendario; si caen en fin de semana o festivo se paga el día hábil anterior. Se pueden pactar otras con cada persona. Los días con «c30» son el cierre comercial del mes.</div></details>
       <div class="d-flex flex-wrap gap-2 align-items-center mb-3"><div class="btn-group"><button class="btn btn-outline-secondary" data-mv="-1" aria-label="Mes anterior"><i class="bi bi-chevron-left"></i></button><button class="btn btn-outline-secondary text-capitalize" style="min-width:160px" data-hoy>${esc(nombreMes)}</button><button class="btn btn-outline-secondary" data-mv="1" aria-label="Mes siguiente"><i class="bi bi-chevron-right"></i></button></div>
         <select class="form-select w-auto" data-emp aria-label="Ver"><option value="">Todo el negocio · ${emps.length} personas</option>${emps.map((e) => `<option value="${e.id}" ${String(e.id) === String(calEmp) ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
-        <span class="small text-body-secondary">${uno ? esc(FREQ[uno.pay_freq]) : 'Cada color es un tipo de fecha: pagos, obligaciones y prestaciones'}</span></div>
+        <span class="small text-body-secondary">${uno ? esc(FREQ[uno.pay_freq]) : 'Toca un día, un pago o un color de la gráfica para ver el detalle'}</span></div>
       <div class="dw-grid dw-grid--kpi mb-3" data-k></div>
-      <div class="row g-3 mb-3"><div class="col-lg-8"><div class="nom-card h-100"><div class="d-flex flex-wrap gap-3 small"><span><i class="bi bi-square-fill" style="color:#0d9488"></i> Pago a la persona</span><span><i class="bi bi-square-fill" style="color:#ea580c"></i> Obligación (aportes, retención)</span><span><i class="bi bi-square-fill" style="color:#9333ea"></i> Prestación social</span></div>
-          <div class="nom-cal">${['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map((x) => `<div class="h">${x}</div>`).join('')}${celdas.map((f) => !f ? '<div class="nom-day off"></div>' : `<div class="nom-day ${f === hoy ? 'hoy' : ''}"><span class="n">${+f.slice(8)}${+f.slice(8) === 30 && dias !== 30 ? '<span title="Cierre comercial: el día 30 del mes de 360 días" class="text-body-secondary"> · c30</span>' : ''}</span>${evDe(f).map((e) => `<div class="nom-ev ${e.tipo}" title="${esc(`${e.titulo}${e.detalle ? ` · ${e.detalle}` : ''}${e.valor ? ` · ${money(e.valor)}` : ''}`)}">${e.tipo === 'pago' ? `${esc(e.titulo.split(' ')[0])} ${money(e.valor)}` : esc(e.titulo)}</div>`).join('')}</div>`).join('')}</div>
-          <div class="nom-agenda">${d.eventos.map((e) => `<div class="nom-line"><span><b>${day(e.fecha)}${e.hasta ? ` a ${day(e.hasta)}` : ''}</b> · ${esc(e.titulo)}${e.detalle ? `<span class="text-body-secondary"> · ${esc(e.detalle)}</span>` : ''}</span>${e.valor ? `<b>${money(e.valor)}</b>` : ''}</div>`).join('') || '<div class="small text-body-secondary">Sin fechas este mes.</div>'}</div></div></div>
-        <div class="col-lg-4"><div class="nom-card h-100"><h2 class="h6 mb-0">${uno ? `¿A quién va lo de ${esc(uno.name.split(' ')[0])}?` : '¿A quién se le paga este mes?'}</h2>
-          <div class="nom-bar">${partesTot.map(([, l, c, v]) => `<i style="width:${(v / suma) * 100}%;background:${c}" title="${esc(l)} ${money(v)}"></i>`).join('')}</div>
-          <div>${partesTot.map(([, l, c, v]) => `<div class="nom-part"><span class="dot" style="background:${c}"></span><span class="flex-grow-1">${esc(l)}</span><b>${money(v)}</b><span class="small text-body-secondary" style="width:38px;text-align:right">${Math.round((v / suma) * 100)}%</span></div>`).join('') || '<div class="small text-body-secondary">No hay personas vinculadas este mes.</div>'}</div></div></div></div>
-      <div data-detalle></div>`;
+      <div class="row g-3 mb-3"><div class="col-lg-7"><div class="nom-card h-100"><div class="d-flex flex-wrap gap-3 small"><span><i class="bi bi-square-fill" style="color:#0d9488"></i> Pago a la persona</span><span><i class="bi bi-square-fill" style="color:#ea580c"></i> Obligación</span><span><i class="bi bi-square-fill" style="color:#9333ea"></i> Prestación</span></div>
+          <div class="nom-cal">${['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map((x) => `<div class="h">${x}</div>`).join('')}${celdas.map((f) => !f ? '<div class="nom-day off"></div>' : `<div class="nom-day ${f === hoy ? 'hoy' : ''} ${calSel?.f === f ? 'sel' : ''}" data-f="${f}"><span class="n">${+f.slice(8)}${+f.slice(8) === 30 && dias !== 30 ? '<span title="Cierre comercial: día 30 del mes de 360 días" class="text-body-secondary"> · c30</span>' : ''}</span>${evDe(f).map((e) => `<div class="nom-ev ${e.tipo}" data-tip="${esc(`${e.titulo}${e.valor ? ` · ${money(e.valor)}` : ''}`)}">${e.tipo === 'pago' ? `${esc(e.titulo.split(' ')[0])} ${money(e.valor)}` : esc(e.titulo)}</div>`).join('')}</div>`).join('')}</div>
+          <div class="nom-agenda">${d.eventos.map((e) => `<div class="nom-line" data-f="${e.fecha}" style="cursor:pointer"><span><b>${day(e.fecha)}</b> · ${esc(e.titulo)}${e.detalle ? `<span class="text-body-secondary"> · ${esc(e.detalle)}</span>` : ''}</span>${e.valor ? `<b>${money(e.valor)}</b>` : ''}</div>`).join('') || '<div class="small text-body-secondary">Sin fechas este mes.</div>'}</div></div></div>
+        <div class="col-lg-5"><div class="nom-card h-100"><h2 class="h6 mb-0">${uno ? `¿A quién llega lo de ${esc(uno.name.split(' ')[0])}?` : '¿A quién llega el costo del mes?'}</h2><div class="small text-body-secondary">Del costo total de ${money(gTot)}: cuánto va a cada parte.</div>
+          ${pila(items, { on: calSel?.k })}<div data-leg>${items.filter((x) => x.v > 0).map((x) => `<div class="nom-leg ${calSel?.k === x.k ? 'on' : ''}" data-parte="${x.k}"><span class="dot" style="background:${x.c}"></span><span class="flex-grow-1">${esc(x.l)}</span><b>${money(x.v)}</b><span class="small text-body-secondary" style="width:38px;text-align:right">${pct(x.v, gTot)}</span></div>`).join('') || '<div class="small text-body-secondary">No hay personas vinculadas este mes.</div>'}</div></div></div></div>
+      <div data-sel class="mb-3"></div><div data-cuerpo></div></div>`;
     C.kpis($('[data-k]', el), [['A pagar a las personas', money(uno ? uno.neto : t.empleados), 'neto después de descuentos', 'bi-wallet2'], ['Seguridad social y parafiscales', money(uno ? uno.aportes : t.aportes), 'a cargo del empleador', 'bi-shield-check'], ['Retención (DIAN)', money(uno ? uno.partes.dian : t.dian), 'se paga el mes siguiente', 'bi-bank'],
-      ['Provisiones', money(uno ? uno.provisiones : t.provisiones), 'cesantías, intereses, prima y vacaciones', 'bi-piggy-bank'], [uno ? `Cuánto cuesta ${uno.name.split(' ')[0]}` : 'Costo total del mes', money(uno ? uno.costo : t.costo), 'devengado + aportes + provisiones', 'bi-calculator']]);
-    const det = $('[data-detalle]', el);
-    if (uno) {
-      const lin = (a, v, neg) => (v ? `<div class="nom-line"><span>${esc(a)}</span><b class="${neg ? 'nom-neg' : ''}">${neg ? '−' : ''}${money(v)}</b></div>` : '');
-      const x = uno.desglose;
-      det.innerHTML = `<div class="row g-3"><div class="col-lg-6"><div class="nom-card h-100"><h2 class="h6 mb-0">Lo que se le paga a ${esc(uno.name.split(' ')[0])}</h2>
-          ${uno.conceptos.filter((c) => c.tipo === 'dev').map((c) => lin(c.c, c.valor)).join('')}<div class="nom-line"><span><b>Devengado</b></span><b>${money(uno.devengado)}</b></div>
-          ${uno.conceptos.filter((c) => c.tipo === 'ded').map((c) => lin(c.c, c.valor, true)).join('')}<div class="nom-line"><span><b>Neto a pagar</b></span><b>${money(uno.neto)}</b></div>
-          <h3 class="h6 mt-2 mb-0">Fechas de pago</h3>${uno.pagos.map((g) => `<div class="nom-line"><span><i class="bi bi-calendar-check me-1"></i>${day(g.fecha)} · ${esc(g.etiqueta)}</span><b>${money(g.valor)}</b></div>`).join('')}</div></div>
-        <div class="col-lg-6"><div class="nom-card h-100"><h2 class="h6 mb-0">Cuánto cuesta al mes</h2>${lin('Devengado', uno.devengado)}${lin('Salud del empleador', x.aportes.salud)}${lin('Pensión del empleador', x.aportes.pension)}${lin('ARL', x.aportes.arl)}${lin('Caja de compensación', x.aportes.caja)}${lin('SENA', x.aportes.sena)}${lin('ICBF', x.aportes.icbf)}
-          ${lin('Cesantías (provisión)', x.provisiones.cesantias)}${lin('Intereses de cesantías (provisión)', x.provisiones.intereses)}${lin('Prima (provisión)', x.provisiones.prima)}${lin('Vacaciones (provisión)', x.provisiones.vacaciones)}
-          <div class="nom-line"><span><b>Costo total</b></span><b>${money(uno.costo)}</b></div>${x.aportes.exonerado ? '<div class="small text-body-secondary">Exonerado de salud, SENA e ICBF (art. 114-1 E.T.).</div>' : ''}</div></div></div>`;
-    } else {
-      det.innerHTML = `<div class="nom-card"><h2 class="h6 mb-0">Cada empleado: cuándo se le paga y cuánto cuesta</h2><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Empleado</th><th>Fechas de pago</th><th class="text-end">Neto</th><th class="text-end">Aportes</th><th class="text-end">Provisiones</th><th class="text-end">Costo</th></tr></thead>
-        <tbody>${d.empleados.map((e) => `<tr class="nom-click" data-emp="${e.id}"><td><b>${esc(e.name)}</b>${sub(`${FREQ[e.pay_freq].split(' · ')[0]}${e.contract_type === 'prestacion' ? ' · contratista' : ''}`)}</td>
-          <td>${e.pagos.map((g) => `<span class="badge text-bg-light me-1" title="${esc(`${g.etiqueta}: ${money(g.valor)}`)}">${+g.fecha.slice(8)}</span>`).join('')}<span class="small text-body-secondary">de ${esc(nombreMes.split(' ')[0])}</span></td>
-          <td class="text-end">${money(e.neto)}</td><td class="text-end">${money(e.aportes)}</td><td class="text-end">${money(e.provisiones)}</td><td class="text-end"><b>${money(e.costo)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="text-body-secondary">No hay personas vinculadas este mes.</td></tr>'}</tbody></table></div><div class="small text-body-secondary">Toca una persona para ver su calendario y cuánto cuesta.</div></div>`;
-    }
-    el.onclick = (e) => {
-      const mv = e.target.closest('[data-mv]'); if (mv) return mover(+mv.dataset.mv);
-      if (e.target.closest('[data-hoy]')) { calMes = mesHoy; return render(); }
-      const r = e.target.closest('tr[data-emp]'); if (r) { calEmp = r.dataset.emp; render(); }
+      ['Provisiones', money(uno ? uno.provisiones : t.provisiones), 'cesantías, intereses, prima, vacaciones', 'bi-piggy-bank'], [uno ? `Cuánto cuesta ${uno.name.split(' ')[0]}` : 'Costo total del mes', money(uno ? uno.costo : t.costo), 'devengado + aportes + provisiones', 'bi-calculator']]);
+
+    /* detalle de lo seleccionado: un día, un pago, una parte de la gráfica */
+    const pintaSel = () => {
+      const box = $('[data-sel]', el); if (!calSel) { box.innerHTML = ''; return; }
+      if (calSel.k) {
+        const [k, l, c] = GRUPOS.find((x) => x[0] === calSel.k), filas = d.empleados.map((e) => ({ e, v: grupos(e.partes)[k] })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v), tot = filas.reduce((a, x) => a + x.v, 0);
+        box.innerHTML = `<div class="nom-card"><div class="d-flex align-items-center gap-2"><span class="dot" style="width:12px;height:12px;border-radius:3px;background:${c}"></span><h2 class="h6 mb-0 flex-grow-1">${esc(l)} · ${money(tot)}</h2><button class="btn btn-sm btn-light" data-x aria-label="Cerrar"><i class="bi bi-x-lg"></i></button></div>
+          ${filas.map((x) => `<div class="nom-line" data-emp-ir="${x.e.id}" style="cursor:pointer"><span>${esc(x.e.name)}</span><span><b>${money(x.v)}</b> <span class="small text-body-secondary">${pct(x.v, tot)}</span></span></div>`).join('') || '<div class="small text-body-secondary">Nadie aporta a esto este mes.</div>'}</div>`;
+      } else {
+        const evs = evDe(calSel.f);
+        box.innerHTML = `<div class="nom-card"><div class="d-flex align-items-center gap-2"><i class="bi bi-calendar-day"></i><h2 class="h6 mb-0 flex-grow-1">${day(calSel.f)}</h2><button class="btn btn-sm btn-light" data-x aria-label="Cerrar"><i class="bi bi-x-lg"></i></button></div>
+          ${evs.map((e) => { const emp = e.empleado_id && d.empleados.find((x) => x.id === e.empleado_id);
+            return `<div class="nom-line"><span><b>${esc(e.titulo)}</b><div class="small text-body-secondary">${esc(e.detalle || '')}</div>${emp ? pila(GRUPOS.map(([k, l, c]) => ({ k, l, c, v: grupos(emp.partes)[k] })), { sm: true }) : ''}${emp ? `<button class="btn btn-sm btn-link p-0" data-emp-ir="${emp.id}">Ver el calendario de ${esc(emp.name.split(' ')[0])}</button>` : e.tipo === 'prestacion' ? '<button class="btn btn-sm btn-link p-0" data-ir-prest>Ver prestaciones</button>' : ''}</span>${e.valor ? `<b>${money(e.valor)}</b>` : ''}</div>`; }).join('') || '<div class="small text-body-secondary">Ese día no hay pagos ni obligaciones.</div>'}</div>`;
+      }
     };
-    $('[data-emp]', el).addEventListener('change', (e) => { calEmp = e.target.value; render(); });
+    pintaSel();
+
+    /* cuerpo: por empleado o del negocio */
+    const body = $('[data-cuerpo]', el);
+    if (uno) {
+      const x = uno.desglose, lin = (a, v, neg) => (v ? `<div class="nom-line"><span>${esc(a)}</span><b class="${neg ? 'nom-neg' : ''}">${neg ? '−' : ''}${money(v)}</b></div>` : '');
+      const ganado = [{ k: 'empleado', l: 'A su bolsillo (neto)', c: 'var(--v1)', v: uno.neto }, { k: 'eps', l: 'Salud 4 %', c: 'var(--v2)', v: x.salud_empleado }, { k: 'afp', l: 'Pensión 4 % y solidaridad', c: 'var(--v3)', v: x.pension_empleado + x.fsp }, { k: 'dian', l: 'Retención en la fuente', c: 'var(--v6)', v: x.retencion }, { k: 'otros', l: 'Otros descuentos', c: 'var(--vo)', v: x.otros_descuentos }];
+      body.innerHTML = `<div class="nom-card mb-3"><h2 class="h6 mb-0">De lo que gana ${esc(uno.name.split(' ')[0])}: cuánto le llega y cuánto se descuenta</h2>${pila(ganado)}
+          <div class="d-flex flex-wrap gap-3 small">${ganado.filter((q) => q.v > 0).map((q) => `<span><span class="dot d-inline-block" style="width:10px;height:10px;border-radius:3px;background:${q.c}"></span> ${esc(q.l)} <b>${money(q.v)}</b> <span class="text-body-secondary">${pct(q.v, uno.devengado)}</span></span>`).join('')}</div></div>
+        <div class="row g-3"><div class="col-lg-6"><div class="nom-card h-100"><h2 class="h6 mb-0">Lo que se le paga</h2>${uno.conceptos.filter((c) => c.tipo === 'dev').map((c) => lin(c.c, c.valor)).join('')}<div class="nom-line"><span><b>Devengado</b></span><b>${money(uno.devengado)}</b></div>${uno.conceptos.filter((c) => c.tipo === 'ded').map((c) => lin(c.c, c.valor, true)).join('')}<div class="nom-line"><span><b>Neto a pagar</b></span><b>${money(uno.neto)}</b></div>
+          <h3 class="h6 mt-2 mb-0">Fechas de pago</h3>${uno.pagos.map((q) => `<div class="nom-line"><span><i class="bi bi-calendar-check me-1"></i>${day(q.fecha)} · ${esc(q.etiqueta)}</span><b>${money(q.valor)}</b></div>`).join('')}</div></div>
+          <div class="col-lg-6"><div class="nom-card h-100"><h2 class="h6 mb-0">Cuánto cuesta al mes</h2>${lin('Devengado', uno.devengado)}${lin('Salud del empleador', x.aportes.salud)}${lin('Pensión del empleador', x.aportes.pension)}${lin('ARL', x.aportes.arl)}${lin('Caja de compensación', x.aportes.caja)}${lin('SENA', x.aportes.sena)}${lin('ICBF', x.aportes.icbf)}
+            ${lin('Cesantías (provisión)', x.provisiones.cesantias)}${lin('Intereses de cesantías (provisión)', x.provisiones.intereses)}${lin('Prima (provisión)', x.provisiones.prima)}${lin('Vacaciones (provisión)', x.provisiones.vacaciones)}<div class="nom-line"><span><b>Costo total</b></span><b>${money(uno.costo)}</b></div>${x.aportes.exonerado ? '<div class="small text-body-secondary">Exonerado de salud, SENA e ICBF (art. 114-1 E.T.).</div>' : ''}</div></div></div>`;
+    } else {
+      body.innerHTML = `<div class="nom-card mb-3"><h2 class="h6 mb-0">Cada empleado: cuándo se le paga y cuánto cuesta</h2><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Empleado</th><th>Fechas de pago</th><th class="text-end">Neto</th><th class="text-end">Aportes</th><th class="text-end">Provisiones</th><th class="text-end">Costo</th></tr></thead>
+        <tbody>${d.empleados.map((e) => `<tr class="nom-click" data-emp-ir="${e.id}"><td><b>${esc(e.name)}</b>${sub(`${FREQ[e.pay_freq].split(' · ')[0]}${e.contract_type === 'prestacion' ? ' · contratista' : ''}`)}</td>
+          <td>${e.pagos.map((q) => `<span class="badge text-bg-light me-1" title="${esc(`${q.etiqueta}: ${money(q.valor)}`)}">${+q.fecha.slice(8)}</span>`).join('')}<span class="small text-body-secondary">de ${esc(nombreMes.split(' ')[0])}</span></td>
+          <td class="text-end">${money(e.neto)}</td><td class="text-end">${money(e.aportes)}</td><td class="text-end">${money(e.provisiones)}</td><td class="text-end"><b>${money(e.costo)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="text-body-secondary">No hay personas vinculadas este mes.</td></tr>'}</tbody></table></div><div class="small text-body-secondary">Toca una persona para ver su calendario y cuánto cuesta.</div></div>
+        <div class="row g-3"><div class="col-lg-7"><div class="nom-card h-100"><h2 class="h6 mb-0">Nóminas del mes</h2>${sm.corridas.length ? sm.corridas.map((q) => `<div class="d-flex align-items-center gap-2 py-1"><i class="bi bi-cash-stack"></i><span class="flex-grow-1">${esc(TIPO[q.tipo])}${q.tipo === 'nomina' && q.half !== 'M' ? ` · ${esc(HALF[q.half])}` : ''}</span><b>${money(q.neto)}</b>${chip(...ESTADO[q.status])}<button class="btn btn-sm btn-outline-primary" data-run="${q.id}">Abrir</button></div>`).join('') : '<div class="small text-body-secondary">Todavía no hay nómina liquidada este mes: aparece sola cuando haya empleados.</div>'}</div></div>
+          <div class="col-lg-5"><div class="nom-card h-100"><h2 class="h6 mb-0">Próximas obligaciones</h2>${sm.obligaciones.map((q) => `<div class="d-flex gap-2 py-1"><i class="bi bi-calendar-event"></i><span><b>${day(q.fecha)}</b> · ${esc(q.que)}</span></div>`).join('') || '<div class="small text-body-secondary">Sin fechas próximas.</div>'}</div></div></div>`;
+    }
+    const sinSel = () => { calSel = null; pintaSel(); el.querySelectorAll('.nom-day.sel,.nom-leg.on').forEach((x) => x.classList.remove('sel', 'on')); $('.nom-stack', el)?.classList.remove('dim'); };
+    el.onclick = (e) => {
+      const mv = e.target.closest('[data-mv]'); if (mv) { const dd = new Date(Date.UTC(y, m - 1 + +mv.dataset.mv, 1)); calMes = dd.toISOString().slice(0, 7); calSel = null; return render(); }
+      if (e.target.closest('[data-hoy]')) { calMes = mesHoy; calSel = null; return render(); }
+      if (e.target.closest('[data-gen]')) return api(`${B}/servicios/generar`, { method: 'POST', body: { period: calMes } }).then((r) => { toast(`Al día: ${r.cuentas_de_cobro || 0} cuentas de cobro de contratistas`); render(); }).catch((x) => toast(x.message, false));
+      if (e.target.closest('[data-x]')) return sinSel();
+      const ir = e.target.closest('[data-emp-ir]'); if (ir) { calEmp = ir.dataset.empIr; calSel = null; return render(); }
+      if (e.target.closest('[data-ir-prest]')) { view = 'prestaciones'; seg.querySelectorAll('[data-k]').forEach((b) => b.classList.toggle('active', b.dataset.k === 'prestaciones')); return render(); }
+      const rn = e.target.closest('[data-run]'); if (rn) return detalle(+rn.dataset.run);
+      const pa = e.target.closest('[data-parte]'); if (pa && pa.dataset.parte) { calSel = calSel?.k === pa.dataset.parte ? null : { k: pa.dataset.parte }; return render(); }
+      const df = e.target.closest('[data-f]'); if (df) { calSel = calSel?.f === df.dataset.f ? null : { f: df.dataset.f }; return render(); }
+    };
+    $('[data-emp]', el).addEventListener('change', (e) => { calEmp = e.target.value; calSel = null; render(); });
   }
 
   /* ---------------- prestaciones sociales ---------------- */
@@ -192,18 +225,31 @@ DW.ready.then((me) => {
     $('[data-g]', el).addEventListener('click', (e) => { const c = e.target.closest('[data-id]'); if (!c) return; const r = rows.find((x) => x.id === +c.dataset.id); if (e.target.closest('[data-liq]')) liquidarContrato(r, cargar); else if (!RO) guardar(r); });
     await cargar();
   }
-  /* ---------------- contratistas: cuenta de cobro del mes, cada cargo por separado ---------------- */
+  /* ---------------- contratistas: cómo se mueve el dinero, de la cuenta de cobro al pago ---------------- */
   async function contratistas(el) {
-    el.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-3"><label class="small text-body-secondary mb-0">Mes <input class="form-control form-control-sm d-inline-block w-auto" type="month" data-mes value="${mesHoy}"></label>
-      ${RO ? '' : '<button class="btn btn-primary btn-sm" data-gen><i class="bi bi-receipt me-1"></i>Generar o actualizar las cuentas de cobro</button>'}<span class="small text-body-secondary">Se hacen solas cada día con lo entregado (clases dictadas, honorarios). Una vez pagadas ya no cambian.</span></div><div class="nom-grid" data-g></div>`;
+    el.innerHTML = `<div class="nom-viz"><div class="d-flex flex-wrap gap-2 align-items-center mb-3"><label class="small text-body-secondary mb-0">Mes <input class="form-control form-control-sm d-inline-block w-auto" type="month" data-mes value="${mesHoy}"></label>
+      ${RO ? '' : '<button class="btn btn-primary btn-sm" data-gen><i class="bi bi-receipt me-1"></i>Generar o actualizar las cuentas de cobro</button>'}<span class="small text-body-secondary">Se hacen solas cada día con lo entregado. Una vez pagadas ya no cambian.</span></div>
+      <div data-flujo></div><div class="nom-grid" data-g></div></div>`;
     const load = async () => {
-      const d = await api(`${B}/servicios?period=${$('[data-mes]', el).value || mesHoy}`);
-      $('[data-g]', el).innerHTML = d.contratistas.map((c) => `<div class="nom-card"><div class="d-flex align-items-center gap-2"><span class="nom-av nom-av--c">${esc(iniciales(c.empleado.name))}</span>
+      const d = await api(`${B}/servicios?period=${$('[data-mes]', el).value || mesHoy}`), cs = d.contratistas;
+      const pagado = (c) => c.factura?.status === 'pagada', aprobada = !!d.corrida && d.corrida.status !== 'borrador';
+      const sum = (f) => cs.reduce((a, c) => a + f(c), 0);
+      const bruto = sum((c) => c.bruto), ret = sum((c) => c.retencion), otros = sum((c) => c.otros), netoPag = sum((c) => (pagado(c) ? c.neto : 0)), netoPend = sum((c) => (pagado(c) ? 0 : c.neto));
+      const etapas = [['Servicios entregados', cs.filter((c) => c.bruto > 0).length, 'bi-mortarboard'], ['Cuenta de cobro creada', cs.filter((c) => c.factura).length, 'bi-receipt'], ['Nómina aprobada', aprobada ? cs.filter((c) => c.factura).length : 0, 'bi-check2-square'], ['Pagada', cs.filter(pagado).length, 'bi-cash-coin']];
+      $('[data-flujo]', el).innerHTML = cs.length ? `<div class="nom-card mb-3"><h2 class="h6 mb-0">¿Cómo se mueve el dinero de los contratistas este mes?</h2><div class="small text-body-secondary">De ${money(bruto)} en honorarios entregados, esto es lo que va a cada parte:</div>
+        ${pila([{ k: 'pagado', l: 'Ya pagado a los contratistas', c: 'var(--v1)', v: netoPag }, { k: 'pend', l: 'Por pagar a los contratistas (cuentas de cobro abiertas)', c: 'var(--v1)', v: netoPend, tex: true }, { k: 'dian', l: 'Retención en la fuente (a la DIAN)', c: 'var(--v6)', v: ret }, { k: 'otros', l: 'Otros descuentos', c: 'var(--vo)', v: otros }])}
+        <div class="d-flex flex-wrap gap-3 small">${[['Ya pagado', netoPag, 'var(--v1)', false], ['Por pagar', netoPend, 'var(--v1)', true], ['Retención (DIAN)', ret, 'var(--v6)', false], ['Otros descuentos', otros, 'var(--vo)', false]].filter((q) => q[1] > 0).map(([l, v, c, tex]) => `<span><span class="dot d-inline-block ${tex ? 'nom-tex' : ''}" style="width:10px;height:10px;border-radius:3px;background:${c}"></span> ${l} <b>${money(v)}</b> <span class="text-body-secondary">${pct(v, bruto)}</span></span>`).join('')}</div>
+        <div class="nom-track mt-2">${etapas.map(([l, n, ic]) => `<div class="${n === cs.length ? 'ok' : ''}"><i class="bi ${ic}"></i><div>${l}</div><b>${n} de ${cs.length}</b></div>`).join('')}</div>
+        <div class="small text-body-secondary">El contratista cobra con su cuenta de cobro (factura recibida en Finanzas) por el valor neto; la retención se paga aparte a la DIAN y su seguridad social la paga él mismo.</div></div>` : '';
+      $('[data-g]', el).innerHTML = cs.map((c) => { const pag = pagado(c), st = [['Servicios', c.bruto > 0], ['Cuenta de cobro', !!c.factura], ['Aprobada', !!c.factura && aprobada], ['Pagada', pag]];
+        return `<div class="nom-card"><div class="d-flex align-items-center gap-2"><span class="nom-av nom-av--c">${esc(iniciales(c.empleado.name))}</span>
           <div class="flex-grow-1" style="min-width:0"><b class="d-block text-truncate">${esc(c.empleado.name)}</b><span class="small text-body-secondary">${esc(c.empleado.doc_number ? `${c.empleado.doc_type} ${c.empleado.doc_number}` : 'Sin documento')}</span></div>
-          ${c.factura ? chip(c.factura.status === 'pagada' ? 'ok' : 'soon', c.factura.status === 'pagada' ? 'Pagada' : 'Por pagar') : chip('free', 'Sin cuenta')}</div>
+          ${c.factura ? chip(pag ? 'ok' : 'soon', pag ? 'Pagada' : 'Por pagar') : chip('free', 'Sin cuenta')}</div>
+        ${pila([{ k: 'n', l: 'Para el contratista', c: 'var(--v1)', v: c.neto, tex: !pag }, { k: 'r', l: 'Retención (DIAN)', c: 'var(--v6)', v: c.retencion }, { k: 'o', l: 'Otros descuentos', c: 'var(--vo)', v: c.otros }], { sm: true })}
         <div>${c.lineas.length ? c.lineas.map((l) => `<div class="nom-line"><span>${esc(l.concepto)}${l.detalle ? `<span class="text-body-secondary"> · ${esc(l.detalle)}</span>` : ''}</span><b class="${l.valor < 0 ? 'nom-neg' : ''}">${l.valor < 0 ? '−' : ''}${money(Math.abs(l.valor))}</b></div>`).join('') : '<div class="small text-body-secondary">Aún no hay clases ni servicios entregados este mes.</div>'}</div>
         <div class="nom-tot"><div><small>Bruto</small><b>${money(c.bruto)}</b></div><div><small>Retención</small><b class="${c.retencion ? 'nom-neg' : ''}">${money(c.retencion)}</b></div><div><small>A pagar</small><b>${money(c.neto)}</b></div></div>
-        ${c.factura && d.finanzas ? `<a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="/api/finanzas/invoices/${c.factura.id}/pdf"><i class="bi bi-file-earmark-text me-1"></i>Cuenta de cobro ${esc(c.factura.number || '')}</a>` : ''}</div>`).join('')
+        <div class="nom-track">${st.map(([l, ok]) => `<div class="${ok ? 'ok' : ''}">${l}</div>`).join('')}</div>
+        ${c.factura && d.finanzas ? `<a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="/api/finanzas/invoices/${c.factura.id}/pdf"><i class="bi bi-file-earmark-text me-1"></i>Cuenta de cobro ${esc(c.factura.number || '')}</a>` : ''}</div>`; }).join('')
         || '<div class="dw-card text-body-secondary">No hay contratistas este mes. Los docentes que cobran por clases entran solos desde Equipo.</div>';
     };
     $('[data-mes]', el).addEventListener('change', load);
