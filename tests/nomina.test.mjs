@@ -19,9 +19,13 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   check('Nómina: una comisión pide el valor', (await A.app(`${N}/novedades`, { method: 'POST', body: { employee_id: e1.data.id, period: mes, kind: 'comision' } })).status === 400);
   await A.app(`${N}/novedades`, { method: 'POST', body: { employee_id: e1.data.id, period: mes, kind: 'prestamo', amount: 100000, note: 'Libranza' } });
 
+  // Prestación de servicios: honorarios con retención, sin seguridad social ni prestaciones
+  const ct = await A.app(`${N}/employees`, { method: 'POST', body: { name: 'Docente Contratista', contract_type: 'prestacion', salary: 0, start_date: '2025-01-01' } });
+  await A.app(`${N}/novedades`, { method: 'POST', body: { employee_id: ct.data.id, period: mes, kind: 'honorarios', amount: 1000000, note: 'Clases del mes' } });
+
   // Liquidación del mes
   const run = await A.app(`${N}/runs`, { method: 'POST', body: { period: mes, half: 'M' } });
-  check('Nómina: liquida el mes', run.status === 201 && run.data.empleados === 2, JSON.stringify(run.data));
+  check('Nómina: liquida el mes', run.status === 201 && run.data.empleados === 3, JSON.stringify(run.data));
   const det = (await A.app(`${N}/runs/${run.data.id}`)).data;
   const l1 = det.lineas.find((l) => l.name === 'Laura Gómez'), l2 = det.lineas.find((l) => l.name === 'Pedro Ruiz');
   check('Nómina: auxilio de transporte solo a quien gana hasta 2 SMMLV', l1.detalle.aux > 0 && l2.detalle.aux === 0);
@@ -30,6 +34,8 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   check('Nómina: exoneración de salud, SENA e ICBF bajo 10 SMMLV', l1.detalle.aportes.salud === 0 && l1.detalle.aportes.sena === 0 && l1.detalle.aportes.pension > 0);
   check('Nómina: provisiones de cesantías, prima, intereses y vacaciones', l1.detalle.provisiones.cesantias > 0 && l1.detalle.provisiones.vacaciones > 0 && l1.detalle.provisiones.total === l1.provisiones);
   check('Nómina: el fondo de solidaridad empieza desde 4 SMMLV', l2.detalle.fsp > 0 && l1.detalle.fsp === 0);
+  const lc = det.lineas.find((l) => l.name === 'Docente Contratista');
+  check('Nómina: el contratista cobra honorarios con retención del 10 % y sin aportes', lc && lc.devengado === 1000000 && lc.retencion === 100000 && lc.neto === 900000 && lc.aportes === 0 && lc.provisiones === 0, JSON.stringify(lc?.detalle).slice(0, 200));
   const pd = await A.app(`${N}/runs/${run.data.id}/desprendible/${e1.data.id}`);
   check('Nómina: desprendible de pago', pd.status === 200 && pd.data.text?.includes('NETO A PAGAR') && pd.data.text.includes('Laura Gómez'));
   check('Nómina: archivo de pago en CSV', (await A.app(`${N}/runs/${run.data.id}/export?kind=pago`)).data.text?.includes('Pedro Ruiz'));
@@ -73,5 +79,5 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [{ modulo: 'nomina', activo: false }] });
   check('Nómina: módulo inactivo responde 403', (await A.app(`${N}/summary`)).status === 403);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Nómina: al reactivarlo los datos siguen ahí', (await A.app(`${N}/employees`)).data.rows?.length === 2);
+  check('Nómina: al reactivarlo los datos siguen ahí', (await A.app(`${N}/employees`)).data.rows?.length === 3);
 }

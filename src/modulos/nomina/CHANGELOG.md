@@ -1,5 +1,10 @@
 # Nómina — cambios
 
+## 1.1.0 · 2026-10-22
+- **Prestación de servicios:** nuevo tipo de contrato para contratistas (docentes por clases, por ejemplo). Cobran honorarios con retención en la fuente (10 % por defecto, ajustable por persona), sin seguridad social, aportes ni prestaciones; el desprendible y el pago a Finanzas funcionan igual.
+- **Novedad «Honorarios»** (clases o servicios) y campo de retención de honorarios.
+- **Importar el equipo de una app** (`nominaImportar`, migración 0019): crea las personas por referencia sin duplicarlas y deja los honorarios del mes de quienes cobran por clase u hora.
+
 ## 1.0.0 · 2026-10-22
 - **Módulo nuevo (transversal):** nómina completa para Colombia, conectada con Finanzas.
 - Empleados y contratos (indefinido, fijo, obra o labor, aprendizaje; salario ordinario o integral; mensual o quincenal; riesgo ARL; entidades; banco; centro de costo).

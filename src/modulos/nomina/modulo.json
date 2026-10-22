@@ -1,8 +1,8 @@
 {
   "id": "nomina",
   "nombre": "Nómina",
-  "version": "1.0.0",
-  "descripcion": "Nómina completa para Colombia, conectada con Finanzas: empleados y contratos, novedades (horas extras con recargos, incapacidades, vacaciones, comisiones, descuentos), liquidación mensual o quincenal con salud, pensión, FSP, retención en la fuente, aportes del empleador (con exoneración art. 114-1), provisiones, prima, cesantías, desprendibles, archivo de pago y de aportes, y liquidación de contrato.",
+  "version": "1.1.0",
+  "descripcion": "Nómina completa para Colombia, conectada con Finanzas: empleados y contratos, novedades (horas extras con recargos, incapacidades, vacaciones, comisiones, descuentos), liquidación mensual o quincenal con salud, pensión, FSP, retención en la fuente, aportes del empleador (con exoneración art. 114-1), provisiones, prima, cesantías, desprendibles, archivo de pago y de aportes, y liquidación de contrato. Incluye contratistas por prestación de servicios (honorarios con retención) y la importación del equipo de una app.",
   "icono": "bi-people-fill",
   "menu": {
     "ruta": "/staff/nomina.html",

@@ -20,7 +20,7 @@ export const KINDS = {   // novedades: etiqueta, unidad
   he_diurna: ['Hora extra diurna', 'horas'], he_nocturna: ['Hora extra nocturna', 'horas'], he_dom_diurna: ['Hora extra dominical/festiva diurna', 'horas'],
   he_dom_nocturna: ['Hora extra dominical/festiva nocturna', 'horas'], rec_nocturno: ['Recargo nocturno', 'horas'], rec_dominical: ['Recargo dominical/festivo', 'horas'],
   rec_nocturno_dominical: ['Recargo nocturno dominical/festivo', 'horas'],
-  comision: ['Comisión (salarial)', 'pesos'], bonificacion_salarial: ['Bonificación salarial', 'pesos'], bonificacion_no_salarial: ['Bonificación no salarial', 'pesos'], otro_devengo: ['Otro devengo no salarial', 'pesos'],
+  honorarios: ['Honorarios (clases, servicios)', 'pesos'], comision: ['Comisión (salarial)', 'pesos'], bonificacion_salarial: ['Bonificación salarial', 'pesos'], bonificacion_no_salarial: ['Bonificación no salarial', 'pesos'], otro_devengo: ['Otro devengo no salarial', 'pesos'],
   incapacidad_general: ['Incapacidad por enfermedad general', 'días'], incapacidad_laboral: ['Incapacidad por accidente de trabajo (ARL)', 'días'],
   licencia_maternidad: ['Licencia de maternidad o paternidad', 'días'], licencia_no_remunerada: ['Licencia no remunerada', 'días'], ausencia: ['Ausencia sin pago', 'días'], vacaciones: ['Vacaciones disfrutadas', 'días'],
   prestamo: ['Descuento: préstamo o libranza', 'pesos'], embargo: ['Descuento: embargo', 'pesos'], otro_descuento: ['Otro descuento', 'pesos'],
@@ -113,6 +113,18 @@ export function liquidarEmpleado(emp, nov, p, { period, half = 'M', previa = nul
   const dLic = sum(['licencia_maternidad'], 'quantity'), dVac = sum(['vacaciones'], 'quantity');
   const trabajados = Math.max(0, dias - dNoRem - dIncap - dArl - dLic - dVac);
 
+  if (emp.contract_type === 'prestacion') {   // contratista: honorarios con retención; paga su propia seguridad social y no genera prestaciones
+    const conceptosP = [], hon = r0(dia * trabajados) + r0(sum(['honorarios'], 'amount'));
+    if (r0(dia * trabajados) > 0) conceptosP.push({ c: 'Honorarios mensuales', tipo: 'dev', salarial: false, valor: r0(dia * trabajados), nota: `${trabajados} días` });
+    if (r0(sum(['honorarios'], 'amount')) > 0) conceptosP.push({ c: 'Honorarios por clases o servicios', tipo: 'dev', salarial: false, valor: r0(sum(['honorarios'], 'amount')) });
+    const pct = emp.retencion_pct == null ? 10 : +emp.retencion_pct, retP = pct > 0 ? r1000((hon * pct) / 100) : 0, otrosP = r0(sum(DESCUENTOS, 'amount'));
+    if (retP > 0) conceptosP.push({ c: `Retención en la fuente por honorarios (${pct} %)`, tipo: 'ded', valor: retP });
+    for (const n of nov.filter((x) => DESCUENTOS.includes(x.kind) && x.amount > 0)) conceptosP.push({ c: KINDS[n.kind][0] + (n.note ? ` · ${n.note}` : ''), tipo: 'ded', valor: r0(n.amount) });
+    const dedP = retP + otrosP;
+    return { dias, trabajados, devengado: hon, salarial: 0, no_salarial: hon, aux: 0, ibc: 0, salud: 0, pension: 0, fsp: 0, retencion: retP, otros_descuentos: otrosP, deducciones: dedP, neto: hon - dedP, descuentos_ley: 0, retencion_base: null,
+      aportes: { salud: 0, pension: 0, arl: 0, caja: 0, sena: 0, icbf: 0, total: 0, exonerado: false }, provisiones: { cesantias: 0, intereses: 0, prima: 0, vacaciones: 0, total: 0 }, costo: hon, conceptos: conceptosP,
+      alertas: ['Contratista por prestación de servicios: paga su propia seguridad social (pide la planilla). Retención de honorarios estimada.'] };
+  }
   const conceptos = [];   // desglose para el desprendible: { c, tipo: 'dev'|'ded', salarial, valor, nota }
   const dev = (c, valor, salarial, nota = '') => { valor = r0(valor); if (valor > 0) conceptos.push({ c, tipo: 'dev', salarial, valor, nota }); return valor; };
   const sueldo = dev(aprendiz ? 'Apoyo de sostenimiento' : 'Sueldo', dia * trabajados, true, `${trabajados} días`);
@@ -189,7 +201,7 @@ export function prestacion(emp, p, tipo, { period, promedioVariable = 0 }) {
   const dias = desde > hasta ? 0 : dias360(desde, hasta);
   const sal = +emp.salary || 0, aux = !emp.salary_type.startsWith('integral') && emp.aux_transporte && sal <= 2 * p.smmlv ? p.aux_transporte : 0;
   const base = sal + aux + promedioVariable;
-  const aplica = emp.salary_type !== 'integral' && emp.contract_type !== 'aprendizaje' && dias > 0;
+  const aplica = emp.salary_type !== 'integral' && !['aprendizaje', 'prestacion'].includes(emp.contract_type) && dias > 0;
   const valor = aplica ? r0((base * dias) / 360) : 0;
   return { dias, base: r0(base), valor, intereses: tipo === 'cesantias' && aplica ? r0((valor * dias * 0.12) / 360) : 0, desde, hasta };
 }
@@ -198,6 +210,7 @@ export function prestacion(emp, p, tipo, { period, promedioVariable = 0 }) {
 export function liquidacionFinal(emp, p, { fin, motivo, promedioVariable = 0, vacacionesTomadas = 0 }) {
   const e = { ...emp, end_date: fin };
   const sal = +emp.salary || 0, y = fin.slice(0, 4);
+  if (emp.contract_type === 'prestacion') return { fin, motivo, base: 0, items: [], total: 0, dias_trabajados: dias360(emp.start_date, fin), empleado: emp.name, nota: 'Contrato de prestación de servicios: no genera prestaciones ni indemnización de nómina.' };
   const aplica = emp.salary_type !== 'integral' && emp.contract_type !== 'aprendizaje';
   const aux = aplica && emp.aux_transporte && sal <= 2 * p.smmlv ? p.aux_transporte : 0, base = sal + aux + promedioVariable;
   const dCes = dias360(emp.start_date > `${y}-01-01` ? emp.start_date : `${y}-01-01`, fin);

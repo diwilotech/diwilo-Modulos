@@ -24,9 +24,9 @@ const HALF = ['M', '1', '2'];
 export const ENTITIES = {
   employees: { table: 'nom_employees', label: 'el empleado', title: 'name', search: ['name', 'doc_number', 'position'], order: "status, name", leer: 'manager', crear: 'manager',
     fields: { name: 'text!', doc_type: ['CC', 'CE', 'PPT', 'PEP', 'PA', 'TI'], doc_number: 'text', email: 'email', phone: 'text', position: 'text',
-      contract_type: ['indefinido', 'fijo', 'obra_labor', 'aprendizaje'], salary_type: ['ordinario', 'integral'], salary: 'money', aux_transporte: 'bool+', arl_risk: 'int', pay_freq: ['mensual', 'quincenal'],
+      contract_type: ['indefinido', 'fijo', 'obra_labor', 'aprendizaje', 'prestacion'], salary_type: ['ordinario', 'integral'], salary: 'money', aux_transporte: 'bool+', arl_risk: 'int', pay_freq: ['mensual', 'quincenal'],
       start_date: 'date!', contract_end: 'date', end_date: 'date', status: ['activo', 'retirado'], eps: 'text', afp: 'text', arl: 'text', caja: 'text', cesantias_fund: 'text',
-      bank: 'text', account_type: 'text', account_number: 'text', cost_center: 'text', dependientes: 'bool', deduc_vivienda: 'money', deduc_prepagada: 'money', notes: 'long' },
+      bank: 'text', account_type: 'text', account_number: 'text', cost_center: 'text', dependientes: 'bool', deduc_vivienda: 'money', deduc_prepagada: 'money', retencion_pct: 'num', ext_ref: 'text', notes: 'long' },
     beforeCreate(c, row) { validarEmpleado(row, c.params); },
     beforeUpdate(c, row) { validarEmpleado(row); } },
   novedades: { table: 'nom_novedades', label: 'la novedad', title: 'kind', search: ['kind', 'note'], order: 'period DESC, id DESC', leer: 'manager', crear: 'manager',
@@ -277,4 +277,36 @@ export function routes(r) {
     return json({ id: res.meta.last_row_id, ...liq, en_finanzas: enFinanzas }, 201);
   });
   r.get(`${B}/liquidaciones`, `tenant:${MOD}`, async (c) => json({ rows: (await all(c.env, 'SELECT s.*, e.name FROM nom_settlements s JOIN nom_employees e ON e.id = s.employee_id WHERE s.business_id = ? ORDER BY s.end_date DESC', c.businessId)).map((s) => ({ ...s, detalle: JSON.parse(s.detalle || '{}') })) }));
+}
+
+// Trae el equipo de una app (Equipo de Academia, por ejemplo): empleados por `ref` (no se duplican) y honorarios del mes de quienes cobran por clase u hora.
+//   { empleados: [{ ref, name, doc_type, doc_number, email, phone, position, contract_type, salary, start_date, cost_center, notes }], novedades: [{ ref, period, amount, note }] }
+export async function importarEquipo(env, app, negocio, data = {}) {
+  const biz = `${app}:${negocio}`, t = now(), out = { creados: 0, actualizados: 0, honorarios: 0, omitidos: 0 };
+  const TIPOS = ['indefinido', 'fijo', 'obra_labor', 'aprendizaje', 'prestacion'], DOCS = ['CC', 'CE', 'PPT', 'PEP', 'PA', 'TI'];
+  for (const e of (Array.isArray(data.empleados) ? data.empleados : []).slice(0, 500)) {
+    const ref = String(e.ref || '').slice(0, 80), name = String(e.name || '').trim().slice(0, 300);
+    if (!ref || !name) { out.omitidos++; continue; }
+    const doc = DOCS.includes(e.doc_type) ? e.doc_type : 'CC', num = e.doc_number ? String(e.doc_number).slice(0, 40) : null;
+    const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e.email || '')) ? String(e.email).toLowerCase().slice(0, 254) : null, phone = e.phone ? String(e.phone).slice(0, 40) : null;
+    const prev = await one(env, 'SELECT id FROM nom_employees WHERE business_id = ? AND ext_ref = ?', biz, ref);
+    if (prev) {
+      await env.DB.prepare('UPDATE nom_employees SET name = ?, doc_type = ?, doc_number = COALESCE(?, doc_number), email = COALESCE(?, email), phone = COALESCE(?, phone), updated_at = ? WHERE id = ? AND business_id = ?').bind(name, doc, num, email, phone, t, prev.id, biz).run();
+      out.actualizados++; continue;
+    }
+    const tipo = TIPOS.includes(e.contract_type) ? e.contract_type : 'indefinido', start = DATE.test(String(e.start_date || '')) ? e.start_date : today();
+    await env.DB.prepare('INSERT INTO nom_employees (business_id, name, doc_type, doc_number, email, phone, position, contract_type, salary, start_date, cost_center, notes, ext_ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(biz, name, doc, num, email, phone, e.position ? String(e.position).slice(0, 300) : null, tipo, Math.max(0, Math.round(+e.salary || 0)), start, e.cost_center ? String(e.cost_center).slice(0, 300) : null, e.notes ? String(e.notes).slice(0, 1000) : null, ref, t, t).run();
+    out.creados++;
+  }
+  for (const n of (Array.isArray(data.novedades) ? data.novedades : []).slice(0, 1000)) {
+    const emp = await one(env, 'SELECT id FROM nom_employees WHERE business_id = ? AND ext_ref = ?', biz, String(n.ref || ''));
+    if (!emp || !MONTH.test(String(n.period || ''))) { out.omitidos++; continue; }
+    if (await one(env, "SELECT 1 FROM nom_runs WHERE business_id = ? AND tipo = 'nomina' AND period = ? AND status <> 'borrador'", biz, n.period)) { out.omitidos++; continue; }   // mes ya cerrado
+    const marca = `auto:honorarios:${String(n.ref).slice(0, 60)}:${n.period}`;
+    await env.DB.prepare('DELETE FROM nom_novedades WHERE business_id = ? AND employee_id = ? AND note = ?').bind(biz, emp.id, marca).run();
+    const amount = Math.round(+n.amount || 0);
+    if (amount > 0) { await env.DB.prepare("INSERT INTO nom_novedades (business_id, employee_id, period, half, kind, quantity, amount, note, created_at, updated_at) VALUES (?, ?, ?, 'M', 'honorarios', 0, ?, ?, ?, ?)").bind(biz, emp.id, n.period, amount, marca, t, t).run(); out.honorarios++; }
+  }
+  return out;
 }

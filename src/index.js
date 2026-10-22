@@ -21,6 +21,7 @@ import { Router } from './router.js';
 import { HttpError } from './lib/http.js';
 import { authorize, checkCtx, syncOrg, orgId } from './lib/contexto.js';
 import { MODULOS } from './modulos/index.js';
+import { importarEquipo } from './modulos/nomina/api.js';
 import { linkBySlug, countClick, registrarLead, marcarMatriculado } from './modulos/marketing/api.js';
 import { publicCard } from './modulos/marketing/tarjetas.js';
 import { validatePage } from './modulos/finanzas/api.js';
@@ -96,6 +97,8 @@ export class Modulos extends WorkerEntrypoint {
   link(app, slug) { return linkBySlug(this.env, app, slug); }
   async click(app, id) { await countClick(this.env, app, id); return { ok: true }; }
   // Embudo de matrícula: la página pública de la app registra el interesado (lead del link) y, al matricular, lo pasa a cliente
+  // Nómina: la app trae su equipo (empleados y honorarios del mes) sin duplicar
+  nominaImportar(app, negocio, datos) { return importarEquipo(this.env, app, negocio, datos || {}); }
   lead(app, negocio, datos) { return registrarLead(this.env, app, negocio, datos || {}); }
   matriculado(app, negocio, datos) { return marcarMatriculado(this.env, app, negocio, datos || {}); }
 

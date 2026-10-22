@@ -46,7 +46,7 @@ DW.ready.then((me) => {
   const FE = [
     { k: 'name', label: 'Nombre completo', required: true, full: true }, { k: 'doc_type', label: 'Tipo de documento', type: 'select', options: ['CC', 'CE', 'PPT', 'PEP', 'PA', 'TI'].map((x) => [x, x]) }, { k: 'doc_number', label: 'Número de documento' },
     { k: 'position', label: 'Cargo' }, { k: 'email', label: 'Correo', type: 'email' }, { k: 'phone', label: 'Celular' },
-    { k: 'contract_type', label: 'Contrato', type: 'select', options: [['indefinido', 'Término indefinido'], ['fijo', 'Término fijo'], ['obra_labor', 'Obra o labor'], ['aprendizaje', 'Aprendizaje (SENA)']] },
+    { k: 'contract_type', label: 'Contrato', type: 'select', options: [['indefinido', 'Término indefinido'], ['fijo', 'Término fijo'], ['obra_labor', 'Obra o labor'], ['aprendizaje', 'Aprendizaje (SENA)'], ['prestacion', 'Prestación de servicios (contratista)']] },
     { k: 'salary_type', label: 'Tipo de salario', type: 'select', options: [['ordinario', 'Ordinario'], ['integral', 'Integral (≥ 13 SMMLV)']] },
     { k: 'salary', label: 'Salario mensual', type: 'money', required: true }, { k: 'pay_freq', label: 'Se paga', type: 'select', options: [['mensual', 'Mensual'], ['quincenal', 'Quincenal']] },
     { k: 'start_date', label: 'Fecha de ingreso', type: 'date', required: true }, { k: 'contract_end', label: 'Fin del contrato (si es fijo)', type: 'date' },
@@ -54,14 +54,14 @@ DW.ready.then((me) => {
     { k: 'cost_center', label: 'Centro de costo en Finanzas', placeholder: 'Administración, Ventas…' },
     { k: 'eps', label: 'EPS' }, { k: 'afp', label: 'Fondo de pensión' }, { k: 'arl', label: 'ARL' }, { k: 'caja', label: 'Caja de compensación' }, { k: 'cesantias_fund', label: 'Fondo de cesantías' },
     { k: 'bank', label: 'Banco' }, { k: 'account_type', label: 'Tipo de cuenta', placeholder: 'Ahorros, Corriente…' }, { k: 'account_number', label: 'Número de cuenta' },
-    { k: 'dependientes', label: 'Retención', type: 'bool', check: 'Tiene dependientes (deducción)' }, { k: 'deduc_vivienda', label: 'Intereses de vivienda al mes', type: 'money' }, { k: 'deduc_prepagada', label: 'Medicina prepagada al mes', type: 'money' },
+    { k: 'retencion_pct', label: 'Retención de honorarios % (contratistas)', hint: 'Vacío = 10 %' }, { k: 'dependientes', label: 'Retención', type: 'bool', check: 'Tiene dependientes (deducción)' }, { k: 'deduc_vivienda', label: 'Intereses de vivienda al mes', type: 'money' }, { k: 'deduc_prepagada', label: 'Medicina prepagada al mes', type: 'money' },
     { k: 'notes', label: 'Notas', type: 'long' }];
   async function empleados(el) {
     el.innerHTML = '<div data-t></div>';
     const t = C.table({ el: $('[data-t]', el), base: B, entity: 'employees', title: 'empleado', newText: 'Nuevo empleado', fields: FE, readOnly: RO, emptyIcon: 'bi-people', empty: 'Aún no hay empleados. Registra el primero.',
       filters: [{ k: 'status', options: [['', 'Todos'], ['activo', 'Activos'], ['retirado', 'Retirados']] }], defaults: () => ({ start_date: hoy, arl_risk: 1, doc_type: 'CC', contract_type: 'indefinido', salary_type: 'ordinario', pay_freq: 'mensual', aux_transporte: true }),
       columns: [{ label: 'Empleado', main: true, html: (r) => `${esc(r.name)}${sub([r.position, r.doc_number && `${r.doc_type} ${r.doc_number}`].filter(Boolean).join(' · '))}` },
-        { label: 'Salario', html: (r) => `${money(r.salary)}${sub(r.salary_type === 'integral' ? 'integral' : r.pay_freq)}` }, { label: 'Contrato', html: (r) => `${esc(({ indefinido: 'Indefinido', fijo: 'Fijo', obra_labor: 'Obra o labor', aprendizaje: 'Aprendizaje' })[r.contract_type])}${sub(`desde ${day(r.start_date)}${r.end_date ? ` · retiro ${day(r.end_date)}` : ''}`)}` },
+        { label: 'Salario', html: (r) => `${money(r.salary)}${sub(r.salary_type === 'integral' ? 'integral' : r.pay_freq)}` }, { label: 'Contrato', html: (r) => `${esc(({ indefinido: 'Indefinido', fijo: 'Fijo', obra_labor: 'Obra o labor', aprendizaje: 'Aprendizaje', prestacion: 'Prestación de servicios' })[r.contract_type])}${sub(`desde ${day(r.start_date)}${r.end_date ? ` · retiro ${day(r.end_date)}` : ''}`)}` },
         { label: 'Estado', html: (r) => chip(r.status === 'activo' ? 'ok' : 'free', r.status === 'activo' ? 'Activo' : 'Retirado') }],
       rowActions: (r) => (!RO && r.status === 'activo' ? '<button class="btn btn-sm btn-outline-secondary" data-act="liq" title="Liquidar contrato" aria-label="Liquidar contrato"><i class="bi bi-door-open"></i></button>' : ''),
       onAction: (a, r) => { if (a === 'liq') liquidarContrato(r, () => t.load()); } });
