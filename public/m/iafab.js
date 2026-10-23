@@ -29,7 +29,7 @@
 .ia-pending{display:grid;gap:8px;margin-top:10px;padding:10px;border-radius:12px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.35)}
 .ia-pending span i{color:#7c3aed;margin-right:6px}.ia-pending pre{margin:0;font-size:11.5px;white-space:pre-wrap}.ia-pending .row{display:flex;gap:8px}.ia-pending small{color:var(--bs-secondary-color,#6c757d)}
 .ia-b{border:1px solid var(--bs-border-color,#dee2e6);background:transparent;color:inherit;border-radius:8px;padding:5px 12px;font-size:13px;cursor:pointer}.ia-b.p{background:#6d28d9;border-color:#6d28d9;color:#fff}.ia-b:disabled{opacity:.6}
-.ia-sugg{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 8px}.ia-sugg .pill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--bs-border-color,#dee2e6);background:transparent;color:inherit;cursor:pointer;text-align:left}.ia-sugg .pill:hover{background:rgba(124,58,237,.1)}
+.ia-sugg{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 8px}.ia-sugg .pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--bs-border-color,#dee2e6);background:transparent;color:inherit;cursor:pointer;text-align:left}.ia-sugg .pill:hover{background:rgba(124,58,237,.1)}
 .ia-form{display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;border-top:1px solid var(--bs-border-color,#dee2e6)}
 .ia-form textarea{flex:1;resize:none;min-height:40px;max-height:140px;border:1px solid var(--bs-border-color,#dee2e6);border-radius:10px;padding:8px 10px;background:var(--bs-body-bg,#fff);color:inherit;font:inherit}
 .ia-form button{border:0;border-radius:10px;width:42px;height:40px;background:#6d28d9;color:#fff;cursor:pointer;font-size:16px}.ia-form button:disabled{opacity:.6}
@@ -74,7 +74,15 @@
     const usados = (pasos) => pasosHtml(pasos, null);
 
     // Sugerencias: salen de los flujos que cada módulo activo declara en su guía; sin guías, unas genéricas.
-    call(`${B}/guias`).then((r) => { SUGG = [...(r.entre || []).slice(0, 2).map((f) => ({ t: f.nombre, q: f.prompt })), ...r.modulos.flatMap((g) => g.flujos.map((f) => ({ t: f.prompt || f.nombre, q: f.prompt || f.nombre }))).filter((x) => x.t)].slice(0, 4); if (!panel.hidden) draw(); }).catch(() => {});
+    // Sugerencias: preguntas simples y cortas que declara cada módulo activo (una por módulo, para variar); sin ellas, unas genéricas.
+    const corta = (x) => String(x || '').trim().length > 0 && String(x).trim().length <= 44;
+    call(`${B}/guias`).then((r) => {
+      const por = (r.modulos || []).map((g) => (g.preguntas?.length ? g.preguntas : (g.flujos || []).map((f) => f.nombre)).filter(corta));
+      const out = [];
+      for (let i = 0; out.length < 4 && i < 4; i++) for (const lista of por) if (lista[i] && out.length < 4) out.push(lista[i]);
+      SUGG = out.map((x) => ({ t: x, q: x }));
+      if (!panel.hidden && !hist.length) draw();
+    }).catch(() => {});
     const sugerencias = () => (SUGG.length ? SUGG : ['¿Cómo va mi negocio esta semana?', '¿Qué tengo pendiente hoy?', 'Resumen del mes'].map((x) => ({ t: x, q: x })));
 
     function propuesta(div, p) {
@@ -99,7 +107,8 @@
         (m.props || []).forEach((p) => propuesta(div, p));
         log.appendChild(div);
       }
-      $('#iaSugg').innerHTML = hist.length ? '' : sugerencias().map((s) => `<button class="pill" type="button" data-q="${esc(s.q)}">${esc(s.t)}</button>`).join('');
+      const ult = hist[hist.length - 1], sig = ult && ult.role === 'assistant' ? (ult.sig || []) : [];   // tras una respuesta: preguntas de seguimiento
+      $('#iaSugg').innerHTML = (hist.length ? sig.map((x) => ({ q: x, t: x })) : sugerencias()).map((s) => `<button class="pill" type="button" data-q="${esc(s.q)}">${esc(s.t)}</button>`).join('');
       log.scrollTop = log.scrollHeight;
     }
     async function ask(q) {
@@ -113,7 +122,7 @@
       }, 900);
       try {
         const r = await call(`${B}/asistente`, { progreso: pid, mensajes: hist.map((m) => ({ role: m.role, content: m.content + (m.props?.some((p) => p.hecho) ? `\n(${m.props.filter((p) => p.hecho).map((p) => p.hecho).join(', ')})` : '') })) });
-        hist.push({ role: 'assistant', content: r.respuesta, pasos: r.pasos.filter((p) => p.estado !== 'propuesta'), todos: r.pasos, props: r.pasos.filter((p) => p.estado === 'propuesta') });
+        hist.push({ role: 'assistant', content: r.respuesta, sig: r.siguientes || [], pasos: r.pasos.filter((p) => p.estado !== 'propuesta'), todos: r.pasos, props: r.pasos.filter((p) => p.estado === 'propuesta') });
       } catch (x) { hist.push({ role: 'assistant', content: `No pude responder: ${x.message}` }); }
       clearInterval(t); form.querySelector('button').disabled = false; save(); draw();
     }

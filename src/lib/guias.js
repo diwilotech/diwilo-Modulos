@@ -32,6 +32,7 @@ export function documentoDe(m, tools, origin = '') {
     modulo: m.id, nombre: m.nombre, tipo: m.tipo || null, descripcion: m.descripcion || null,
     conexion: { mcp: `${origin}/mcp`, autenticacion: 'Authorization: Bearer <token> (se crea en IA → Conexiones; usa tu mismo rol)', protocolo: PROTOCOLO },
     guia: mcp.guia || guiaAuto, ejemplos: mcp.ejemplos || [],
+    preguntas: (mcp.preguntas || []).map((q) => String(q).trim()).filter((q) => q && q.length <= 48).slice(0, 6),   // preguntas simples para el botón de IA
     flujos: (mcp.flujos || []).map((f) => ({ id: f.id, nombre: f.nombre, descripcion: f.descripcion || '', pasos: (f.pasos || []).map(wire), prompt: f.prompt || null })),
     herramientas: tools.map((t) => ({ nombre: wire(t.name), descripcion: t.description, tipo: t.tipo === 'escritura' ? 'escritura' : 'lectura', rol: t.rol || 'staff', confirmar: t.tipo === 'escritura', argumentos: args(t.inputSchema), inputSchema: t.inputSchema })),
     recursos: [`diwilo://${m.id}/guia`], prompts: (mcp.flujos || []).map((f) => `${m.id}_${f.id}`),

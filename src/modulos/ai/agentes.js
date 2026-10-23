@@ -29,7 +29,7 @@ ${herramientas.map((t) => `- ${t.name} [${t.tipo}] ${t.description} · args: { $
 CÓMO RESPONDER: siempre con UN solo objeto JSON, sin texto fuera de él:
 {"accion":"usar","herramienta":"<nombre>","args":{...}}   para usar una herramienta
 {"accion":"guia","modulo":"<id>"}   para leer la guía de uso de un módulo
-{"accion":"fin","respuesta":"<lo que le dices a la persona>"}   cuando ya terminaste
+{"accion":"fin","respuesta":"<lo que le dices a la persona>","siguientes":["<pregunta corta>","<otra>"]}   cuando ya terminaste (siguientes es opcional: 2 o 3 preguntas de seguimiento MUY cortas, de máximo 40 caracteres, que la persona probablemente quiera hacer después)
 Reglas: no inventes datos ni cifras: si no los tienes, consúltalos con una herramienta. No repitas una herramienta con los mismos argumentos. Máximo ${maxPasos} pasos.
 ${autonomia === 'ejecutar' ? 'Las herramientas de escritura se ejecutan al instante: úsalas solo cuando estés seguro.' : 'Las herramientas de escritura quedan como PROPUESTA hasta que una persona las apruebe: propónlas y explica por qué en tu respuesta final.'}`;
 }
@@ -45,7 +45,7 @@ const corto = (v, n = 5000) => { const s = typeof v === 'string' ? v : JSON.stri
 // El bucle. Devuelve { respuesta, pasos }. `pasos` guarda lo que se usó y el estado de cada escritura.
 export async function bucle(env, { org, ctx, system, historial, herramientas, autonomia, fuente, limite, guias = [], maxPasos = MAX_PASOS, topeTokens = 0, progreso = null }) {
   const hist = [...historial], pasos = [], usadas = new Set();
-  let respuesta = null, invalidos = 0, gastados = 0;
+  let respuesta = null, invalidos = 0, gastados = 0, siguientes = [];
   const est = (t) => Math.ceil(String(t || '').length / 4);
   const avisar = async (actual) => { try { await progreso?.({ pasos, actual }); } catch (_) {} };   // paso a paso visible
   for (let n = 1; n <= maxPasos && respuesta === null; n++) {
@@ -68,7 +68,7 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
       hist.push({ role: 'user', content: g ? `Guía de ${g.nombre}:\n${g.markdown.slice(0, 4000)}` : `No hay guía del módulo «${o.modulo}». Módulos con guía: ${guias.map((d) => d.modulo).join(', ') || 'ninguno'}.` });
       continue;
     }
-    if (o.accion === 'fin') { respuesta = String(o.respuesta || 'Listo.').slice(0, 3000); break; }
+    if (o.accion === 'fin') { respuesta = String(o.respuesta || 'Listo.').slice(0, 3000); siguientes = (Array.isArray(o.siguientes) ? o.siguientes : []).map((x) => String(x).trim()).filter((x) => x && x.length <= 48).slice(0, 3); break; }
     const t = herramientas.find((x) => x.name === o.herramienta);
     const args = o.args && typeof o.args === 'object' ? o.args : {};
     const firma = `${o.herramienta}|${JSON.stringify(args)}`;
@@ -85,7 +85,7 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
     pasos.push({ n, herramienta: t.name, args, tipo: t.tipo, estado: r.ok ? (t.tipo === 'escritura' ? 'hecha' : 'consultada') : 'error', resultado: r.ok ? corto(r.result, 1200) : r.error });
     hist.push({ role: 'user', content: r.ok ? `Resultado de ${t.name}: ${corto(r.result)}` : `Error de ${t.name}: ${r.error}` });
   }
-  return { respuesta: respuesta ?? 'No alcancé a terminar en los pasos permitidos.', pasos };
+  return { respuesta: respuesta ?? 'No alcancé a terminar en los pasos permitidos.', pasos, siguientes };
 }
 
 /* ---------- agentes ---------- */
@@ -148,18 +148,31 @@ export const escritor = (env, org, id) => (id ? async (estado, { pasos = [], act
     ON CONFLICT(id) DO UPDATE SET estado = excluded.estado, actual = excluded.actual, pasos = excluded.pasos, updated_at = excluded.updated_at WHERE business_id = excluded.business_id`).bind(id, org, estado, actual, JSON.stringify(pasos.map(({ n, herramienta, tipo, estado: e }) => ({ n, herramienta, tipo, estado: e }))), now()).run();
 } : null);
 
+
+// Cómo debe hablar el asistente: simple, corto y útil (lo ve una persona con prisa, muchas veces desde el celular).
+const ESTILO = `ESTILO DE RESPUESTA
+- Empieza por lo que importa: la respuesta o la cifra, en la primera línea. Después, solo el detalle necesario.
+- Corto: máximo unas 6 líneas. Usa viñetas cortas ("- ") para listas y no más de 5 elementos; si hay más, di cuántos hay y ofrece verlos.
+- Lenguaje simple y cercano, sin jerga técnica. Nunca muestres nombres de herramientas, ids, JSON ni códigos internos: habla de personas, cursos, cuentas, fechas y valores.
+- Dinero en pesos colombianos con puntos: $1.250.000. Fechas en español: 22 de octubre. Porcentajes redondeados.
+- Si falta un dato para actuar, haz UNA sola pregunta corta; si hay una opción razonable, elígela y dilo en una frase.
+- Si no encuentras algo, dilo claro ("No encontré a Laura") y propón el siguiente paso en una línea.
+- Para cambiar datos: di en una frase qué vas a hacer y propón la acción; nunca la des por hecha antes de la confirmación.
+- No repitas la pregunta ni te disculpes de más. No inventes: si no lo consultaste, no lo afirmes.
+- Al final, ofrece 2 o 3 "siguientes" (preguntas de menos de 40 caracteres) que la persona probablemente quiera hacer después.`;
+
 /* ---------- asistente interactivo del negocio ---------- */
 export async function asistente(env, { org, ctx, mensajes, progresoId = null }) {
   const hist = (Array.isArray(mensajes) ? mensajes : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
   if (!hist.length || hist[hist.length - 1].role !== 'user') return { status: 400, error: 'Escribe tu pregunta' };
   const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura');
   const guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai');
-  const system = sistemaDeHerramientas({ guias, flujos: flujosEntre(herr), rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: 'Responde en español, claro y breve. Para preguntas sobre el negocio consulta con herramientas antes de contestar.', negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
+  const system = sistemaDeHerramientas({ guias, flujos: flujosEntre(herr), rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: `Responde en español. Para preguntas sobre el negocio consulta con herramientas antes de contestar.\n\n${ESTILO}`, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
   const escribir = escritor(env, org, progresoId);
   if (escribir) await env.DB.prepare('DELETE FROM ia_progreso WHERE updated_at < ?').bind(now() - 86400000).run().catch(() => {});
   try {
     const r = await bucle(env, { org, ctx, system, historial: hist, herramientas: herr, autonomia: 'proponer', fuente: 'asistente', guias, progreso: escribir ? (info) => escribir('trabajando', info) : null });
     await escribir?.('listo', { pasos: r.pasos });
-    return { status: 200, respuesta: r.respuesta, pasos: r.pasos };
+    return { status: 200, respuesta: r.respuesta, pasos: r.pasos, siguientes: r.siguientes || [] };
   } catch (e) { await escribir?.('error', { actual: String(e.message || e).slice(0, 200) }).catch(() => {}); throw e; }
 }

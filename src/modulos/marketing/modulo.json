@@ -116,6 +116,12 @@
           "marketing.crear_gasto_campana"
         ]
       }
+    ],
+    "preguntas": [
+      "¿Cuántos leads nuevos hay?",
+      "¿Qué campaña rinde más?",
+      "¿Qué clics tuvo mi link?",
+      "¿Cuánto gasté en campañas?"
     ]
   }
 }

@@ -97,6 +97,12 @@
           "nomina.pagar_corrida"
         ]
       }
+    ],
+    "preguntas": [
+      "¿Cuánto cuesta la nómina?",
+      "¿Cuándo es el próximo pago?",
+      "¿Cuánto debo de prima?",
+      "¿Quién cobra por clases?"
     ]
   },
   "tarea_diaria": "deja al día la nómina del mes y las cuentas de cobro de los contratistas"

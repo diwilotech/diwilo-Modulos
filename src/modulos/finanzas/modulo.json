@@ -123,6 +123,12 @@
           "finanzas.exportar_csv"
         ]
       }
+    ],
+    "preguntas": [
+      "¿Cómo va el mes?",
+      "¿Quién me debe plata?",
+      "¿Cuánto gasté esta semana?",
+      "¿Qué pagos vencen pronto?"
     ]
   }
 }
