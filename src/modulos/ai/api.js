@@ -11,7 +11,7 @@
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
-import { motor, motorActivo, PROVEEDORES, hayProveedor, plataformaIA, olvidarPlataforma, ordenIA, modeloDe, viaClaude, usoDelDia, TOPE_DIA, dayCo, ajustesDe, AJUSTES_BASE, costoUsd, neuronas, NEURONAS_GRATIS } from '../../lib/ia.js';
+import { motor, motorActivo, PROVEEDORES, hayProveedor, plataformaIA, olvidarPlataforma, ordenIA, modeloDe, viaClaude, clavesDe, cifrarClave, usoDelDia, TOPE_DIA, dayCo, ajustesDe, AJUSTES_BASE, costoUsd, neuronas, NEURONAS_GRATIS } from '../../lib/ia.js';
 import { REG, ejecutarHerramienta } from '../../lib/registro.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
 import { guiasDe } from '../../lib/guias.js';
@@ -188,7 +188,7 @@ export function routes(r) {
     const porFuente = {}; for (const r of delMes) (porFuente[r.fuente] ||= []).push(r);
     const m = suma(delMes), diaDelMes = Number(dia.slice(8)), diasMes = new Date(Date.UTC(+mes.slice(0, 4), +mes.slice(5, 7), 0)).getUTCDate();
     return json({ motor: await motorActivo(c.env), tope_dia: TOPE_DIA, hoy: { calls: hoy.n, tin: hoy.tin, tout: hoy.tout, usd: costoUsd(delDia), neuronas: neuronas(delDia) }, dia, dias,
-      mes: { ...m, proyeccion_usd: m.usd / diaDelMes * diasMes }, neuronas_gratis: c.env.GEMINI_API_KEY ? null : NEURONAS_GRATIS, ajustes: aj,
+      mes: { ...m, proyeccion_usd: m.usd / diaDelMes * diasMes }, neuronas_gratis: clavesDe(c.env, await plataformaIA(c.env), 'gemini').length ? null : NEURONAS_GRATIS, ajustes: aj,
       fuentes: Object.entries(porFuente).map(([fuente, l]) => ({ fuente, ...suma(l) })).sort((a, b) => b.usd - a.usd || b.calls - a.calls) });
   });
   // Topes del negocio: tokens por día, tokens por ejecución de un agente y dólar en pesos. PATCH /api/ai/uso { tope_tokens?, tope_ejecucion?, usd_cop? }
@@ -206,10 +206,11 @@ export function routes(r) {
      PUT  /api/ai/proveedor           { proveedor: auto|claude|gemini|workers-ai, modelo_claude?, modelo_gemini? }
      POST /api/ai/proveedor/probar    { proveedor? }  llama al modelo con una pregunta mínima y dice si responde */
   const soloDiwilo = (c) => { if (c.ctx?.app !== 'diwilo' || c.ctx?.business?.id !== 'diwilo' || c.ctx?.via === 'mcp') throw new HttpError(403, 'El modelo de IA lo elige Diwilo Admin'); };
+  const filasClaves = (c) => all(c.env, 'SELECT id, proveedor, nombre, prefijo, created_at FROM ia_claves_prov ORDER BY id').catch(() => []);
   const estadoProveedor = async (c) => {
-    const plat = await plataformaIA(c.env, true);
-    return { proveedor: plat.proveedor, activo: await motorActivo(c.env), orden: ordenIA(c.env, plat),
-      proveedores: Object.fromEntries(Object.entries(PROVEEDORES).map(([k, v]) => [k, { nombre: v.nombre, secreto: v.secreto, configurado: hayProveedor(c.env, k), modelo: k === 'workers-ai' ? v.modelo : modeloDe(c.env, plat, k), modelos: v.modelos }])) };
+    const plat = await plataformaIA(c.env, true), filas = await filasClaves(c);
+    return { proveedor: plat.proveedor, activo: await motorActivo(c.env), orden: ordenIA(c.env, plat), cifrado: !!c.env.CLAVES_KEK,
+      proveedores: Object.fromEntries(Object.entries(PROVEEDORES).map(([k, v]) => [k, { nombre: v.nombre, secreto: v.secreto, configurado: hayProveedor(c.env, k, plat), claves: filas.filter((x) => x.proveedor === k), por_secreto: k === 'claude' ? !!c.env.ANTHROPIC_API_KEY : k === 'gemini' ? !!c.env.GEMINI_API_KEY : false, modelo: k === 'workers-ai' ? v.modelo : modeloDe(c.env, plat, k), modelos: v.modelos }])) };
   };
   r.get(`${B}/proveedor`, `manager:${MOD}`, async (c) => { soloDiwilo(c); return json(await estadoProveedor(c)); });
   r.put(`${B}/proveedor`, `manager:${MOD}`, async (c) => {
@@ -217,7 +218,7 @@ export function routes(r) {
     const b = await readJson(c.req), put = [];
     if (b.proveedor !== undefined) {
       if (!['auto', 'claude', 'gemini', 'workers-ai'].includes(b.proveedor)) throw new HttpError(400, 'Proveedor no válido');
-      if (b.proveedor !== 'auto' && !hayProveedor(c.env, b.proveedor)) throw new HttpError(400, `Falta la clave de ${PROVEEDORES[b.proveedor].nombre}: créala como secreto ${PROVEEDORES[b.proveedor].secreto} en Cloudflare y vuelve a elegirlo`);
+      if (b.proveedor !== 'auto' && !hayProveedor(c.env, b.proveedor, await plataformaIA(c.env, true))) throw new HttpError(400, `Falta la clave de ${PROVEEDORES[b.proveedor].nombre}: agrégala en «Claves de IA» y vuelve a elegirlo`);
       put.push(['proveedor', b.proveedor]);
     }
     for (const [k, p] of [['modelo_claude', 'claude'], ['modelo_gemini', 'gemini']]) if (b[k] !== undefined) {
@@ -233,18 +234,52 @@ export function routes(r) {
   r.post(`${B}/proveedor/probar`, `manager:${MOD}`, async (c) => {
     soloDiwilo(c);
     const b = await readJson(c.req), plat = await plataformaIA(c.env, true), p = ['claude', 'gemini', 'workers-ai'].includes(b.proveedor) ? b.proveedor : (ordenIA(c.env, plat)[0] || 'workers-ai');
-    if (!hayProveedor(c.env, p)) return json({ ok: false, proveedor: p, error: `Falta ${PROVEEDORES[p].secreto}` });
+    if (!hayProveedor(c.env, p, plat)) return json({ ok: false, proveedor: p, error: `Falta la clave de ${PROVEEDORES[p].nombre}` });
     const t0 = Date.now(), modelo = modeloDe(c.env, plat, p);
     try {
       let texto;
-      if (p === 'claude') texto = (await viaClaude(c.env, { system: 'Responde en español, muy breve.', history: [{ role: 'user', content: 'Di solo: listo' }], maxTokens: 20, temperature: 0, modelo })).text;
+      const claves = clavesDe(c.env, plat, p), clave = claves[Number.isInteger(b.indice) && claves[b.indice] ? b.indice : 0];   // indice: probar una clave en concreto (si no, la primera)
+      if (p === 'claude') texto = (await viaClaude(c.env, { system: 'Responde en español, muy breve.', history: [{ role: 'user', content: 'Di solo: listo' }], maxTokens: 20, temperature: 0, modelo, clave })).text;
       else if (p === 'gemini') {
-        const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': c.env.GEMINI_API_KEY }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Di solo: listo' }] }], generationConfig: { maxOutputTokens: 20 } }) });
+        const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Di solo: listo' }] }], generationConfig: { maxOutputTokens: 20 } }) });
         if (!r2.ok) throw new Error(`Gemini ${r2.status}`);
         texto = (await r2.json()).candidates?.[0]?.content?.parts?.map((x) => x.text).join('').trim();
       } else { const o = await c.env.AI.run(modelo, { messages: [{ role: 'user', content: 'Di solo: listo' }], max_tokens: 20 }); texto = String(o?.response ?? '').trim(); }
       return json({ ok: !!texto, proveedor: p, modelo, ms: Date.now() - t0, texto: String(texto || '').slice(0, 80) });
     } catch (e) { return json({ ok: false, proveedor: p, modelo, ms: Date.now() - t0, error: String(e.message || e).slice(0, 200) }); }
+  });
+
+  /* Claves de Claude y Gemini puestas desde la pantalla (varias por proveedor; se usa la primera y, si falla, la siguiente). Van cifradas.
+     POST   /api/ai/proveedor/claves        { proveedor: claude|gemini, nombre, clave }
+     DELETE /api/ai/proveedor/claves/:id
+     GET    /api/ai/proveedor/claves-uso    claves en claro, SOLO para Diwilo Web Admin por service binding (la pantalla nunca las recibe) */
+  const FORMATO = { claude: [/^sk-ant-[\w-]{20,}$/, 'Una clave de Claude empieza por «sk-ant-»'], gemini: [/^(AIza[\w-]{30,}|AQ\.[\w.-]{20,})$/, 'Una clave de Gemini empieza por «AIza» o «AQ.»'] };
+  r.post(`${B}/proveedor/claves`, `manager:${MOD}`, async (c) => {
+    soloDiwilo(c);
+    if (!c.env.CLAVES_KEK) throw new HttpError(409, 'Falta crear una sola vez el secreto maestro CLAVES_KEK (npx wrangler secret put CLAVES_KEK, en Diwilo Modulos). Después las claves se ponen aquí.');
+    const b = await readJson(c.req), p = b.proveedor, clave = String(b.clave || '').trim(), nombre = String(b.nombre || '').trim().slice(0, 60) || 'Clave';
+    if (!FORMATO[p]) throw new HttpError(400, 'Proveedor no válido: claude o gemini');
+    if (!FORMATO[p][0].test(clave)) throw new HttpError(400, FORMATO[p][1]);
+    if ((await one(c.env, 'SELECT COUNT(*) n FROM ia_claves_prov WHERE proveedor = ?', p)).n >= 10) throw new HttpError(400, 'Máximo 10 claves por proveedor');
+    await c.env.DB.prepare('INSERT INTO ia_claves_prov (proveedor, nombre, prefijo, cifrada, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(p, nombre, clave.slice(0, 7), await cifrarClave(c.env, clave), c.ctx?.user?.email || null, now()).run();
+    olvidarPlataforma();
+    await audit(c, `Agregó una clave de ${PROVEEDORES[p].nombre} («${nombre}»)`, { modulo: MOD });
+    return json(await estadoProveedor(c));
+  });
+  r.delete(`${B}/proveedor/claves/:id`, `manager:${MOD}`, async (c) => {
+    soloDiwilo(c);
+    const k = await one(c.env, 'SELECT proveedor, nombre FROM ia_claves_prov WHERE id = ?', Number(c.params.id));
+    if (!k) throw new HttpError(404, 'No existe esa clave');
+    await c.env.DB.prepare('DELETE FROM ia_claves_prov WHERE id = ?').bind(Number(c.params.id)).run();
+    olvidarPlataforma();
+    await audit(c, `Quitó una clave de ${PROVEEDORES[k.proveedor].nombre} («${k.nombre}»)`, { modulo: MOD });
+    return json(await estadoProveedor(c));
+  });
+  r.get(`${B}/proveedor/claves-uso`, `manager:${MOD}`, async (c) => {
+    soloDiwilo(c);
+    if (c.ctx?.user?.email) throw new HttpError(403, 'Las claves en claro solo las pide el Worker de Diwilo Admin, no una persona');   // la llamada del sistema va sin correo
+    const plat = await plataformaIA(c.env, true);
+    return json({ claude: clavesDe(c.env, plat, 'claude'), gemini: clavesDe(c.env, plat, 'gemini') });
   });
 
   // Plantillas para empezar un agente (las mismas de la marca): GET /api/ai/starters → { agente: [{ nombre, instrucciones }] }

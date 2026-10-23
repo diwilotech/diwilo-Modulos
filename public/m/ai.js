@@ -361,7 +361,7 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
     el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
     let m; try { m = await api(`${B}/proveedor`); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     const OPC = [['auto', 'Automático', 'Gemini si tiene clave y, si no, Workers AI.', 'bi-magic'], ['claude', 'Claude', 'Anthropic · el más capaz para agentes y textos largos.', 'bi-stars'], ['gemini', 'Gemini', 'Google · rápido y económico.', 'bi-gem'], ['workers-ai', 'Workers AI', 'Cloudflare · cuota gratis diaria, sin clave.', 'bi-cloud']];
-    const estado = (k) => (k === 'auto' ? '' : m.proveedores[k]?.configurado ? '<span class="badge text-bg-success ms-1">Clave lista</span>' : `<span class="badge text-bg-danger ms-1">Falta ${esc(m.proveedores[k].secreto)}</span>`);
+    const estado = (k) => (k === 'auto' ? '' : m.proveedores[k]?.configurado ? '<span class="badge text-bg-success ms-1">Clave lista</span>' : `<span class="badge text-bg-danger ms-1">Falta la clave</span>`);
     el.innerHTML = `<div class="dw-card mb-3"><h2 class="h6"><i class="bi bi-cpu me-1"></i>Qué IA responde en todas las apps</h2>
         <p class="small text-body-secondary">Aplica a los chats de clientes, el asistente y los agentes de <b>todas las apps</b> y al chat y la IA del panel. Esta sección solo se ve aquí, en Diwilo Admin. Si la elegida falla, responde Gemini o Workers AI como respaldo (Claude nunca es respaldo porque cuesta más).</p>
         <div class="row g-2 mb-3" data-opc>${OPC.map(([k, n, d, ic]) => `<div class="col-md-6 col-xl-3"><label class="dw-card h-100 d-block ${m.proveedor === k ? 'border-primary' : ''}" style="cursor:pointer"><input type="radio" class="form-check-input me-2" name="prov" value="${k}" ${m.proveedor === k ? 'checked' : ''}><b><i class="bi ${ic} me-1"></i>${n}</b>${estado(k)}<div class="small text-body-secondary mt-1">${d}</div></label></div>`).join('')}</div>
@@ -369,11 +369,37 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
           <div class="col-md-6"><label class="form-label small mb-1">Modelo de Gemini</label><input class="form-control" list="mgm" name="modelo_gemini" value="${esc(m.proveedores.gemini.modelo)}" placeholder="gemini-2.5-flash"><datalist id="mgm">${m.proveedores.gemini.modelos.map((x) => `<option value="${x}">`).join('')}</datalist></div></div>
         <div class="d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary" data-save>Guardar</button><button class="btn btn-outline-secondary" data-test><i class="bi bi-lightning-charge me-1"></i>Probar el elegido</button><span class="small" data-res></span></div>
         <p class="small text-body-secondary mt-3 mb-0">Responde ahora: <b>${esc(m.activo)}</b>.</p></div>
-      <div class="dw-card"><h2 class="h6">Cómo poner la clave</h2><p class="small text-body-secondary mb-0">Las claves son <b>secretos</b> de Cloudflare, no se guardan en esta pantalla. Para Claude (se crea en console.anthropic.com → API keys): <code>npx wrangler secret put ANTHROPIC_API_KEY</code> en la carpeta de <b>Diwilo Modulos</b> (las apps) y otra vez en la de <b>Diwilo Web Admin</b> (este panel y el chat del sitio). Gemini usa <code>GEMINI_API_KEY</code>; Workers AI no necesita clave. Cuando estén, elige el proveedor y toca «Probar».</p></div>`;
+      <div class="dw-card"><h2 class="h6"><i class="bi bi-key me-1"></i>Claves de IA</h2>
+        <p class="small text-body-secondary">Pega aquí tus claves de Claude o Gemini. Puedes poner <b>varias por proveedor</b>: se usa la primera y, si falla o llega a su límite, pasa a la siguiente. Se guardan cifradas y nunca se vuelven a mostrar completas.</p>
+        ${m.cifrado ? '' : '<div class="alert alert-warning small">Antes de la primera clave hay que crear <b>una sola vez</b> el secreto maestro que las cifra. En la terminal, en la carpeta <b>Diwilo Modulos</b>: <code>npx wrangler secret put CLAVES_KEK</code> y pega cualquier texto largo y privado (guárdalo; si lo cambias, las claves guardadas dejan de servir). Después todo se hace aquí.</div>'}
+        ${['claude', 'gemini'].map((k) => `<div class="mb-3"><div class="fw-semibold small mb-1">${esc(m.proveedores[k].nombre)}${m.proveedores[k].por_secreto ? ' <span class="badge text-bg-secondary ms-1">además hay un secreto de Cloudflare</span>' : ''}</div>
+          ${m.proveedores[k].claves.length ? `<ul class="list-group list-group-flush small">${m.proveedores[k].claves.map((c, n) => `<li class="list-group-item d-flex flex-wrap align-items-center gap-2 px-0 bg-transparent"><span class="badge text-bg-${n ? 'secondary' : 'success'}">${n ? 'respaldo ' + n : 'principal'}</span><b>${esc(c.nombre)}</b><span class="font-monospace text-body-secondary">${esc(c.prefijo)}…</span><span class="ms-auto d-flex gap-1"><button class="btn btn-sm btn-outline-secondary" data-ktest="${k}" data-i="${n}">Probar</button><button class="btn btn-sm btn-outline-danger" data-kdel="${c.id}" data-n="${esc(c.nombre)}">Quitar</button></span><span class="w-100 small" data-kres="${k}${n}"></span></li>`).join('')}</ul>` : '<div class="small text-body-secondary">Sin claves guardadas aquí.</div>'}</div>`).join('')}
+        <form class="row g-2 align-items-end" data-kadd>
+          <div class="col-sm-3"><label class="form-label small mb-1">Proveedor</label><select class="form-select" name="proveedor"><option value="gemini">Gemini</option><option value="claude">Claude</option></select></div>
+          <div class="col-sm-3"><label class="form-label small mb-1">Nombre</label><input class="form-control" name="nombre" maxlength="60" placeholder="ej. Gemini principal"></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Clave</label><input class="form-control font-monospace" type="password" name="clave" autocomplete="off" required placeholder="AIza…, AQ.… o sk-ant-…"></div>
+          <div class="col-sm-2"><button class="btn btn-primary w-100" ${m.cifrado ? '' : 'disabled'}><i class="bi bi-plus-lg me-1"></i>Agregar</button></div></form>
+        <p class="small text-body-secondary mt-3 mb-0">Dónde sacarlas: Gemini en aistudio.google.com → Get API key · Claude en console.anthropic.com → API keys. Después de agregar, elige el proveedor arriba, toca «Guardar» y «Probar el elegido».</p></div>`;
     const val = (n) => el.querySelector(`[name=${n}]`).value.trim(), elegido = () => el.querySelector('[name=prov]:checked')?.value;
     el.querySelector('[data-save]').onclick = async () => {
       try { await api(`${B}/proveedor`, { method: 'PUT', body: { proveedor: elegido(), modelo_claude: val('modelo_claude'), modelo_gemini: val('modelo_gemini') } }); toast('Guardado: ya responde con el modelo elegido'); modelo(el); }
       catch (x) { toast(x.message, false); }
+    };
+    el.querySelector('[data-kadd]').onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target;
+      try { await api(`${B}/proveedor/claves`, { method: 'POST', body: { proveedor: f.proveedor.value, nombre: f.nombre.value, clave: f.clave.value } }); toast('Clave guardada (cifrada)'); modelo(el); }
+      catch (x) { toast(x.message, false); }
+    };
+    el.onclick = async (e) => {
+      const d = e.target.closest('[data-kdel]'), t = e.target.closest('[data-ktest]');
+      if (d) {
+        if (!(await confirm({ title: `¿Quitar la clave «${d.dataset.n}»?`, text: 'Si era la única de su proveedor, ese proveedor dejará de responder.', ok: 'Quitar' }))) return;
+        try { await api(`${B}/proveedor/claves/${d.dataset.kdel}`, { method: 'DELETE' }); toast('Clave quitada'); modelo(el); } catch (x) { toast(x.message, false); }
+      } else if (t) {
+        const res = el.querySelector(`[data-kres="${t.dataset.ktest}${t.dataset.i}"]`); res.textContent = 'Probando…';
+        try { const r = await api(`${B}/proveedor/probar`, { method: 'POST', body: { proveedor: t.dataset.ktest, indice: Number(t.dataset.i) } }); res.innerHTML = r.ok ? `<span class="text-success">✓ responde (${r.ms} ms)</span>` : `<span class="text-danger">✕ ${esc(r.error || 'no responde')}</span>`; }
+        catch (x) { res.innerHTML = `<span class="text-danger">✕ ${esc(x.message)}</span>`; }
+      }
     };
     el.querySelector('[data-test]').onclick = async () => {
       const res = el.querySelector('[data-res]'); res.textContent = 'Probando…';

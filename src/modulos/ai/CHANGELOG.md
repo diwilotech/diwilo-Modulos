@@ -1,5 +1,12 @@
 # IA (`ai`) — cambios
 
+## 1.6.1 · 2026-10-23
+- Las claves de Gemini del formato nuevo de Google (`AQ.…`) también se aceptan, además de las `AIza…`.
+
+## 1.6.0 · 2026-10-23
+- **Claves de IA desde Diwilo Admin**: en «Modelo de IA» se pegan las claves de Claude y Gemini, varias por proveedor (la primera es la principal y las otras, respaldo si falla o llega al límite). Se guardan cifradas (AES-GCM) en `ia_claves_prov`; hace falta crear UNA vez el secreto maestro `CLAVES_KEK`. Se pueden probar y quitar una a una. Los secretos `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` de Cloudflare siguen valiendo como última opción. Diwilo Web Admin las pide por `GET /api/ai/proveedor/claves-uso` (solo llamada del sistema, nunca una persona).
+- Migración `0021_ia_claves_proveedor.sql`.
+
 ## 1.4.3 · 2026-10-23
 - **Chat del sitio diwilo.com en Diwilo Admin**: dentro de «Chats y conversaciones» (solo en el panel de Diwilo) vuelven las conversaciones del chat del sitio, con su detalle y borrado, y su configuración (chat activo e instrucciones del asistente). Los datos nunca se borraron: viven en la base del panel.
 
