@@ -1,6 +1,7 @@
 // Tarjetas de presentación digitales del módulo Marketing (las mismas de Diwilo), por negocio.
 //   GET    /api/marketing/cards                 lista; si el negocio no tiene la suya, crea la predeterminada con sus datos
 //   POST   /api/marketing/cards  ·  PATCH /api/marketing/cards/:id  ·  DELETE /api/marketing/cards/:id (no la predeterminada)
+//   GET    /api/marketing/cards/rastreo         links de rastreo de las campañas que llevan a una tarjeta (con sus vistas)
 //   PUT    /api/marketing/cards/:id/foto        { photo_data, icon_192, icon_512 } (data URL; '' = quitar)
 // Página pública /c/<slug> en el dominio de la app: publicCard() (la llama tarjeta() de src/index.js por RPC).
 import { json, readJson, HttpError } from '../../lib/http.js';
@@ -59,6 +60,8 @@ export function cardRoutes(r) {
     if (!c.readOnly) await ensureDefaultCard(c);
     return json({ rows: await lister.list(c, 'cards', c.url.searchParams) });
   });
+  // Links de rastreo (de las campañas) cuyo destino es una tarjeta: se ven en Marca → Tarjetas con sus vistas
+  r.get(`${B}/cards/rastreo`, `tenant:${MOD}`, async (c) => json({ rows: await all(c.env, "SELECT l.id, l.slug, l.platform, l.clicks, l.last_click_at, l.target, k.id AS campaign_id, k.name AS campaign FROM mk_links l JOIN mk_campaigns k ON k.id = l.campaign_id WHERE l.business_id = ? AND l.target LIKE '%/c/%' ORDER BY l.created_at", c.businessId) }));
   r.put(`${B}/cards/:id/foto`, `tenant:${MOD}`, async (c) => {
     const card = await one(c.env, 'SELECT id, name FROM mk_cards WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
     if (!card) throw new HttpError(404, 'Tarjeta no encontrada');

@@ -73,7 +73,7 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
     let rows;
     try { rows = (await api(`${B}/chats`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Cada chat atiende a tus clientes con IA, usa el tono de tu marca y guarda sus conversaciones. Lo puedes mostrar en <b>tarjetas de presentación</b>
-        (${hasMkt ? 'Marketing → Tarjetas' : 'con Marketing'}), en tu <b>web</b> o compartir su enlace. Puedes tener varios: soporte, ventas, una landing…</div>
+        (${hasMkt ? 'Marca → Tarjetas' : 'con Marketing'}), en tu <b>web</b> o compartir su enlace. Puedes tener varios: soporte, ventas, una landing…</div>
       ${CAN ? '<div class="mb-3"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nuevo chat</button></div>' : ''}
       <div class="row g-3">${rows.length ? rows.map((c) => `<div class="col-lg-6"><div class="dw-card h-100" data-id="${c.id}">
         <div class="d-flex align-items-start gap-2"><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(c.nombre)}</h2><a class="small font-monospace" href="${esc(c.ruta)}" target="_blank" rel="noopener">${esc(location.host)}${esc(c.ruta)}</a></div>
@@ -108,7 +108,7 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
       modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Código de «${esc(c.nombre)}»</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
         <div class="modal-body d-grid gap-3">${piezas.map(([t, code, a], i) => `<div><div class="d-flex align-items-center gap-2"><div class="flex-grow-1"><b class="small">${esc(t)}</b><div class="small text-body-secondary">${esc(a)}</div></div><button class="btn btn-sm btn-outline-primary" data-cp="${i}"><i class="bi bi-clipboard me-1"></i>Copiar</button></div>
           <pre class="small mt-1 mb-0 p-2 rounded-3" style="white-space:pre-wrap;word-break:break-all;background:rgba(var(--bs-body-color-rgb),.06)">${esc(code)}</pre></div>`).join('')}
-          <div class="small text-body-secondary"><i class="bi bi-person-vcard me-1"></i>En una <b>tarjeta de presentación</b>: ${hasMkt ? 'Marketing → Tarjetas → editar la tarjeta → «Chat de IA de la tarjeta».' : 'necesitas el módulo Marketing.'}</div></div>`, { size: 'modal-lg' }).el
+          <div class="small text-body-secondary"><i class="bi bi-person-vcard me-1"></i>En una <b>tarjeta de presentación</b>: ${hasMkt ? 'Marca → Tarjetas → editar la tarjeta → «Chat de IA de la tarjeta».' : 'necesitas el módulo Marketing.'}</div></div>`, { size: 'modal-lg' }).el
         .addEventListener('click', (e) => { const b = e.target.closest('[data-cp]'); if (b) copiar(piezas[+b.dataset.cp][1]); });
     };
     el.onclick = async (e) => {

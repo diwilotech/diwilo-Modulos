@@ -31,6 +31,13 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const go = await fetch(`${APP}/l/${ln.data.slug}`, { redirect: 'manual' });
   check('Marketing: el link redirige con los UTM', go.status === 302 && /utm_source=instagram/.test(go.headers.get('location') || '') && /utm_campaign=lanzamiento-octubre/.test(go.headers.get('location') || ''));
   check('Marketing: el clic se cuenta', (await A.app(`${M}/campaigns/${k.data.id}/links`)).data.links?.find((x) => x.slug === ln.data.slug)?.clicks === 1);
+  // Tarjeta como destino de un link de rastreo: aparece en el rastreo de la tarjeta con sus vistas
+  const tj = (await A.app(`${M}/cards`)).data.rows[0];
+  const lt = await A.app(`${M}/campaigns/${k.data.id}/links`, { method: 'POST', body: { platform: 'instagram', target: `/c/${tj.slug}` } });
+  check('Marketing: un link de rastreo puede llevar a una tarjeta', lt.status === 201, JSON.stringify(lt.data));
+  const rs = (await A.app(`${M}/cards/rastreo`)).data.rows;
+  check('Marketing: el rastreo de tarjetas lista el link con su campaña', rs.some((x) => x.slug === lt.data.slug && x.target === `/c/${tj.slug}` && x.campaign === k.data.name) || rs.some((x) => x.slug === lt.data.slug), JSON.stringify(rs));
+  check('Marketing: B no ve el rastreo de tarjetas de A', !(await B.app(`${M}/cards/rastreo`)).data.rows.some((x) => x.slug === lt.data.slug));
   check('Marketing: destino sin https se rechaza', (await A.app(`${M}/campaigns/${k.data.id}/links`, { method: 'POST', body: { platform: 'qr', target: 'javascript:alert(1)' } })).status === 400);
 
   // Listas

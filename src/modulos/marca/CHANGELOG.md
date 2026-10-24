@@ -1,5 +1,10 @@
 # Marca e IA — cambios
 
+## 2.2.0 · 2026-10-24
+- **Tarjetas y marca salen de Marketing y viven aquí:** la pestaña **Tarjetas** trae la lista, el editor en vivo (foto, color, chat de IA, enlace, QR) y las vistas de cada tarjeta. En Marketing se quitó «Tarjetas y marca»; sus enlaces viejos (`#tarjetas`, `#marca`, `#kit`) llevan a la pantalla Marca.
+- **Links de rastreo de las tarjetas:** cada tarjeta lista los links de campaña que llevan a ella (`GET /api/marketing/cards/rastreo`) con sus vistas. Se crean en Marketing → Campañas: al crear un link se puede elegir una tarjeta como destino (`/l/<slug>` → `/c/<tarjeta>`), así se cuentan las vistas por plataforma y la tarjeta suma además su propia vista.
+- La pantalla Marca ya no depende de que la app la active: siempre es una pantalla. Los datos, las rutas `/api/marketing/cards` y las páginas públicas `/c/…` no cambian.
+
 ## 2.1.0 · 2026-10-23
 - **Pantalla propia en el menú** (`/staff/marca.html`): Identidad · Logos · Color y letra · Tarjetas · Usar en otros lados. Cada app la activa con `window.DW_MARCA_PROPIA = 1`;
   las que no, siguen mandando a Marketing → Tarjetas → Marca como antes. La app puede sumar pestañas propias con `window.DwMarcaTabs.push({ id, label, icon, mount(host, { me, can }) })`.
