@@ -89,6 +89,23 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Marca: B no ve el logo de A', (await B.app(`${M}/kit?logo=1`)).data.logo === null && (await B.app(`${M}/logo`)).data.data_url === null);
   check('Marca: se puede quitar el logo', (await A.app(`${M}/logo`, { method: 'DELETE' })).status === 200 && (await A.app(M)).data.marca.tiene_logo === false);
 
+  // Identidad (descripción y lema) y logos por uso
+  const idt = await A.app(M, { method: 'PUT', body: { descripcion: '  Academia de idiomas con clases presenciales.  ', lema: 'Aprende hablando' } });
+  check('Marca: guarda la descripción y el lema', idt.status === 200 && idt.data.marca.descripcion === 'Academia de idiomas con clases presenciales.' && idt.data.marca.lema === 'Aprende hablando', JSON.stringify(idt.data));
+  check('Marca: la descripción se corta a 600 letras', (await A.app(M, { method: 'PUT', body: { descripcion: 'x'.repeat(900) } })).data.marca.descripcion.length === 600);
+  await A.app(M, { method: 'PUT', body: { descripcion: 'Academia de idiomas con clases presenciales.' } });
+  const kid = (await A.app(`${M}/kit`)).data;
+  check('Marca: el kit y el prompt traen la descripción', kid.identidad?.descripcion?.startsWith('Academia') && /Qué hace el negocio: Academia/.test(kid.prompts.chat) && /Lema: Aprende hablando/.test(kid.prompts.mcp));
+  check('Marca: B no ve la descripción de A', (await B.app(M)).data.marca.descripcion === '');
+  check('Marca: logo de un tipo que no existe se rechaza', (await A.app(`${M}/logos/inventado`, { method: 'PUT', body: { dataUrl: PNG } })).status === 400);
+  check('Marca: guarda un logo horizontal y uno oscuro', (await A.app(`${M}/logos/horizontal`, { method: 'PUT', body: { dataUrl: PNG } })).status === 200 && (await A.app(`${M}/logos/oscuro`, { method: 'PUT', body: { dataUrl: PNG } })).status === 200);
+  const lg = (await A.app(`${M}/logos`)).data;
+  check('Marca: lista los logos por uso y los 5 tipos', lg.logos.length === 2 && lg.tipos.length === 5 && lg.logos.every((x) => x.data_url === PNG));
+  const kl2 = (await A.app(`${M}/kit?logo=1`)).data;
+  check('Marca: el kit trae los logos (con imagen solo si se pide)', kl2.logos.length === 2 && kl2.logos[0].data_url === PNG && !(await A.app(`${M}/kit`)).data.logos[0].data_url);
+  check('Marca: B no ve los logos de A', (await B.app(`${M}/logos`)).data.logos.length === 0);
+  check('Marca: se puede quitar un logo por uso', (await A.app(`${M}/logos/horizontal`, { method: 'DELETE' })).status === 200 && (await A.app(`${M}/logos`)).data.logos.length === 1);
+
   // Permisos: el personal ve pero no cambia
   const staff = await newMember(A.id, 'staff');
   // Cada app decide qué módulos ve el personal por defecto; Marca no es sensible: el personal la ve pero no la cambia
@@ -97,6 +114,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Marca: módulo base, el personal lo ve aunque su lista de módulos esté vacía', (await staff.app(M)).status === 200);
   check('Marca: el personal ve la marca', (await staff.app(M)).status === 200);
   check('Marca: el personal no cambia la marca (403)', (await staff.app(M, { method: 'PUT', body: { tono: 'directo' } })).status === 403);
+  check('Marca: el personal no cambia los logos por uso (403)', (await staff.app(`${M}/logos/icono`, { method: 'PUT', body: { dataUrl: PNG } })).status === 403 && (await staff.app(`${M}/logos`)).status === 200);
   check('Marca: el personal no cambia el logo (403)', (await staff.app(`${M}/logo`, { method: 'PUT', body: { dataUrl: PNG } })).status === 403);
   check('Marca: el personal no crea plantillas (403)', (await staff.app(`${M}/plantillas`, { method: 'POST', body: { nombre: 'x', canal: 'chat', instrucciones: 'y' } })).status === 403);
 

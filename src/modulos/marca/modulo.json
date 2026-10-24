@@ -1,13 +1,12 @@
 {
   "id": "marca",
   "nombre": "Marca",
-  "version": "2.0.0",
-  "descripcion": "La marca del negocio como servicio: color (el de su app) con su paleta, fondo, tipografía, tono, logo, plantillas de IA y kit de marca. Se edita en Marketing → Tarjetas → Marca; las tarjetas, los chats y el kit leen de aquí. Módulo base sin pantalla propia.",
+  "version": "2.1.0",
+  "descripcion": "La marca del negocio como servicio: identidad (descripción y lema), logos por uso, color (el de su app) con su paleta, fondo, tipografía, tono, plantillas de IA y kit de marca. Tiene pantalla propia en el menú; las tarjetas públicas y los links de rastreo se siguen administrando en Marketing.",
   "icono": "bi-palette",
   "menu": {
     "ruta": "/staff/marca.html",
-    "orden": 95,
-    "oculto": true
+    "orden": 90
   },
   "permisos": {
     "ver": "staff",
@@ -18,11 +17,13 @@
     "marca.guia_de_marca",
     "marca.kit_de_marca",
     "marca.cambiar_tono",
+    "marca.cambiar_identidad",
     "marca.crear_plantilla"
   ],
   "tablas": [
     "mc_marca",
-    "mc_plantillas"
+    "mc_plantillas",
+    "mc_logos"
   ],
   "rutas_publicas": [],
   "depende_de": [],

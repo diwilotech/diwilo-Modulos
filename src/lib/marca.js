@@ -54,6 +54,9 @@ export const STARTERS = {
   ],
 };
 
+// Logos por uso (además del logo único de la app): se suben en Marca → Logos.
+export const LOGOS = { horizontal: 'Horizontal (ícono y nombre)', vertical: 'Vertical (ícono arriba)', icono: 'Solo ícono', letras: 'Solo letras', oscuro: 'Para fondo oscuro' };
+
 // chat = asistente de la app · mcp = asistente externo · agente = automatizaciones y agentes de IA
 export const CANALES = ['chat', 'mcp', 'agente'];
 export const COLORES = ['app', ...Object.keys(TEMAS)];
@@ -62,7 +65,7 @@ export const FONDOS = { oscuro: 'Negro', claro: 'Blanco', app: 'Igual que mi app
 
 // La marca efectiva de un negocio (org = «<app>:<id>»). Sin registro propio: color de la app, Inter y tono cercano.
 export async function brandOf(env, org) {
-  const row = await one(env, 'SELECT color, tipografia, tono, tono_notas, fondo, logo IS NOT NULL AS tiene_logo FROM mc_marca WHERE business_id = ?', org);
+  const row = await one(env, 'SELECT color, tipografia, tono, tono_notas, fondo, descripcion, lema, logo IS NOT NULL AS tiene_logo FROM mc_marca WHERE business_id = ?', org);
   const o = await one(env, 'SELECT tema, modo FROM orgs WHERE id = ?', org);
   const tema_app = TEMAS[o?.tema] ? o.tema : 'violeta';
   const color = COLORES.includes(row?.color) ? row.color : 'app';
@@ -72,6 +75,7 @@ export async function brandOf(env, org) {
     fondo, modo_app, fondo_efectivo: fondo === 'app' ? modo_app : fondo,
     tipografia: FUENTES[row?.tipografia] ? row.tipografia : 'inter',
     tono: TONOS[row?.tono] ? row.tono : 'cercano', tono_notas: row?.tono_notas || '', tiene_logo: !!row?.tiene_logo,
+    descripcion: row?.descripcion || '', lema: row?.lema || '',
   };
 }
 
@@ -96,6 +100,7 @@ export async function kitOf(env, org, nombre = null, { logo = false } = {}) {
   const t = TEMAS[b.color_efectivo], f = FUENTES[b.tipografia], pal = paleta(t.ui);
   const { results } = await env.DB.prepare('SELECT canal, nombre, instrucciones FROM mc_plantillas WHERE business_id = ? AND activa = 1 ORDER BY created_at').bind(org).all();
   const lg = await one(env, 'SELECT logo FROM mc_marca WHERE business_id = ?', org);
+  const { results: lgs } = await env.DB.prepare('SELECT tipo, data_url FROM mc_logos WHERE business_id = ? ORDER BY tipo').bind(org).all();
   const googleUrl = `https://fonts.googleapis.com/css2?family=${f.google}&display=swap`;
   const prompts = Object.fromEntries(CANALES.map((k) => [k, [tonoPrompt(b), ...results.filter((r) => r.canal === k).map((r) => `## ${r.nombre}\n${r.instrucciones}`)].join('\n\n')]));
   return {
@@ -106,8 +111,10 @@ export async function kitOf(env, org, nombre = null, { logo = false } = {}) {
     css: `:root{--marca:${t.ui};--marca-rgb:${rgbDe(t.ui)};--marca-claro:${t.card[1]};--marca-texto:#ffffff;${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => `--marca-${n}:${pal[n]}`).join(';')};--marca-fondo:${pal.fondo};--marca-fondo-oscuro:${pal.fondo_oscuro};--marca-tinta:${pal.texto};--marca-tinta-oscura:${pal.texto_oscuro};--marca-fondo-actual:${b.fondo_efectivo === 'claro' ? pal.fondo : pal.fondo_oscuro};--marca-tinta-actual:${b.fondo_efectivo === 'claro' ? pal.texto : pal.texto_oscuro};--marca-fuente:${f.familia}}\nbody{font-family:var(--marca-fuente);background:var(--marca-fondo-actual);color:var(--marca-tinta-actual)}`,
     tono: { id: b.tono, nombre: TONOS[b.tono].nombre, regla: TONOS[b.tono].regla, notas: b.tono_notas || null },
     logo: lg?.logo ? { disponible: true, formato: /^data:image\/([a-z+]+);/.exec(lg.logo)?.[1] || null, ...(logo ? { data_url: lg.logo } : { nota: 'Pídelo con ?logo=1 (API), en la pestaña «Usar en otros lados» o con el RPC marca()' }) } : null,
+    identidad: { descripcion: b.descripcion || null, lema: b.lema || null },
+    logos: lgs.map((l) => ({ tipo: l.tipo, nombre: LOGOS[l.tipo] || l.tipo, formato: /^data:image\/([a-z+]+);/.exec(l.data_url)?.[1] || null, ...(logo ? { data_url: l.data_url } : {}) })),
     prompts, plantillas: results,
   };
 }
 
-export const tonoPrompt = (b) => `Tono de conversación: ${TONOS[b.tono].nombre}. ${TONOS[b.tono].regla}${b.tono_notas ? ` Indicaciones del negocio sobre cómo hablar: ${b.tono_notas}` : ''}`;
+export const tonoPrompt = (b) => `Tono de conversación: ${TONOS[b.tono].nombre}. ${TONOS[b.tono].regla}${b.tono_notas ? ` Indicaciones del negocio sobre cómo hablar: ${b.tono_notas}` : ''}${b.descripcion ? `\nQué hace el negocio: ${b.descripcion}` : ''}${b.lema ? `\nLema: ${b.lema}` : ''}`;

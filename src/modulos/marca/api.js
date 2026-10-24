@@ -1,16 +1,17 @@
 // Marca e IA (módulo compartido): la marca del negocio y las plantillas de su IA. Ver: todo el equipo; cambiar: propietario y administrador.
 //   GET   /api/marca                      marca + opciones (temas, tipografías, tonos) + plantillas + plantillas de ejemplo
-//   PUT   /api/marca                      { color, fondo, tipografia, tono, tono_notas } (solo lo que llega)
+//   PUT   /api/marca                      { color, fondo, tipografia, tono, tono_notas, descripcion, lema } (solo lo que llega)
 //   CRUD  /api/marca/plantillas           plantillas de la IA: canal 'chat' (asistente de la app) o 'mcp' (asistente externo)
 //   GET   /api/marca/ia/contexto?canal=   el texto que recibe la IA: tono + plantillas activas del canal (chat | mcp | agente)
 //   GET|PUT|DELETE /api/marca/logo        copia del logo del negocio ({ dataUrl }) para el kit (la app guarda el suyo para su menú)
+//   GET|PUT|DELETE /api/marca/logos[/:tipo]  logos por uso: horizontal, vertical, icono, letras, oscuro ({ dataUrl })
 //   GET   /api/marca/kit                  el kit de marca completo (color, CSS, tipografía, tono y prompts listos) para webs, apps, chats y agentes
 // El color 'app' sigue el color que el negocio elige en Apariencia de su app (lo envía cada llamada en ctx.business.tema).
 // Las tarjetas públicas y los demás módulos leen la marca con brandOf() (src/lib/marca.js).
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
-import { TEMAS, FUENTES, TONOS, STARTERS, CANALES, COLORES, FONDOS, brandOf, tonoPrompt, kitOf, paleta } from '../../lib/marca.js';
+import { TEMAS, FUENTES, TONOS, LOGOS as TIPOS_LOGO, STARTERS, CANALES, COLORES, FONDOS, brandOf, tonoPrompt, kitOf, paleta } from '../../lib/marca.js';
 
 const MOD = 'marca', B = '/api/marca';
 const MAX_POR_CANAL = 20;
@@ -39,16 +40,18 @@ const api = crud({ get() {}, post() {}, patch() {}, delete() {} }, { base: B, mo
 
 export async function saveMarca(c, b) {
   const cur = await brandOf(c.env, c.businessId);
-  const next = { color: cur.color, fondo: cur.fondo, tipografia: cur.tipografia, tono: cur.tono, tono_notas: cur.tono_notas };
+  const next = { color: cur.color, fondo: cur.fondo, tipografia: cur.tipografia, tono: cur.tono, tono_notas: cur.tono_notas, descripcion: cur.descripcion, lema: cur.lema };
   if (b.color !== undefined) { if (!COLORES.includes(b.color)) throw new HttpError(400, 'Color no válido'); next.color = b.color; }
   if (b.fondo !== undefined) { if (!FONDOS[b.fondo]) throw new HttpError(400, 'Fondo no válido (negro, blanco o igual que la app)'); next.fondo = b.fondo; }
   if (b.tipografia !== undefined) { if (!FUENTES[b.tipografia]) throw new HttpError(400, 'Tipografía no válida'); next.tipografia = b.tipografia; }
   if (b.tono !== undefined) { if (!TONOS[b.tono]) throw new HttpError(400, 'Tono no válido'); next.tono = b.tono; }
   if (b.tono_notas !== undefined) next.tono_notas = String(b.tono_notas || '').trim().slice(0, 500);
+  if (b.descripcion !== undefined) next.descripcion = String(b.descripcion || '').trim().slice(0, 600);
+  if (b.lema !== undefined) next.lema = String(b.lema || '').trim().slice(0, 80);
   const t = now();
-  await c.env.DB.prepare(`INSERT INTO mc_marca (business_id, color, fondo, tipografia, tono, tono_notas, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(business_id) DO UPDATE SET color = excluded.color, fondo = excluded.fondo, tipografia = excluded.tipografia, tono = excluded.tono, tono_notas = excluded.tono_notas, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-    .bind(c.businessId, next.color, next.fondo, next.tipografia, next.tono, next.tono_notas || null, c.session?.email || null, t, t).run();
+  await c.env.DB.prepare(`INSERT INTO mc_marca (business_id, color, fondo, tipografia, tono, tono_notas, descripcion, lema, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(business_id) DO UPDATE SET color = excluded.color, fondo = excluded.fondo, tipografia = excluded.tipografia, tono = excluded.tono, tono_notas = excluded.tono_notas, descripcion = excluded.descripcion, lema = excluded.lema, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+    .bind(c.businessId, next.color, next.fondo, next.tipografia, next.tono, next.tono_notas || null, next.descripcion || null, next.lema || null, c.session?.email || null, t, t).run();
   await audit(c, 'Cambió la marca del negocio', { modulo: MOD, detalle: next });
   return brandOf(c.env, c.businessId);
 }
@@ -67,7 +70,7 @@ export async function contexto(c, canal) {
 export const guia = async (c) => {
   const b = await brandOf(c.env, c.businessId);
   return {
-    negocio: c.ctx?.business?.name || null, color: TEMAS[b.color_efectivo].nombre, tipografia: FUENTES[b.tipografia].nombre,
+    negocio: c.ctx?.business?.name || null, descripcion: b.descripcion || null, lema: b.lema || null, color: TEMAS[b.color_efectivo].nombre, tipografia: FUENTES[b.tipografia].nombre,
     tono: { id: b.tono, nombre: TONOS[b.tono].nombre, regla: TONOS[b.tono].regla, notas: b.tono_notas || null },
     plantillas: await all(c.env, "SELECT nombre, instrucciones FROM mc_plantillas WHERE business_id = ? AND canal = 'mcp' AND activa = 1 ORDER BY created_at", c.businessId),
     instruccion: 'Sigue este tono en todo texto que escribas para los clientes del negocio y aplica las plantillas activas.',
@@ -108,6 +111,27 @@ export function routes(r) {
   r.delete(`${B}/logo`, `manager:${MOD}`, async (c) => {
     await c.env.DB.prepare('UPDATE mc_marca SET logo = NULL, updated_at = ? WHERE business_id = ?').bind(now(), c.businessId).run();
     await audit(c, 'Quitó el logo del negocio', { modulo: MOD });
+    return json({ ok: true });
+  });
+  // Logos por uso (horizontal, vertical, ícono, solo letras, fondo oscuro)
+  r.get(`${B}/logos`, `tenant:${MOD}`, async (c) => {
+    const rows = await all(c.env, 'SELECT tipo, data_url, updated_at FROM mc_logos WHERE business_id = ? ORDER BY tipo', c.businessId);
+    return json({ tipos: Object.entries(TIPOS_LOGO).map(([id, nombre]) => ({ id, nombre })), logos: rows });
+  });
+  r.put(`${B}/logos/:tipo`, `manager:${MOD}`, async (c) => {
+    if (!TIPOS_LOGO[c.params.tipo]) throw new HttpError(400, 'Tipo de logo no válido');
+    const url = String((await readJson(c.req)).dataUrl || '');
+    if (!LOGO.test(url)) throw new HttpError(400, 'El logo debe ser una imagen PNG, JPG, WEBP o SVG');
+    if (url.length > 420000) throw new HttpError(400, 'El logo pesa más de 300 KB');
+    await c.env.DB.prepare(`INSERT INTO mc_logos (business_id, tipo, data_url, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(business_id, tipo) DO UPDATE SET data_url = excluded.data_url, updated_at = excluded.updated_at`).bind(c.businessId, c.params.tipo, url, now()).run();
+    await audit(c, `Cambió el logo «${TIPOS_LOGO[c.params.tipo]}» del negocio`, { modulo: MOD });
+    return json({ ok: true });
+  });
+  r.delete(`${B}/logos/:tipo`, `manager:${MOD}`, async (c) => {
+    if (!TIPOS_LOGO[c.params.tipo]) throw new HttpError(400, 'Tipo de logo no válido');
+    await c.env.DB.prepare('DELETE FROM mc_logos WHERE business_id = ? AND tipo = ?').bind(c.businessId, c.params.tipo).run();
+    await audit(c, `Quitó el logo «${TIPOS_LOGO[c.params.tipo]}» del negocio`, { modulo: MOD });
     return json({ ok: true });
   });
   r.get(`${B}/ia/contexto`, `tenant:${MOD}`, async (c) => json(await contexto(c, c.url.searchParams.get('canal') || 'chat')));

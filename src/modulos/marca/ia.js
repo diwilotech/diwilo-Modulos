@@ -30,6 +30,15 @@ export default [
     },
   },
   {
+    name: 'marca.cambiar_identidad', modulo: 'marca', rol: 'admin', tipo: 'escritura',
+    description: 'Cambia la descripción de lo que hace el negocio (máx. 600 letras) y/o su lema (máx. 80). La lee el chat y los asistentes al hablar con los clientes.',
+    inputSchema: S({ descripcion: { type: 'string', description: 'Qué hace el negocio, en pocas frases' }, lema: { type: 'string', description: 'Frase corta de la marca' } }),
+    run: async (c, a) => {
+      const m = await saveMarca(c, { ...(a.descripcion !== undefined ? { descripcion: a.descripcion } : {}), ...(a.lema !== undefined ? { lema: a.lema } : {}) });
+      return { descripcion: m.descripcion || null, lema: m.lema || null };
+    },
+  },
+  {
     name: 'marca.crear_plantilla', modulo: 'marca', rol: 'admin', tipo: 'escritura',
     description: 'Crea una plantilla de instrucciones para la IA del negocio: canal «chat» (el asistente de la app), «mcp» (asistentes externos) o «agente» (automatizaciones y agentes de IA).',
     inputSchema: S({ nombre: { type: 'string' }, canal: { type: 'string', enum: CANALES }, instrucciones: { type: 'string', description: 'Máx. 2000 letras' } }, ['nombre', 'canal', 'instrucciones']),

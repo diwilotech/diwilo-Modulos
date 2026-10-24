@@ -1,5 +1,13 @@
 # Marca e IA — cambios
 
+## 2.1.0 · 2026-10-23
+- **Pantalla propia en el menú** (`/staff/marca.html`): Identidad · Logos · Color y letra · Tarjetas · Usar en otros lados. Cada app la activa con `window.DW_MARCA_PROPIA = 1`;
+  las que no, siguen mandando a Marketing → Tarjetas → Marca como antes. La app puede sumar pestañas propias con `window.DwMarcaTabs.push({ id, label, icon, mount(host, { me, can }) })`.
+- **Identidad:** descripción de lo que hace el negocio (máx. 600) y lema (máx. 80). `PUT /api/marca { descripcion, lema }`; entran al kit (`identidad`), a la guía de marca y a todos los prompts de la IA («Qué hace el negocio: …»).
+- **Logos por uso:** horizontal, vertical, solo ícono, solo letras y para fondo oscuro (`GET /api/marca/logos`, `PUT|DELETE /api/marca/logos/:tipo`). El kit los lista (`logos`) y con `?logo=1` incluye la imagen. El logo único de la app no cambia.
+- **Tarjetas:** la pestaña muestra cada tarjeta con su enlace público `/c/<slug>` y sus visitas; las rutas `/c/…`, `/l/…` y el conteo de entradas no cambian y se siguen administrando en Marketing.
+- Herramienta de IA nueva `marca.cambiar_identidad`. Migración `0022_marca_identidad.sql` (`mc_marca.descripcion`, `mc_marca.lema`, tabla `mc_logos`).
+
 ## 1.3.0 · 2026-10-17
 - **Reemplaza a «Configuración» de las apps:** la pantalla trae Marca (color de la app, modo claro/oscuro, logo, fondo, tipografía y tono), Asistente IA
   (plantillas), Conexiones (tokens MCP) y Bitácora. Usa las rutas estándar de la app (`/api/settings/apariencia`, `/api/settings/logo`, `/api/ia/tokens`,

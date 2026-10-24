@@ -1,8 +1,11 @@
-// Marca: color de la app, modo, logo, fondo, tipografía y tono (y el kit de marca para webs, apps y agentes). Se muestra dentro de Marketing → Tarjetas:
-// Marketing carga este archivo y llama a window.DwMarca.mount(). Su propia página (/staff/marca.html) ya no tiene menú: lleva a Marketing.
+// Marca: identidad (descripción y lema), logos por uso, color de la app, modo, fondo, tipografía, tono, tarjetas y el kit de marca para webs, apps y agentes.
+// Dos formas de uso: (1) pantalla propia del menú (/staff/marca.html) en las apps que la activan con window.DW_MARCA_PROPIA = 1, que además pueden sumar sus
+// propias pestañas con window.DwMarcaTabs.push({ id, label, icon, mount(host, ctx) }); (2) dentro de Marketing → Tarjetas → Marca, que carga este
+// archivo y llama a window.DwMarca.mount(). Las apps que no activan (1) siguen mandando /staff/marca.html a Marketing.
 // Ver: todo el equipo; cambiar: propietario y administrador. El color y el modo los guarda la app (/api/settings/apariencia);
 // el logo también (para su menú) y el módulo guarda una copia para el kit; lo demás vive en el módulo (/api/marca).
-if (document.querySelector('main[data-modulo="marca"]')) location.replace('/staff/marketing.html#marca');
+const PROPIA = !!window.DW_MARCA_PROPIA && !!document.querySelector('main[data-modulo="marca"]');
+if (!PROPIA && document.querySelector('main[data-modulo="marca"]')) location.replace('/staff/marketing.html#marca');
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
   const { api, esc, toast, confirm } = window.App;
@@ -17,7 +20,7 @@ DW.ready.then((me) => {
   const load = async () => {
     try { D = await api(B); } catch (x) { host.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     D.card = await api('/api/marketing/cards').then((r) => r.rows.find((c) => c.predeterminada) || r.rows[0] || null).catch(() => null);
-    (tabAct === 'kit' ? kit : marca)(host);
+    ({ kit, identidad, logos, tarjetas }[tabAct] || marca)(host);
     espejoDelLogo();
   };
 
@@ -183,9 +186,90 @@ DW.ready.then((me) => {
     };
   }
 
+  /* ---------- Identidad: qué hace el negocio ---------- */
+  function identidad(el) {
+    const m = D.marca;
+    el.innerHTML = `<div class="row g-3"><div class="col-lg-7"><div class="dw-card">
+        <h2 class="h6 mb-1">Qué hace tu negocio</h2>
+        <p class="small text-body-secondary mb-3">${CAN ? 'Cuéntalo en pocas frases. Lo leen el chat y los asistentes de IA para hablar de tu negocio sin inventar, y sale en el kit de marca.' : 'Solo el propietario o un administrador pueden cambiarlo.'}</p>
+        <label class="form-label small mb-1" for="mcDesc">Descripción</label>
+        <textarea class="form-control" id="mcDesc" rows="5" maxlength="600" placeholder="Ej.: Academia de idiomas con clases presenciales de inglés, francés y alemán para todas las edades." ${CAN ? '' : 'disabled'}>${esc(m.descripcion || '')}</textarea>
+        <div class="form-text text-end"><span data-n>${(m.descripcion || '').length}</span>/600</div>
+        <label class="form-label small mb-1 mt-2" for="mcLema">Lema <span class="text-body-secondary">(opcional)</span></label>
+        <input class="form-control" id="mcLema" maxlength="80" placeholder="Una frase corta que resuma tu marca" value="${esc(m.lema || '')}" ${CAN ? '' : 'disabled'}>
+        ${CAN ? '<div class="d-flex align-items-center gap-2 mt-3"><button class="btn btn-primary" data-save><i class="bi bi-check-lg me-1"></i>Guardar</button><span class="small text-danger" data-err></span></div>' : ''}
+      </div></div>
+      <div class="col-lg-5"><div class="dw-card"><div class="small text-body-secondary mb-2">Así la ve la IA</div>
+        <div class="fw-semibold">${esc(D.negocio.nombre || me.business.name || '')}</div><div class="small fst-italic text-body-secondary" data-p-lema>${esc(m.lema || '')}</div><p class="small mb-0 mt-2" data-p-desc>${esc(m.descripcion || '') || '<span class="text-body-secondary">Aún no has escrito la descripción.</span>'}</p></div></div></div>`;
+    const d = $('#mcDesc', el), l = $('#mcLema', el);
+    const vivo = () => { $('[data-n]', el).textContent = d.value.length; $('[data-p-lema]', el).textContent = l.value; $('[data-p-desc]', el).textContent = d.value || 'Aún no has escrito la descripción.'; };
+    d.addEventListener('input', vivo); l.addEventListener('input', vivo);
+    $('[data-save]', el)?.addEventListener('click', async (e) => {
+      const b = e.currentTarget; b.disabled = true; $('[data-err]', el).textContent = '';
+      try { await api(B, { method: 'PUT', body: { descripcion: d.value, lema: l.value } }); toast('Guardado'); await load(); } catch (x) { $('[data-err]', el).textContent = x.message; b.disabled = false; }
+    });
+  }
+
+  /* ---------- Logos por uso ---------- */
+  async function logos(el) {
+    let R;
+    try { R = await api(`${B}/logos`); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const por = Object.fromEntries(R.logos.map((l) => [l.tipo, l.data_url]));
+    el.innerHTML = `<p class="small text-body-secondary">${CAN ? 'Sube cada versión de tu logo según dónde se use. PNG, JPG, WEBP o SVG, máx. 300 KB. El logo cuadrado del menú de la app se cambia en la pestaña «Color y letra».' : 'Solo el propietario o un administrador cambian los logos.'}</p>
+      <div class="row g-3">${R.tipos.map((t) => {
+        const u = por[t.id], oscuro = t.id === 'oscuro';
+        return `<div class="col-sm-6 col-xl-4"><div class="dw-card h-100"><div class="fw-semibold mb-2">${esc(t.nombre)}</div>
+          <div class="rounded-3 d-grid mb-2 border" style="place-items:center;height:120px;padding:12px;background:${oscuro ? '#240f1e' : '#fff'}">${u ? `<img src="${esc(u)}" alt="${esc(t.nombre)}" style="max-width:100%;max-height:96px;object-fit:contain">` : `<span class="small ${oscuro ? 'text-white-50' : 'text-body-secondary'}">Sin subir</span>`}</div>
+          <div class="d-flex gap-2 flex-wrap">${CAN ? `<label class="btn btn-outline-primary btn-sm mb-0"><i class="bi bi-upload me-1"></i>${u ? 'Cambiar' : 'Subir'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" data-up="${t.id}"></label>` : ''}
+            ${u ? `<a class="btn btn-outline-secondary btn-sm" download="logo-${t.id}" href="${esc(u)}"><i class="bi bi-download me-1"></i>Descargar</a>` : ''}
+            ${CAN && u ? `<button class="btn btn-outline-danger btn-sm" data-del="${t.id}"><i class="bi bi-trash me-1"></i>Quitar</button>` : ''}</div></div></div>`;
+      }).join('')}</div>`;
+    $$('[data-up]', el).forEach((i) => (i.onchange = async () => {
+      const file = i.files[0]; if (!file) return;
+      try { await api(`${B}/logos/${i.dataset.up}`, { method: 'PUT', body: { dataUrl: await toDataUrl(file) } }); toast('Logo guardado'); logos(el); } catch (x) { toast(x.message, false); }
+    }));
+    $$('[data-del]', el).forEach((b) => (b.onclick = async () => {
+      if (!(await confirm({ title: '¿Quitar este logo?', ok: 'Quitar' }))) return;
+      try { await api(`${B}/logos/${b.dataset.del}`, { method: 'DELETE' }); toast('Logo quitado'); logos(el); } catch (x) { toast(x.message, false); }
+    }));
+  }
+
+  /* ---------- Tarjetas: enlaces públicos y visitas (se administran en Marketing) ---------- */
+  async function tarjetas(el) {
+    let rows = [];
+    try { rows = (await api('/api/marketing/cards')).rows; } catch { el.innerHTML = '<div class="dw-card text-body-secondary">Las tarjetas son parte de Marketing. Activa ese módulo para tener tu tarjeta de presentación y sus enlaces.</div>'; return; }
+    const num = (n) => new Intl.NumberFormat('es-CO').format(n || 0);
+    el.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-3"><p class="small text-body-secondary mb-0 flex-grow-1">Tus tarjetas toman el color, la letra y el fondo de la marca. Cada visita al enlace público se cuenta; los links de campañas (<code>/l/…</code>) se rastrean en Marketing.</p>
+        <a class="btn btn-primary btn-sm" href="/staff/marketing.html#tarjetas"><i class="bi bi-pencil me-1"></i>Administrar tarjetas y links</a></div>
+      <div class="row g-3">${rows.map((c) => `<div class="col-md-6"><div class="dw-card h-100"><div class="d-flex align-items-start gap-2"><div class="flex-grow-1"><div class="fw-semibold">${esc(c.name)}${c.predeterminada ? ' <span class="badge text-bg-light">Del negocio</span>' : ''}</div><div class="small text-body-secondary">${esc([c.role, c.company].filter(Boolean).join(' · '))}</div></div>
+          <span class="small text-body-secondary text-nowrap"><i class="bi bi-eye me-1"></i>${num(c.views)}</span></div>
+        <div class="input-group input-group-sm mt-3"><input class="form-control" readonly value="${esc(location.origin)}/c/${esc(c.slug)}" aria-label="Enlace público"><button class="btn btn-outline-primary" data-cp="${esc(c.slug)}"><i class="bi bi-clipboard"></i></button><a class="btn btn-outline-primary" href="/c/${esc(c.slug)}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i></a></div></div></div>`).join('') || '<div class="col-12"><div class="dw-card text-body-secondary">Aún no hay tarjetas.</div></div>'}</div>`;
+    el.onclick = (e) => { const b = e.target.closest('[data-cp]'); if (b) copiar(`${location.origin}/c/${b.dataset.cp}`); };
+  }
+
+  /* ---------- Pantalla propia (menú) ---------- */
+  function pagina() {
+    const seg = $('[data-seg]'), view = $('[data-view]'), ext = window.DwMarcaTabs || [];
+    const items = [['identidad', 'Identidad', 'bi-card-text'], ...ext.map((e) => [e.id, e.label, e.icon || 'bi-grid']), ['logos', 'Logos', 'bi-images'], ['marca', 'Color y letra', 'bi-palette'], ['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['kit', 'Usar en otros lados', 'bi-box-arrow-up-right']];
+    const ok = items.map((x) => x[0]);
+    let cur = ok.includes(location.hash.slice(1)) ? location.hash.slice(1) : ok[0];
+    const go = async (k) => {
+      cur = k; history.replaceState(null, '', `#${k}`);
+      const h = document.createElement('div'); h.innerHTML = '<p class="text-body-secondary">Cargando…</p>'; view.replaceChildren(h);
+      try {
+        const e = ext.find((x) => x.id === k);
+        if (e) await e.mount(h, { me, can: CAN });
+        else { host = h; tabAct = k; await load(); }
+      } catch (x) { h.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; }
+    };
+    seg.hidden = false; C.seg(seg, items, go, cur);
+    go(cur);
+  }
+
   let host = null, tabAct = 'marca';
   window.DwMarca = {
     // Marketing → Tarjetas → Marca: tab = 'marca' (color, modo, logo, fondo, tipografía y tono) o 'kit' (usar en otros lados)
     async mount(el, tab = 'marca') { host = el; tabAct = tab; el.innerHTML = '<p class="text-body-secondary">Cargando…</p>'; await load(); },
   };
+  if (PROPIA) pagina();
 });
