@@ -28,7 +28,7 @@ export const hayProveedor = (env, p, plat) => (p === 'workers-ai' ? !!env.AI : p
 let cachePlat = { at: 0, v: null };
 export async function plataformaIA(env, fresco = false) {
   if (!fresco && cachePlat.v && Date.now() - cachePlat.at < 20000) return cachePlat.v;
-  const v = { proveedor: 'auto', modelo_claude: '', modelo_gemini: '', claves: { claude: [], gemini: [] } };
+  const v = { proveedor: 'auto', modelo_claude: '', modelo_gemini: '', claves: { claude: [], gemini: [], higgsfield: [] } };
   try { for (const r of (await env.DB.prepare('SELECT k, v FROM ia_plataforma').all()).results || []) if (r.k in v && r.k !== 'claves') v[r.k] = r.v; } catch (_) {}
   if (env.CLAVES_KEK) try {
     for (const r of (await env.DB.prepare('SELECT id, proveedor, cifrada FROM ia_claves_prov ORDER BY id').all()).results || [])

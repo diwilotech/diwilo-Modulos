@@ -1,5 +1,10 @@
 # IA (`ai`) — cambios
 
+## 1.7.0 · 2026-10-26
+- **Clave de Higgsfield** en «Modelo de IA» → Claves de IA (formato `id:secreto`, cifrada igual que las de Claude y Gemini). Diwilo Web Admin la pide por `claves-uso` para crear videos; no entra en el orden de modelos de lenguaje.
+- **Plantillas con herramientas propias**: `GET /api/ai/starters` suma agentes cuya `requiere` (herramientas que la app entrega en `ctx.propias`) se cumple. Hoy: **Agente de blog** y **Agente de videos para redes** (solo en Diwilo Admin). La plantilla elegida trae también herramientas, horario y permiso.
+- Los agentes de `diwilo:diwilo` no corren en el cron de este Worker: los dispara Diwilo Web Admin (sus herramientas de blog y videos viven allá).
+
 ## 1.6.1 · 2026-10-23
 - Las claves de Gemini del formato nuevo de Google (`AQ.…`) también se aceptan, además de las `AIza…`.
 

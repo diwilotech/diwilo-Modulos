@@ -118,10 +118,11 @@ export async function correrAgente(env, { org, agente, disparador = 'manual', ct
 }
 
 // Cada día (3:00 a. m. Colombia): los agentes diarios y, los lunes, los semanales. Sin tocar negocios con la suscripción vencida.
+// Los de Diwilo (diwilo:diwilo) los dispara Diwilo Web Admin en su cron, porque sus herramientas propias (blog, videos) viven allá.
 export async function agentesDelDia(env) {
   const lunes = new Date(Date.now() - 5 * 3600000).getUTCDay() === 1;
   const desde = Date.parse(`${today()}T05:00:00Z`);
-  const due = await all(env, `SELECT a.* FROM ia_agentes a JOIN orgs o ON o.id = a.business_id WHERE a.activo = 1 AND COALESCE(o.solo_lectura, 0) = 0
+  const due = await all(env, `SELECT a.* FROM ia_agentes a JOIN orgs o ON o.id = a.business_id WHERE a.activo = 1 AND a.business_id != 'diwilo:diwilo' AND COALESCE(o.solo_lectura, 0) = 0
     AND (a.programacion = 'diario' ${lunes ? "OR a.programacion = 'semanal'" : ''}) AND COALESCE(a.ultima_ejecucion, 0) < ? ORDER BY a.id LIMIT 25`, desde);
   for (const a of due) { try { await correrAgente(env, { org: a.business_id, agente: a, disparador: 'programado' }); } catch (e) { console.error('agente', a.id, e.message); } }
 }

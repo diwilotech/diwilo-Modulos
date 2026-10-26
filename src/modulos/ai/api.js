@@ -17,6 +17,7 @@ import { ctxDeOrg } from '../../lib/contexto.js';
 import { guiasDe } from '../../lib/guias.js';
 import { flujosEntre } from '../../lib/flujos.js';
 import { STARTERS } from '../../lib/marca.js';
+import { AGENTES_CONTENIDO } from './starters.js';
 import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe } from './agentes.js';
 import { webhookValido, dispararWebhook } from './chat.js';
 
@@ -210,7 +211,8 @@ export function routes(r) {
   const estadoProveedor = async (c) => {
     const plat = await plataformaIA(c.env, true), filas = await filasClaves(c);
     return { proveedor: plat.proveedor, activo: await motorActivo(c.env), orden: ordenIA(c.env, plat), cifrado: !!c.env.CLAVES_KEK,
-      proveedores: Object.fromEntries(Object.entries(PROVEEDORES).map(([k, v]) => [k, { nombre: v.nombre, secreto: v.secreto, configurado: hayProveedor(c.env, k, plat), claves: filas.filter((x) => x.proveedor === k), por_secreto: k === 'claude' ? !!c.env.ANTHROPIC_API_KEY : k === 'gemini' ? !!c.env.GEMINI_API_KEY : false, modelo: k === 'workers-ai' ? v.modelo : modeloDe(c.env, plat, k), modelos: v.modelos }])) };
+      proveedores: Object.fromEntries(Object.entries(PROVEEDORES).map(([k, v]) => [k, { nombre: v.nombre, secreto: v.secreto, configurado: hayProveedor(c.env, k, plat), claves: filas.filter((x) => x.proveedor === k), por_secreto: k === 'claude' ? !!c.env.ANTHROPIC_API_KEY : k === 'gemini' ? !!c.env.GEMINI_API_KEY : false, modelo: k === 'workers-ai' ? v.modelo : modeloDe(c.env, plat, k), modelos: v.modelos }])),
+      servicios: { higgsfield: { nombre: 'Higgsfield (videos)', configurado: clavesDe(c.env, plat, 'higgsfield').length > 0, claves: filas.filter((x) => x.proveedor === 'higgsfield') } } };
   };
   r.get(`${B}/proveedor`, `manager:${MOD}`, async (c) => { soloDiwilo(c); return json(await estadoProveedor(c)); });
   r.put(`${B}/proveedor`, `manager:${MOD}`, async (c) => {
@@ -253,17 +255,19 @@ export function routes(r) {
      POST   /api/ai/proveedor/claves        { proveedor: claude|gemini, nombre, clave }
      DELETE /api/ai/proveedor/claves/:id
      GET    /api/ai/proveedor/claves-uso    claves en claro, SOLO para Diwilo Web Admin por service binding (la pantalla nunca las recibe) */
-  const FORMATO = { claude: [/^sk-ant-[\w-]{20,}$/, 'Una clave de Claude empieza por «sk-ant-»'], gemini: [/^(AIza[\w-]{30,}|AQ\.[\w.-]{20,})$/, 'Una clave de Gemini empieza por «AIza» o «AQ.»'] };
+  const FORMATO = { claude: [/^sk-ant-[\w-]{20,}$/, 'Una clave de Claude empieza por «sk-ant-»'], gemini: [/^(AIza[\w-]{30,}|AQ\.[\w.-]{20,})$/, 'Una clave de Gemini empieza por «AIza» o «AQ.»'],
+    higgsfield: [/^[\w-]{8,}:[\w-]{8,}$/, 'La clave de Higgsfield tiene la forma «id:secreto» (la que da open.higgsfield.ai/api-keys)'] };
+  const NOMBRE_CLAVE = (p) => (p === 'higgsfield' ? 'Higgsfield (videos)' : PROVEEDORES[p]?.nombre || p);
   r.post(`${B}/proveedor/claves`, `manager:${MOD}`, async (c) => {
     soloDiwilo(c);
     if (!c.env.CLAVES_KEK) throw new HttpError(409, 'Falta crear una sola vez el secreto maestro CLAVES_KEK (npx wrangler secret put CLAVES_KEK, en Diwilo Modulos). Después las claves se ponen aquí.');
     const b = await readJson(c.req), p = b.proveedor, clave = String(b.clave || '').trim(), nombre = String(b.nombre || '').trim().slice(0, 60) || 'Clave';
-    if (!FORMATO[p]) throw new HttpError(400, 'Proveedor no válido: claude o gemini');
+    if (!FORMATO[p]) throw new HttpError(400, 'Proveedor no válido: claude, gemini o higgsfield');
     if (!FORMATO[p][0].test(clave)) throw new HttpError(400, FORMATO[p][1]);
     if ((await one(c.env, 'SELECT COUNT(*) n FROM ia_claves_prov WHERE proveedor = ?', p)).n >= 10) throw new HttpError(400, 'Máximo 10 claves por proveedor');
     await c.env.DB.prepare('INSERT INTO ia_claves_prov (proveedor, nombre, prefijo, cifrada, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(p, nombre, clave.slice(0, 7), await cifrarClave(c.env, clave), c.ctx?.user?.email || null, now()).run();
     olvidarPlataforma();
-    await audit(c, `Agregó una clave de ${PROVEEDORES[p].nombre} («${nombre}»)`, { modulo: MOD });
+    await audit(c, `Agregó una clave de ${NOMBRE_CLAVE(p)} («${nombre}»)`, { modulo: MOD });
     return json(await estadoProveedor(c));
   });
   r.delete(`${B}/proveedor/claves/:id`, `manager:${MOD}`, async (c) => {
@@ -272,18 +276,21 @@ export function routes(r) {
     if (!k) throw new HttpError(404, 'No existe esa clave');
     await c.env.DB.prepare('DELETE FROM ia_claves_prov WHERE id = ?').bind(Number(c.params.id)).run();
     olvidarPlataforma();
-    await audit(c, `Quitó una clave de ${PROVEEDORES[k.proveedor].nombre} («${k.nombre}»)`, { modulo: MOD });
+    await audit(c, `Quitó una clave de ${NOMBRE_CLAVE(k.proveedor)} («${k.nombre}»)`, { modulo: MOD });
     return json(await estadoProveedor(c));
   });
   r.get(`${B}/proveedor/claves-uso`, `manager:${MOD}`, async (c) => {
     soloDiwilo(c);
     if (c.ctx?.user?.email) throw new HttpError(403, 'Las claves en claro solo las pide el Worker de Diwilo Admin, no una persona');   // la llamada del sistema va sin correo
     const plat = await plataformaIA(c.env, true);
-    return json({ claude: clavesDe(c.env, plat, 'claude'), gemini: clavesDe(c.env, plat, 'gemini') });
+    return json({ claude: clavesDe(c.env, plat, 'claude'), gemini: clavesDe(c.env, plat, 'gemini'), higgsfield: clavesDe(c.env, plat, 'higgsfield') });
   });
 
   // Plantillas para empezar un agente (las mismas de la marca): GET /api/ai/starters → { agente: [{ nombre, instrucciones }] }
-  r.get(`${B}/starters`, `tenant:${MOD}`, async () => json({ agente: STARTERS.agente || [] }));
+  r.get(`${B}/starters`, `tenant:${MOD}`, async (c) => {
+    const tiene = new Set(herramientasDe(c.ctx).map((t) => t.name));
+    return json({ agente: [...(STARTERS.agente || []), ...AGENTES_CONTENIDO.filter((s) => s.requiere.every((n) => tiene.has(n))).map(({ requiere, ...s }) => s)] });
+  });
 
   /* claves de la API */
   r.get(`${B}/claves`, `manager:${MOD}`, async (c) => json({ rows: await all(c.env, 'SELECT id, nombre, prefijo, created_at, last_used, revocada FROM ia_claves WHERE business_id = ? ORDER BY id DESC', c.businessId) }));
