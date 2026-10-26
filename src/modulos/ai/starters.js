@@ -3,7 +3,7 @@
 export const AGENTES_CONTENIDO = [
   { nombre: 'Agente de blog', icono: 'bi-journal-text', programacion: 'semanal', autonomia: 'ejecutar',
     requiere: ['blog_crear_borrador', 'investigar_tema'],
-    herramientas: ['temas_de_clientes', 'blog_resumen', 'marketing.revisar_lista', 'noticias_web', 'buscar_web', 'investigar_tema', 'leer_pagina', 'marketing.ver_listas', 'marketing.leer_lista', 'marketing.agregar_a_lista', 'blog_crear_borrador'],
+    herramientas: ['leads_recientes', 'temas_de_clientes', 'blog_resumen', 'marketing.revisar_lista', 'noticias_web', 'buscar_web', 'investigar_tema', 'leer_pagina', 'marketing.ver_listas', 'marketing.leer_lista', 'marketing.agregar_a_lista', 'blog_crear_borrador'],
     instrucciones: `Eres el editor del blog de Diwilo (software, datos, automatización e IA para pymes en Colombia; apps para restaurantes, nutricionistas, negocios con citas, propiedad horizontal y academias). Cada vez que trabajes:
 1) Mira qué publica la competencia: marketing.revisar_lista con la lista «Competidores» (si no existe, sigue sin ella).
 2) Mira tendencias del nicho con noticias_web (máximo 2 consultas, por ejemplo «automatización pymes Colombia», «inteligencia artificial empresas Colombia»).
