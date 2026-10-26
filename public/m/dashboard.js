@@ -1,6 +1,7 @@
 // Dashboard (inicio de la app): saludo con la marca, alertas que necesitan atención, indicadores de los módulos y accesos directos.
 // Web y celular (cuadrícula que se adapta), se actualiza solo cada 90 s mientras la pestaña está a la vista, y sus alertas
 // se mandan a la campana del panel/app (window.parent.postMessage). Dentro de Diwilo Admin los enlaces cambian de pestaña del panel.
+// Cada app suma sus propios indicadores con window.DwDashboard.push({ id, titulo, mount(host, { me }) }) antes de cargar este archivo.
 DW.ready.then((me) => {
   if (!me.pageAllowed) return;
   const { api, esc } = window.App;
@@ -55,7 +56,7 @@ DW.ready.then((me) => {
     if (primera) view.innerHTML = `<div class="dsh-sk" style="height:72px;margin-bottom:18px"></div><div class="dsh-grid">${'<div class="dsh-sk"></div>'.repeat(4)}</div>`;
     let T, M;
     try { [T, M] = await Promise.all([api('/api/dashboard'), marca()]); } catch (x) { view.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; return; }
-    const alertas = T.alertas.filter((a) => !VISTAS.has(a.id));
+    const alertas = T.alertas.filter((a) => !VISTAS.has(a.id)), extras = window.DwDashboard || [];
     // La campana del panel/app junta estas alertas con sus avisos
     try { window.parent !== window && window.parent.postMessage({ dw: 'avisos', origen: 'dashboard', alertas: T.alertas.map((a) => ({ id: a.id, icono: a.icono, texto: a.texto, mod: (/\/staff\/([a-z]+)\.html/.exec(a.ruta || '') || [])[1] || null })) }, location.origin); } catch (_) { /* sin campana */ }
     view.innerHTML = `<div class="dsh-hero"><span class="dsh-logo">${M.logo ? `<img src="${esc(M.logo)}" alt="">` : esc(M.nombre[0] || 'D')}</span>
@@ -64,7 +65,12 @@ DW.ready.then((me) => {
       ${alertas.length ? `<div class="dsh-alertas" role="region" aria-label="Alertas">${alertas.map((a) => `<div class="dsh-alerta" data-nivel="${esc(a.nivel)}" ${a.ruta ? `data-ruta="${esc(a.ruta)}" role="button" tabindex="0" style="cursor:pointer"` : ''}><i class="bi ${esc(a.icono)} ic"></i><span>${esc(a.texto)}</span><button type="button" class="btn-close x" data-ocultar="${esc(a.id)}" aria-label="Ocultar alerta"></button></div>`).join('')}</div>` : ''}
       <div class="dsh-h">Cómo va</div>
       ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}
+      ${extras.map((e) => `<div class="dsh-h">${esc(e.titulo)}</div><div data-extra="${esc(e.id)}"></div>`).join('')}
       ${T.atajos.length ? `<div class="dsh-h">Ir a</div><div class="dsh-atajos">${T.atajos.map((a) => `<a class="dsh-atajo" href="${esc(a.ruta)}" data-ruta="${esc(a.ruta)}"><i class="bi ${esc(a.icono)}"></i>${esc(a.nombre)}</a>`).join('')}</div>` : ''}`;
+    for (const e of extras) {
+      const host = $(`[data-extra="${e.id}"]`, view);
+      Promise.resolve().then(() => e.mount(host, { me })).catch((x) => { host.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
+    }
   }
 
   view.addEventListener('click', (e) => {
