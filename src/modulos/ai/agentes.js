@@ -38,7 +38,19 @@ function leerJson(texto) {
   const t = String(texto || '').replace(/```(?:json)?/g, '');
   const i = t.indexOf('{'), j = t.lastIndexOf('}');
   if (i < 0 || j <= i) return null;
-  try { return JSON.parse(t.slice(i, j + 1)); } catch { return null; }
+  const crudo = t.slice(i, j + 1);
+  try { return JSON.parse(crudo); } catch { /* sigue: los modelos suelen dejar saltos de línea sin escapar dentro del texto */ }
+  // Reparación: dentro de un texto entre comillas, los saltos de línea y tabulaciones se escapan
+  let fix = '', dentro = false, esc = false;
+  for (const ch of crudo) {
+    if (esc) { fix += ch; esc = false; continue; }
+    if (ch === '\\') { fix += ch; esc = true; continue; }
+    if (ch === '"') dentro = !dentro;
+    fix += dentro && ch === '\n' ? '\\n' : dentro && ch === '\r' ? '' : dentro && ch === '\t' ? '\\t' : ch;
+  }
+  try { return JSON.parse(fix); } catch { /* último recurso: sacar la respuesta a mano */ }
+  const m = /"accion"\s*:\s*"fin"[\s\S]*?"respuesta"\s*:\s*"([\s\S]*?)"\s*(?:,\s*"siguientes"[\s\S]*)?\}\s*$/.exec(crudo);
+  return m ? { accion: 'fin', respuesta: m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') } : null;
 }
 // Un agente trabaja solo: sin esto, algunos modelos se presentan y cierran tras leer la marca sin hacer el trabajo
 const TRABAJO_COMPLETO = '\nIMPORTANTE: eres un agente que trabaja solo. No te presentes ni saludes: haz el trabajo completo de tus INSTRUCCIONES, paso a paso, con las herramientas, y usa "fin" solo cuando hayas entregado el resultado final (ideas, textos, borradores o propuestas de acción). La respuesta final puede ser larga y detallada.\n';
@@ -60,7 +72,7 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
     const o = leerJson(texto);
     hist.push({ role: 'assistant', content: texto });
     if (!o || !['usar', 'fin', 'guia'].includes(o.accion)) {
-      if (++invalidos >= 2) { respuesta = texto.slice(0, 1500); break; }
+      if (++invalidos >= 2) { respuesta = texto.slice(0, 6000); break; }
       hist.push({ role: 'user', content: 'Respuesta no válida. Responde con UN objeto JSON: {"accion":"usar",...}, {"accion":"guia","modulo":"..."} o {"accion":"fin","respuesta":"..."}.' });
       continue;
     }
@@ -70,7 +82,7 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
       hist.push({ role: 'user', content: g ? `Guía de ${g.nombre}:\n${g.markdown.slice(0, 4000)}` : `No hay guía del módulo «${o.modulo}». Módulos con guía: ${guias.map((d) => d.modulo).join(', ') || 'ninguno'}.` });
       continue;
     }
-    if (o.accion === 'fin') { respuesta = String(o.respuesta || 'Listo.').slice(0, 3000); siguientes = (Array.isArray(o.siguientes) ? o.siguientes : []).map((x) => String(x).trim()).filter((x) => x && x.length <= 48).slice(0, 3); break; }
+    if (o.accion === 'fin') { respuesta = String(o.respuesta || 'Listo.').slice(0, 8000); siguientes = (Array.isArray(o.siguientes) ? o.siguientes : []).map((x) => String(x).trim()).filter((x) => x && x.length <= 48).slice(0, 3); break; }
     const t = herramientas.find((x) => x.name === o.herramienta);
     const args = o.args && typeof o.args === 'object' ? o.args : {};
     const firma = `${o.herramienta}|${JSON.stringify(args)}`;

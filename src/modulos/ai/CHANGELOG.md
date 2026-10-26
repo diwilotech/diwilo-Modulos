@@ -1,5 +1,9 @@
 # IA (`ai`) — cambios
 
+## 1.8.1 · 2026-10-26
+- **Aprobar en la misma ventana**: al ejecutar un agente, sus propuestas (p. ej. cada video) salen como tarjetas con su escena, duración y formato y los botones **Aprobar / Descartar** (y «Aprobar todas»); al aprobar se crea al instante y el botón final dice «Listo». Ya no hay que ir al historial. El texto del agente se ve con formato (negritas, listas, separadores) y el paso a paso queda plegado.
+- Arreglo: cuando el modelo dejaba saltos de línea sin escapar dentro de su respuesta JSON, se mostraba el JSON crudo y cortado a 1500 letras. Ahora se repara (y la respuesta final admite hasta 8000 letras).
+
 ## 1.8.0 · 2026-10-26
 - **Agentes que terminan el trabajo**: el agente recibe la orden de hacer su trabajo completo (sin presentarse ni cerrar tras leer) y su respuesta final puede ser larga (3000 tokens en vez de 900, que cortaba el JSON). El agente de videos se quedaba en «Soy tu agente…» tras leer la marca.
 - **IA Diwilo**: «Qué puede hacer» ahora son secciones plegables por módulo; se quita la tarjeta del modelo; los flujos son 4 genéricos (2 consultas y 2 acciones) que sirven en cualquier app. Una llamada menos a la API al abrir la pantalla.

@@ -58,6 +58,40 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
     const t = setInterval(async () => { try { const g = await api(`${B}/asistente/progreso?id=${pid}`); if (g.pasos?.length || g.actual) pintar(g.pasos, g.actual); } catch (_) {} }, 900);
     try { return await trabajo(); } finally { clearInterval(t); }
   }
+  // Texto del agente con formato sencillo: **negrita**, listas con - o *, separadores --- y párrafos
+  const md = (t) => {
+    const inline = (x) => esc(x).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[\s(])\*(?!\s)(.+?)\*(?=[\s).,;:]|$)/g, '$1<i>$2</i>');
+    const out = []; let lista = false;
+    for (const l of String(t || '').split('\n')) {
+      const li = /^\s*[-*•]\s+(.*)$/.exec(l);
+      if (li) { if (!lista) { out.push('<ul class="mb-2 ps-3">'); lista = true; } out.push(`<li>${inline(li[1])}</li>`); continue; }
+      if (lista) { out.push('</ul>'); lista = false; }
+      if (/^\s*-{3,}\s*$/.test(l)) out.push('<hr class="my-2">');
+      else if (!l.trim()) out.push('<div class="mb-1"></div>');
+      else if (/^#{1,4}\s+/.test(l)) out.push(`<div class="fw-semibold mt-2">${inline(l.replace(/^#{1,4}\s+/, ''))}</div>`);
+      else out.push(`<div>${inline(l)}</div>`);
+    }
+    if (lista) out.push('</ul>');
+    return out.join('');
+  };
+  // Una acción propuesta por el agente, en claro (un video muestra su duración, formato y escena)
+  const verPropuesta = (p) => {
+    const a = p.args || {};
+    if (p.herramienta === 'crear_video') return `<div class="fw-semibold"><i class="bi bi-camera-reels me-1"></i>Video de ${Number(a.duracion) === 10 ? 10 : 5} s · ${esc(a.formato || '9:16')}${a.sonido === false ? ' · sin sonido' : ''}</div><div class="small text-body-secondary" style="white-space:pre-wrap">${esc(a.prompt || '')}</div>`;
+    return `<div class="fw-semibold">${esc(etiqueta(p.herramienta))}</div><div class="small text-body-secondary" style="word-break:break-word">${esc(JSON.stringify(a))}</div>`;
+  };
+  // Resultado de una ejecución en la ventana: texto del agente, propuestas para aceptar ahí mismo y el paso a paso plegado
+  const vistaResultado = (r) => {
+    const props = (r.pasos || []).map((p, i) => ({ p, i })).filter((x) => x.p.estado === 'propuesta' || x.p.herramienta === 'crear_video' && ['hecha', 'rechazada', 'error'].includes(x.p.estado));
+    return `<div class="${r.estado === 'error' ? 'text-danger' : ''} small mb-2">${md(r.resumen || '')}</div>
+      ${props.length ? `<div class="fw-semibold small mb-2">Para aprobar${props.filter((x) => x.p.estado === 'propuesta').length > 1 ? ` <button type="button" class="btn btn-sm btn-primary ms-2 py-0" data-pall>Aprobar todas</button>` : ''}</div>
+        <div class="d-grid gap-2 mb-2">${props.map(({ p, i }) => `<div class="border rounded-3 p-2" data-prop="${r.id}:${i}">${verPropuesta(p)}<div class="mt-2 d-flex gap-2 align-items-center" data-acc>${accionesPropuesta(p, r.id, i)}</div></div>`).join('')}</div>` : ''}
+      <details class="small"><summary class="text-body-secondary" style="cursor:pointer">Ver el paso a paso</summary>${pintarPasos(r.pasos)}</details>`;
+  };
+  const accionesPropuesta = (p, id, i) => (p.estado === 'propuesta' && CAN
+    ? `<button type="button" class="btn btn-sm btn-primary" data-pap="${id}:${i}"><i class="bi bi-check-lg me-1"></i>Aprobar</button><button type="button" class="btn btn-sm btn-light" data-pre="${id}:${i}">Descartar</button>`
+    : p.estado === 'hecha' ? `<span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>${p.herramienta === 'crear_video' ? 'Listo: el video está en cola en Videos' : 'Hecho'}</span>`
+      : p.estado === 'rechazada' ? '<span class="text-body-secondary small">Descartada</span>' : `<span class="text-danger small">${esc(p.resultado || 'No se pudo')}</span>`);
   const nuevoId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
 
   function render() {
@@ -305,13 +339,31 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
         const { el: mo, m: mm } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Ejecutar «${esc(a.nombre)}»</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
           <div class="modal-body"><label class="form-label small mb-1">¿Algo puntual para esta vez? <span class="text-body-secondary">(opcional)</span></label><input class="form-control" name="pedido" maxlength="500" placeholder="Ej.: revisa solo lo de esta semana"><div data-avance class="mt-3"></div></div>
           <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button><button class="btn btn-primary" data-go><i class="bi bi-play-fill me-1"></i>Ejecutar</button></div></form>`);
+        let estado = null;
+        const decidir = async (clave, aprobar, btn) => {
+          const [id, indice] = clave.split(':'), caja = mo.querySelector(`[data-prop="${clave}"] [data-acc]`);
+          if (btn) btn.disabled = true;
+          if (caja) caja.innerHTML = `<span class="small"><span class="spinner-border spinner-border-sm me-1"></span>${aprobar ? 'Creando…' : 'Descartando…'}</span>`;
+          try {
+            const r2 = await api(`${B}/ejecuciones/${id}/aprobar`, { method: 'POST', body: { indice: Number(indice), aprobar } });
+            if (estado?.pasos?.[indice]) Object.assign(estado.pasos[indice], r2.paso);
+            if (caja) caja.innerHTML = accionesPropuesta(r2.paso, id, indice);
+            toast(aprobar ? 'Aprobada: ya se está creando' : 'Descartada');
+          } catch (x) { if (caja) caja.innerHTML = accionesPropuesta({ estado: 'propuesta' }, id, indice); toast(x.message, false); }
+        };
+        mo.addEventListener('click', async (ev) => {
+          const ap = ev.target.closest('[data-pap]'), re = ev.target.closest('[data-pre]'), todas = ev.target.closest('[data-pall]');
+          if (ap) return decidir(ap.dataset.pap, true, ap);
+          if (re) return decidir(re.dataset.pre, false, re);
+          if (todas) { todas.disabled = true; for (const b of [...mo.querySelectorAll('[data-pap]')]) await decidir(b.dataset.pap, true, b); }
+        });
         mo.querySelector('form').onsubmit = async (ev) => {
           ev.preventDefault(); const go = mo.querySelector('[data-go]'), av = mo.querySelector('[data-avance]'); go.disabled = true; go.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Trabajando…';
           const pid = nuevoId();
           try {
             const r = await conAvance(pid, (pasos, actual) => { av.innerHTML = pintarPasos(pasos, actual); }, () => api(`${B}/agentes/${a.id}/ejecutar`, { method: 'POST', body: { progreso: pid, pedido: mo.querySelector('[name=pedido]').value } }));
-            av.innerHTML = `<div class="${r.estado === 'error' ? 'text-danger' : ''} small mb-2" style="white-space:pre-wrap">${esc(r.resumen || '')}</div>${pintarPasos(r.pasos)}${r.pendientes ? `<div class="alert alert-warning py-2 small mt-2 mb-0">${r.pendientes} propuesta(s) por aprobar en el historial del agente.</div>` : ''}`;
-            go.innerHTML = 'Listo'; mo.addEventListener('hidden.bs.modal', () => agentes(el), { once: true });
+            estado = r; av.innerHTML = vistaResultado(r);
+            go.innerHTML = 'Listo'; go.disabled = false; go.type = 'button'; go.onclick = () => mm.hide(); mo.addEventListener('hidden.bs.modal', () => agentes(el), { once: true });
           } catch (x) { av.innerHTML = `<div class="text-danger small">${esc(x.message)}</div>`; go.disabled = false; go.innerHTML = 'Reintentar'; }
         };
       }
