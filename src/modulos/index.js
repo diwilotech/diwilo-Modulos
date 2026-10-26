@@ -15,6 +15,9 @@ import marcaManifest from './marca/modulo.json';
 import * as ai from './ai/api.js';
 import aiTools from './ai/ia.js';
 import aiManifest from './ai/modulo.json';
+import * as dashboard from './dashboard/api.js';
+import dashboardTools from './dashboard/ia.js';
+import dashboardManifest from './dashboard/modulo.json';
 
 export const MODULOS = [
   { manifest: finanzasManifest, api: finanzas, tools: finanzasIa },
@@ -22,4 +25,5 @@ export const MODULOS = [
   { manifest: nominaManifest, api: nomina, tools: nominaIa },
   { manifest: marcaManifest, api: marca, tools: marcaIa },
   { manifest: aiManifest, api: ai, tools: aiTools },
+  { manifest: dashboardManifest, api: dashboard, tools: dashboardTools },
 ];

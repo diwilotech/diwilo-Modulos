@@ -21,6 +21,7 @@ Worker central de los **módulos horizontales** de Diwilo (Finanzas, Marketing y
 | Marketing (`marketing`) | 1.3.0 | El Marketing Hub de Diwilo por negocio: clientes y leads, embudo, campañas con links de rastreo y QR, tareas y automatizaciones, listas con revisión de sitios, informes y 18 herramientas de IA. |
 | Marca (`marca`) | 2.2.0 | Servicio de marca del negocio, **con pantalla propia en el menú** (módulo base): color de su app con su paleta, fondo negro/blanco/igual que la app, tipografía, tono, logo, plantillas de IA y kit de marca. Se edita en la pantalla **Marca** del menú (identidad, logos, color y letra, tarjetas con sus links de rastreo y kit); las tarjetas, los chats y el kit leen de aquí. 3 herramientas de IA. |
 | IA (`ai`) | 1.0.0 | **Módulo general de IA** (base; reemplaza a Configuración): chats de clientes públicos (`/chat/<slug>`, burbuja `widget.js` para webs y tarjetas, leads a Marketing, tope diario), conversaciones, asistente del negocio, agentes (propone o ejecuta con las herramientas de los demás módulos), plantillas, consumo (200 llamadas/día por negocio), conexiones MCP, claves de API (`/v1/*`), webhooks y bitácora. 5 herramientas de IA. |
+| Dashboard (`dashboard`) | 1.0.0 | **Inicio de todas las apps** (base): saludo con la marca, alertas, indicadores de los módulos activos y accesos directos. `GET /api/dashboard`. |
 
 Cada uno tiene su `CHANGELOG.md` en `src/modulos/<id>/`.
 

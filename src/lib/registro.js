@@ -4,7 +4,7 @@ import { HttpError } from './http.js';
 import { authorize, checkCtx, syncOrg } from './contexto.js';
 
 export const REG = { tools: [], manifests: [] };
-const BASE = ['marca', 'ai'], RANK = { staff: 1, admin: 2, owner: 3 };
+const BASE = ['marca', 'ai', 'dashboard'], RANK = { staff: 1, admin: 2, owner: 3 };
 
 // Herramientas que este negocio puede usar con este contexto: las centrales de sus módulos activos y las PROPIAS de la app (ctx.propias.catalogo),
 // con un rol que el contexto alcance. Es el catálogo único que usan el MCP, el asistente y los agentes.
@@ -30,7 +30,7 @@ export async function ejecutarHerramienta(env, ctx, name, args = {}) {
     checkCtx(ctx);
     await syncOrg(env, ctx);
     authorize(c, `tenant:${t.modulo}`); // escritura con suscripción vencida = 402
-    if (ctx.modulos && !ctx.modulos.includes(t.modulo) && !['marca', 'ai'].includes(t.modulo)) throw new HttpError(403, `El módulo ${t.modulo} no está activo para este negocio`);
+    if (ctx.modulos && !ctx.modulos.includes(t.modulo) && !BASE.includes(t.modulo)) throw new HttpError(403, `El módulo ${t.modulo} no está activo para este negocio`);
     if (t.rol === 'admin' && !['owner', 'admin'].includes(c.role)) throw new HttpError(403, 'Tu rol no puede usar esta herramienta');
     return { ok: true, result: await t.run(c, args || {}), audit: c.auditLog || [] };
   } catch (e) { return { ok: false, error: e.message || 'Error', status: e.status || 500, audit: c.auditLog || [] }; }

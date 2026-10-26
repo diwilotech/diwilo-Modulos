@@ -1,0 +1,41 @@
+{
+  "id": "dashboard",
+  "nombre": "Dashboard",
+  "version": "1.0.0",
+  "descripcion": "El inicio de todas las apps: saluda con la marca del negocio, junta los indicadores de los módulos activos, avisa lo que necesita atención (alertas) y deja accesos directos. Se ve igual en web y celular, se actualiza solo y manda sus alertas a la campana de notificaciones.",
+  "icono": "bi-speedometer2",
+  "menu": {
+    "ruta": "/staff/dashboard.html",
+    "orden": 1
+  },
+  "permisos": {
+    "ver": "staff",
+    "configurar": "admin"
+  },
+  "widgets": [],
+  "ia": [
+    "dashboard.resumen_del_dia"
+  ],
+  "tablas": [],
+  "rutas_publicas": [],
+  "depende_de": [],
+  "pagina": "/m/dashboard.js",
+  "central": true,
+  "base": true,
+  "mcp": {
+    "guia": "El dashboard del negocio: indicadores de los módulos activos y las alertas que necesitan atención hoy. Pide el resumen del día (dashboard_resumen_del_dia) cuando te pregunten «cómo va el negocio» o «qué debo atender hoy», y profundiza después con la herramienta del módulo que corresponda.",
+    "ejemplos": [
+      "Pídele: «¿Cómo va mi negocio hoy y qué debo atender primero?»"
+    ],
+    "flujos": [
+      {
+        "id": "dia",
+        "nombre": "Resumen del día",
+        "descripcion": "Indicadores y alertas del negocio.",
+        "pasos": [
+          "dashboard.resumen_del_dia"
+        ]
+      }
+    ]
+  }
+}
