@@ -1,4 +1,4 @@
-// Marca (pantalla del menú): Identidad (descripción y lema), logos por uso, color de la app, modo, fondo, tipografía, tono, tarjetas de presentación
+// Marca (pantalla del menú): Identidad (nombre, descripción, lema y todos los logos), color de la app, modo, fondo, tipografía, tono, tarjetas de presentación
 // (con sus links de rastreo) y el kit de marca para webs, apps y agentes. La app puede sumar pestañas propias con
 // window.DwMarcaTabs.push({ id, label, icon, mount(host, { me, can }) }) antes de cargar este archivo.
 // Ver: todo el equipo; cambiar: propietario y administrador. El color y el modo los guarda la app (/api/settings/apariencia);
@@ -16,8 +16,9 @@ DW.ready.then((me) => {
 
   const load = async () => {
     try { D = await api(B); } catch (x) { host.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    D.logoApp = me.settings.logo ? null : await api(`${B}/logo`).then((r) => r.data_url || null).catch(() => null);   // la copia del módulo (p. ej. dentro de Diwilo Admin)
     D.card = await api('/api/marketing/cards').then((r) => r.rows.find((c) => c.predeterminada) || r.rows[0] || null).catch(() => null);
-    ({ kit, identidad, logos }[tabAct] || marca)(host);
+    ({ kit, identidad }[tabAct] || marca)(host);
     espejoDelLogo();
   };
 
@@ -64,7 +65,7 @@ DW.ready.then((me) => {
     const modoEf = () => (st.modo === 'dark' ? 'oscuro' : 'claro');
     const fondoEf = () => (st.fondo === 'app' ? modoEf() : st.fondo);
     const dirty = () => ['tema', 'modo'].some((k) => st[k] !== base[k]) || ['fondo', 'tipografia', 'tono'].some((k) => st[k] !== m[k]) || st.tono_notas !== (m.tono_notas || '');
-    const logoSrc = me.settings.logo;
+    const logoSrc = me.settings.logo || D.logoApp || null;
 
     el.innerHTML = `<div class="row g-3"><div class="col-lg-7 d-grid gap-3 align-content-start">
         <div class="dw-card"><h2 class="h6 mb-1">Color de tu app</h2><p class="small text-body-secondary mb-3">${CAN ? 'Es el color de tu marca: lo usan tu app, las tarjetas y todo lo que ven tus clientes. Toca uno para verlo en vivo.' : 'Solo el propietario o un administrador pueden cambiarlo.'}</p>
@@ -72,10 +73,6 @@ DW.ready.then((me) => {
           <h3 class="h6 mt-4 mb-2">Modo</h3>
           <div class="btn-group" role="group" data-modos><button type="button" class="btn btn-outline-primary" data-modo="light" ${CAN ? '' : 'disabled'}><i class="bi bi-sun me-1"></i>Claro</button><button type="button" class="btn btn-outline-primary" data-modo="dark" ${CAN ? '' : 'disabled'}><i class="bi bi-moon me-1"></i>Oscuro</button></div>
           <div class="mt-4"><div class="small fw-semibold mb-1">Paleta de tu marca</div><div class="small text-body-secondary mb-2">Varias tonalidades y un fondo, calculadas de tu color: la app solo guarda el principal.</div><div data-paleta></div></div></div>
-        <div class="dw-card"><h2 class="h6 mb-3">Logo</h2>
-          <div class="d-flex align-items-center gap-3"><span class="dw-brand__logo" style="width:64px;height:64px;font-size:1.6rem">${logoSrc ? `<img src="${esc(logoSrc)}" alt="Logo">` : esc((me.business.name || 'D')[0])}</span>
-            <div class="small text-body-secondary">PNG, JPG, WEBP o SVG, cuadrado, máx. 300 KB. Sale en el menú de la app y en el kit de marca.</div></div>
-          ${CAN ? `<div class="mt-3 d-flex gap-2 flex-wrap"><label class="btn btn-outline-primary btn-sm mb-0"><i class="bi bi-upload me-1"></i>Subir logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden data-logo></label>${logoSrc ? '<button class="btn btn-outline-danger btn-sm" data-logo-del><i class="bi bi-trash me-1"></i>Quitar</button>' : ''}</div>` : ''}</div>
         <div class="dw-card"><h2 class="h6 mb-1">Fondo</h2><p class="small text-body-secondary mb-3">El fondo de tus tarjetas, tu web o tu app: negro, blanco o el mismo modo (claro u oscuro) que tiene tu app.</p><div class="row g-2" data-fondos></div></div>
         <div class="dw-card"><h2 class="h6 mb-1">Tipografía</h2><p class="small text-body-secondary mb-3">La letra de tus tarjetas y de lo que ven tus clientes.</p><div class="row g-2" data-fuentes></div></div>
         <div class="dw-card"><h2 class="h6 mb-1">Tono de conversación</h2><p class="small text-body-secondary mb-3">Cómo habla tu negocio. Lo usan el chat y los asistentes de IA al escribirle a tus clientes.</p>
@@ -134,19 +131,6 @@ DW.ready.then((me) => {
         toast('Guardado para todo el equipo'); await load();
       } catch (x) { $('[data-err]', el).textContent = x.message; b.disabled = false; }
     };
-    $('[data-logo]', el).onchange = async (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      try {
-        const dataUrl = file.type === 'image/svg+xml' ? await toDataUrl(file) : await shrink(file, 256);
-        me.settings = { ...me.settings, ...(await api('/api/settings/logo', { method: 'PUT', body: { dataUrl } })) };
-        await api(`${B}/logo`, { method: 'PUT', body: { dataUrl } }).catch(() => {});
-        toast('Logo actualizado'); location.reload();
-      } catch (x) { toast(x.message, false); }
-    };
-    $('[data-logo-del]', el)?.addEventListener('click', async () => {
-      if (!(await confirm({ title: '¿Quitar el logo?', ok: 'Quitar' }))) return;
-      try { await api('/api/settings/logo', { method: 'DELETE' }); await api(`${B}/logo`, { method: 'DELETE' }).catch(() => {}); location.reload(); } catch (x) { toast(x.message, false); }
-    });
   }
 
   /* ---------- Usar en otros lados: el kit de marca para webs, apps, chats y agentes ---------- */
@@ -183,21 +167,68 @@ DW.ready.then((me) => {
     };
   }
 
-  /* ---------- Identidad: qué hace el negocio ---------- */
-  function identidad(el) {
-    const m = D.marca;
+  /* ---------- Identidad: nombre, qué hace el negocio y todos sus logos ---------- */
+  // Dibujos de ejemplo de qué va en cada logo (con el color de la marca) mientras no se sube el propio
+  const ejemploLogo = (tipo, color) => {
+    const ico = (x, y, r = 22) => `<rect x="${x}" y="${y}" width="${r * 2}" height="${r * 2}" rx="${r * 0.45}" fill="${color}"/><text x="${x + r}" y="${y + r + r * 0.36}" text-anchor="middle" font-size="${r * 1.1}" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">T</text>`;
+    const txt = (x, y, size, fill, anchor = 'start') => `<text x="${x}" y="${y}" text-anchor="${anchor}" font-size="${size}" font-weight="700" fill="${fill}" font-family="system-ui,sans-serif">Tu marca</text>`;
+    const caja = (w, inner, bg = '') => `<svg viewBox="0 0 ${w} 100" width="100%" height="100%" aria-hidden="true">${bg}${inner}</svg>`;
+    switch (tipo) {
+      case 'app': return caja(100, ico(18, 18, 32));
+      case 'horizontal': return caja(220, ico(20, 28, 22) + txt(72, 62, 30, 'currentColor'));
+      case 'vertical': return caja(140, ico(46, 8, 24) + txt(70, 88, 20, 'currentColor', 'middle'));
+      case 'icono': return caja(100, ico(26, 26, 24));
+      case 'letras': return caja(220, txt(110, 62, 38, 'currentColor', 'middle'));
+      case 'oscuro': return caja(220, ico(20, 28, 22) + txt(72, 62, 30, '#ffffff'));
+      default: return '';
+    }
+  };
+  const LOGO_INFO = {
+    app: ['Logo de la app (cuadrado)', 'Sale en el menú de tu app y en el kit de marca. Una imagen cuadrada.'],
+    horizontal: ['Horizontal', 'Ícono y nombre en una línea: encabezados, correos, facturas y documentos.'],
+    vertical: ['Vertical', 'Ícono arriba y nombre abajo: portadas, carteles y publicaciones.'],
+    icono: ['Solo ícono', 'Solo el símbolo, sin letras: foto de perfil, favicon y sellos.'],
+    letras: ['Solo letras', 'Solo el nombre escrito, sin símbolo: pies de página y firmas.'],
+    oscuro: ['Para fondo oscuro', 'La versión clara de tu logo, para usarla sobre fondos oscuros.'],
+  };
+  async function identidad(el) {
+    const m = D.marca, O = D.opciones, nombre = D.negocio.nombre || me.business.name || '';
+    const color = (O.temas.find((t) => t.id === me.settings.tema) || O.temas[0]).color;
+    let R, appLogo = me.settings.logo || null;
+    try { R = await api(`${B}/logos`); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    if (!appLogo) appLogo = await api(`${B}/logo`).then((r) => r.data_url || null).catch(() => null);
+    const por = Object.fromEntries(R.logos.map((l) => [l.tipo, l.data_url]));
+    por.app = appLogo;
+    const tipos = ['app', ...R.tipos.map((t) => t.id)];
+    const tarjetaLogo = (id) => {
+      const [titulo, para] = LOGO_INFO[id] || [id, ''], u = por[id], oscuro = id === 'oscuro';
+      return `<div class="col-sm-6 col-xl-4"><div class="dw-card h-100"><div class="fw-semibold">${esc(titulo)}</div><div class="small text-body-secondary mb-2">${esc(para)}</div>
+        <div class="rounded-3 d-grid mb-2 border position-relative" style="place-items:center;height:130px;padding:12px;background:${oscuro ? '#1b1230' : '#fff'};color:${oscuro ? '#fff' : '#1f2937'}">
+          ${u ? `<img src="${esc(u)}" alt="${esc(titulo)}" style="max-width:100%;max-height:106px;object-fit:contain">`
+            : `<div style="width:${id === 'app' || id === 'icono' ? '90px' : '78%'};height:92px;opacity:.5">${ejemploLogo(id, color)}</div><span class="badge text-bg-secondary position-absolute" style="top:8px;left:8px;font-weight:500">Ejemplo</span>`}</div>
+        ${u ? '' : '<div class="small text-body-secondary mb-2">Así va tu logo aquí. PNG, JPG, WEBP o SVG, máx. 300 KB.</div>'}
+        <div class="d-flex gap-2 flex-wrap">${CAN ? `<label class="btn btn-outline-primary btn-sm mb-0"><i class="bi bi-upload me-1"></i>${u ? 'Cambiar' : 'Subir logo'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" data-up="${id}"></label>` : ''}
+          ${u ? `<a class="btn btn-outline-secondary btn-sm" download="logo-${id}" href="${esc(u)}"><i class="bi bi-download me-1"></i>Descargar</a>` : ''}
+          ${CAN && u ? `<button class="btn btn-outline-danger btn-sm" data-del="${id}"><i class="bi bi-trash me-1"></i>Quitar</button>` : ''}</div></div></div>`;
+    };
     el.innerHTML = `<div class="row g-3"><div class="col-lg-7"><div class="dw-card">
-        <h2 class="h6 mb-1">Qué hace tu negocio</h2>
+        <h2 class="h6 mb-1">Tu marca</h2>
         <p class="small text-body-secondary mb-3">${CAN ? 'Cuéntalo en pocas frases. Lo leen el chat y los asistentes de IA para hablar de tu negocio sin inventar, y sale en el kit de marca.' : 'Solo el propietario o un administrador pueden cambiarlo.'}</p>
-        <label class="form-label small mb-1" for="mcDesc">Descripción</label>
-        <textarea class="form-control" id="mcDesc" rows="5" maxlength="600" placeholder="Ej.: Academia de idiomas con clases presenciales de inglés, francés y alemán para todas las edades." ${CAN ? '' : 'disabled'}>${esc(m.descripcion || '')}</textarea>
+        <label class="form-label small mb-1" for="mcNom">Nombre de la marca</label>
+        <input class="form-control" id="mcNom" value="${esc(nombre)}" disabled><div class="form-text">Es el nombre de tu negocio; así lo escribe la IA.</div>
+        <label class="form-label small mb-1 mt-2" for="mcDesc">Descripción</label>
+        <textarea class="form-control" id="mcDesc" rows="4" maxlength="600" placeholder="Ej.: Academia de idiomas con clases presenciales de inglés, francés y alemán para todas las edades." ${CAN ? '' : 'disabled'}>${esc(m.descripcion || '')}</textarea>
         <div class="form-text text-end"><span data-n>${(m.descripcion || '').length}</span>/600</div>
         <label class="form-label small mb-1 mt-2" for="mcLema">Lema <span class="text-body-secondary">(opcional)</span></label>
         <input class="form-control" id="mcLema" maxlength="80" placeholder="Una frase corta que resuma tu marca" value="${esc(m.lema || '')}" ${CAN ? '' : 'disabled'}>
         ${CAN ? '<div class="d-flex align-items-center gap-2 mt-3"><button class="btn btn-primary" data-save><i class="bi bi-check-lg me-1"></i>Guardar</button><span class="small text-danger" data-err></span></div>' : ''}
       </div></div>
-      <div class="col-lg-5"><div class="dw-card"><div class="small text-body-secondary mb-2">Así la ve la IA</div>
-        <div class="fw-semibold">${esc(D.negocio.nombre || me.business.name || '')}</div><div class="small fst-italic text-body-secondary" data-p-lema>${esc(m.lema || '')}</div><p class="small mb-0 mt-2" data-p-desc>${esc(m.descripcion || '') || '<span class="text-body-secondary">Aún no has escrito la descripción.</span>'}</p></div></div></div>`;
+      <div class="col-lg-5"><div class="dw-card h-100"><div class="small text-body-secondary mb-2">Así la ve la IA</div>
+        <div class="d-flex align-items-center gap-2">${appLogo ? `<img src="${esc(appLogo)}" alt="" style="width:40px;height:40px;object-fit:contain;border-radius:8px">` : ''}<div><div class="fw-semibold">${esc(nombre)}</div><div class="small fst-italic text-body-secondary" data-p-lema>${esc(m.lema || '')}</div></div></div>
+        <p class="small mb-0 mt-2" data-p-desc>${esc(m.descripcion || '') || '<span class="text-body-secondary">Aún no has escrito la descripción.</span>'}</p></div></div></div>
+      <h2 class="h6 mt-4 mb-1">Logos</h2>
+      <p class="small text-body-secondary">${CAN ? 'Sube cada versión de tu logo según dónde se use. Mientras falte una, ves un ejemplo de qué va en ella.' : 'Solo el propietario o un administrador cambian los logos.'}</p>
+      <div class="row g-3" data-logos>${tipos.map(tarjetaLogo).join('')}</div>`;
     const d = $('#mcDesc', el), l = $('#mcLema', el);
     const vivo = () => { $('[data-n]', el).textContent = d.value.length; $('[data-p-lema]', el).textContent = l.value; $('[data-p-desc]', el).textContent = d.value || 'Aún no has escrito la descripción.'; };
     d.addEventListener('input', vivo); l.addEventListener('input', vivo);
@@ -205,29 +236,24 @@ DW.ready.then((me) => {
       const b = e.currentTarget; b.disabled = true; $('[data-err]', el).textContent = '';
       try { await api(B, { method: 'PUT', body: { descripcion: d.value, lema: l.value } }); toast('Guardado'); await load(); } catch (x) { $('[data-err]', el).textContent = x.message; b.disabled = false; }
     });
-  }
-
-  /* ---------- Logos por uso ---------- */
-  async function logos(el) {
-    let R;
-    try { R = await api(`${B}/logos`); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const por = Object.fromEntries(R.logos.map((l) => [l.tipo, l.data_url]));
-    el.innerHTML = `<p class="small text-body-secondary">${CAN ? 'Sube cada versión de tu logo según dónde se use. PNG, JPG, WEBP o SVG, máx. 300 KB. El logo cuadrado del menú de la app se cambia en la pestaña «Color y letra».' : 'Solo el propietario o un administrador cambian los logos.'}</p>
-      <div class="row g-3">${R.tipos.map((t) => {
-        const u = por[t.id], oscuro = t.id === 'oscuro';
-        return `<div class="col-sm-6 col-xl-4"><div class="dw-card h-100"><div class="fw-semibold mb-2">${esc(t.nombre)}</div>
-          <div class="rounded-3 d-grid mb-2 border" style="place-items:center;height:120px;padding:12px;background:${oscuro ? '#240f1e' : '#fff'}">${u ? `<img src="${esc(u)}" alt="${esc(t.nombre)}" style="max-width:100%;max-height:96px;object-fit:contain">` : `<span class="small ${oscuro ? 'text-white-50' : 'text-body-secondary'}">Sin subir</span>`}</div>
-          <div class="d-flex gap-2 flex-wrap">${CAN ? `<label class="btn btn-outline-primary btn-sm mb-0"><i class="bi bi-upload me-1"></i>${u ? 'Cambiar' : 'Subir'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" data-up="${t.id}"></label>` : ''}
-            ${u ? `<a class="btn btn-outline-secondary btn-sm" download="logo-${t.id}" href="${esc(u)}"><i class="bi bi-download me-1"></i>Descargar</a>` : ''}
-            ${CAN && u ? `<button class="btn btn-outline-danger btn-sm" data-del="${t.id}"><i class="bi bi-trash me-1"></i>Quitar</button>` : ''}</div></div></div>`;
-      }).join('')}</div>`;
     $$('[data-up]', el).forEach((i) => (i.onchange = async () => {
       const file = i.files[0]; if (!file) return;
-      try { await api(`${B}/logos/${i.dataset.up}`, { method: 'PUT', body: { dataUrl: await toDataUrl(file) } }); toast('Logo guardado'); logos(el); } catch (x) { toast(x.message, false); }
+      try {
+        if (i.dataset.up === 'app') {
+          const dataUrl = file.type === 'image/svg+xml' ? await toDataUrl(file) : await shrink(file, 256);
+          let enApp = false;
+          try { me.settings = { ...me.settings, ...(await api('/api/settings/logo', { method: 'PUT', body: { dataUrl } })) }; enApp = true; } catch { /* dentro de Diwilo Admin no hay ajustes de app: solo queda la copia del módulo */ }
+          await api(`${B}/logo`, { method: 'PUT', body: { dataUrl } });
+          toast('Logo actualizado'); if (enApp) location.reload(); else identidad(el);
+        } else { await api(`${B}/logos/${i.dataset.up}`, { method: 'PUT', body: { dataUrl: await toDataUrl(file) } }); toast('Logo guardado'); identidad(el); }
+      } catch (x) { toast(x.message, false); }
     }));
     $$('[data-del]', el).forEach((b) => (b.onclick = async () => {
       if (!(await confirm({ title: '¿Quitar este logo?', ok: 'Quitar' }))) return;
-      try { await api(`${B}/logos/${b.dataset.del}`, { method: 'DELETE' }); toast('Logo quitado'); logos(el); } catch (x) { toast(x.message, false); }
+      try {
+        if (b.dataset.del === 'app') { await api('/api/settings/logo', { method: 'DELETE' }).catch(() => {}); await api(`${B}/logo`, { method: 'DELETE' }).catch(() => {}); toast('Logo quitado'); location.reload(); return; }
+        await api(`${B}/logos/${b.dataset.del}`, { method: 'DELETE' }); toast('Logo quitado'); identidad(el);
+      } catch (x) { toast(x.message, false); }
     }));
   }
 
@@ -428,7 +454,7 @@ DW.ready.then((me) => {
   let host = null, tabAct = 'marca', editarPend = null, irAEditar = () => {};
   function pagina() {
     const seg = $('[data-seg]'), view = $('[data-view]'), ext = window.DwMarcaTabs || [];
-    const items = [['identidad', 'Identidad', 'bi-card-text'], ...ext.map((e) => [e.id, e.label, e.icon || 'bi-grid']), ['logos', 'Logos', 'bi-images'], ['marca', 'Color y letra', 'bi-palette'], ['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['kit', 'Usar en otros lados', 'bi-box-arrow-up-right']];
+    const items = [['identidad', 'Identidad', 'bi-card-text'], ...ext.map((e) => [e.id, e.label, e.icon || 'bi-grid']), ['marca', 'Color y letra', 'bi-palette'], ['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['kit', 'Usar en otros lados', 'bi-box-arrow-up-right']];
     const ok = items.map((x) => x[0]);
     let cur = ok.includes(location.hash.slice(1)) ? location.hash.slice(1) : ok[0];
     const go = async (k) => {

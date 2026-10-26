@@ -1,8 +1,8 @@
 {
   "id": "marca",
   "nombre": "Marca",
-  "version": "2.2.0",
-  "descripcion": "La marca del negocio como servicio: identidad (descripción y lema), logos por uso, color (el de su app) con su paleta, fondo, tipografía, tono, tarjetas de presentación con sus links de rastreo, plantillas de IA y kit de marca. Tiene pantalla propia en el menú; las tarjetas públicas (/c/…) y los links de rastreo (/l/…) se crean en Marketing → Campañas.",
+  "version": "2.3.0",
+  "descripcion": "La marca del negocio como servicio: identidad (nombre, descripción, lema y todos los logos), color (el de su app) con su paleta, fondo, tipografía, tono, tarjetas de presentación con sus links de rastreo, plantillas de IA y kit de marca. Tiene pantalla propia en el menú; las tarjetas públicas (/c/…) y los links de rastreo (/l/…) se crean en Marketing → Campañas.",
   "icono": "bi-palette",
   "menu": {
     "ruta": "/staff/marca.html",

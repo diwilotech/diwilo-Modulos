@@ -1,5 +1,9 @@
 # Marca e IA — cambios
 
+## 2.3.0 · 2026-10-26
+- **Identidad y Logos juntos**: una sola pestaña con el nombre de la marca, la descripción y el lema, y las 6 tarjetas de logo (el cuadrado de la app —que antes estaba en Color y letra— más horizontal, vertical, solo ícono, solo letras y para fondo oscuro). Cada tarjeta explica para qué sirve y, mientras no se sube el logo, muestra un dibujo de ejemplo de qué va ahí. La pestaña «Logos» desaparece; «Color y letra» ya no pide logo.
+- Dentro de Diwilo Admin el logo cuadrado también se puede subir (queda la copia del módulo para el kit).
+
 ## 2.2.0 · 2026-10-24
 - **Tarjetas y marca salen de Marketing y viven aquí:** la pestaña **Tarjetas** trae la lista, el editor en vivo (foto, color, chat de IA, enlace, QR) y las vistas de cada tarjeta. En Marketing se quitó «Tarjetas y marca»; sus enlaces viejos (`#tarjetas`, `#marca`, `#kit`) llevan a la pantalla Marca.
 - **Links de rastreo de las tarjetas:** cada tarjeta lista los links de campaña que llevan a ella (`GET /api/marketing/cards/rastreo`) con sus vistas. Se crean en Marketing → Campañas: al crear un link se puede elegir una tarjeta como destino (`/l/<slug>` → `/c/<tarjeta>`), así se cuentan las vistas por plataforma y la tarjeta suma además su propia vista.
