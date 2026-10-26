@@ -1,5 +1,8 @@
 # IA (`ai`) — cambios
 
+## 1.7.1 · 2026-10-26
+- La clave de Higgsfield tiene su propia tarjeta «Video (Higgsfield)» en Modelo de IA (antes iba mezclada con las de Claude y Gemini).
+
 ## 1.7.0 · 2026-10-26
 - **Clave de Higgsfield** en «Modelo de IA» → Claves de IA (formato `id:secreto`, cifrada igual que las de Claude y Gemini). Diwilo Web Admin la pide por `claves-uso` para crear videos; no entra en el orden de modelos de lenguaje.
 - **Plantillas con herramientas propias**: `GET /api/ai/starters` suma agentes cuya `requiere` (herramientas que la app entrega en `ctx.propias`) se cumple. Hoy: **Agente de blog** y **Agente de videos para redes** (solo en Diwilo Admin). La plantilla elegida trae también herramientas, horario y permiso.

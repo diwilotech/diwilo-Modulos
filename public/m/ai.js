@@ -371,16 +371,24 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
         <div class="d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary" data-save>Guardar</button><button class="btn btn-outline-secondary" data-test><i class="bi bi-lightning-charge me-1"></i>Probar el elegido</button><span class="small" data-res></span></div>
         <p class="small text-body-secondary mt-3 mb-0">Responde ahora: <b>${esc(m.activo)}</b>.</p></div>
       <div class="dw-card"><h2 class="h6"><i class="bi bi-key me-1"></i>Claves de IA</h2>
-        <p class="small text-body-secondary">Pega aquí tus claves de Claude o Gemini (y la de <b>Higgsfield</b> para crear videos con los agentes: <code>id:secreto</code>, de open.higgsfield.ai/api-keys). Puedes poner <b>varias por proveedor</b>: se usa la primera y, si falla o llega a su límite, pasa a la siguiente. Se guardan cifradas y nunca se vuelven a mostrar completas.</p>
+        <p class="small text-body-secondary">Pega aquí tus claves de Claude o Gemini. Puedes poner <b>varias por proveedor</b>: se usa la primera y, si falla o llega a su límite, pasa a la siguiente. Se guardan cifradas y nunca se vuelven a mostrar completas.</p>
         ${m.cifrado ? '' : '<div class="alert alert-warning small">Antes de la primera clave hay que crear <b>una sola vez</b> el secreto maestro que las cifra. En la terminal, en la carpeta <b>Diwilo Modulos</b>: <code>npx wrangler secret put CLAVES_KEK</code> y pega cualquier texto largo y privado (guárdalo; si lo cambias, las claves guardadas dejan de servir). Después todo se hace aquí.</div>'}
-        ${['claude', 'gemini', 'higgsfield'].map((k) => `<div class="mb-3"><div class="fw-semibold small mb-1">${esc(SERV[k].nombre)}${SERV[k].por_secreto ? ' <span class="badge text-bg-secondary ms-1">además hay un secreto de Cloudflare</span>' : ''}</div>
+        ${['claude', 'gemini'].map((k) => `<div class="mb-3"><div class="fw-semibold small mb-1">${esc(SERV[k].nombre)}${SERV[k].por_secreto ? ' <span class="badge text-bg-secondary ms-1">además hay un secreto de Cloudflare</span>' : ''}</div>
           ${SERV[k].claves.length ? `<ul class="list-group list-group-flush small">${SERV[k].claves.map((c, n) => `<li class="list-group-item d-flex flex-wrap align-items-center gap-2 px-0 bg-transparent"><span class="badge text-bg-${n ? 'secondary' : 'success'}">${n ? 'respaldo ' + n : 'principal'}</span><b>${esc(c.nombre)}</b><span class="font-monospace text-body-secondary">${esc(c.prefijo)}…</span><span class="ms-auto d-flex gap-1">${k === 'higgsfield' ? '' : `<button class="btn btn-sm btn-outline-secondary" data-ktest="${k}" data-i="${n}">Probar</button>`}<button class="btn btn-sm btn-outline-danger" data-kdel="${c.id}" data-n="${esc(c.nombre)}">Quitar</button></span><span class="w-100 small" data-kres="${k}${n}"></span></li>`).join('')}</ul>` : '<div class="small text-body-secondary">Sin claves guardadas aquí.</div>'}</div>`).join('')}
         <form class="row g-2 align-items-end" data-kadd>
-          <div class="col-sm-3"><label class="form-label small mb-1">Proveedor</label><select class="form-select" name="proveedor"><option value="gemini">Gemini</option><option value="claude">Claude</option><option value="higgsfield">Higgsfield (videos)</option></select></div>
+          <div class="col-sm-3"><label class="form-label small mb-1">Proveedor</label><select class="form-select" name="proveedor"><option value="gemini">Gemini</option><option value="claude">Claude</option></select></div>
           <div class="col-sm-3"><label class="form-label small mb-1">Nombre</label><input class="form-control" name="nombre" maxlength="60" placeholder="ej. Gemini principal"></div>
-          <div class="col-sm-4"><label class="form-label small mb-1">Clave</label><input class="form-control font-monospace" type="password" name="clave" autocomplete="off" required placeholder="AIza…, AQ.…, sk-ant-… o id:secreto (Higgsfield)"></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Clave</label><input class="form-control font-monospace" type="password" name="clave" autocomplete="off" required placeholder="AIza…, AQ.… o sk-ant-…"></div>
           <div class="col-sm-2"><button class="btn btn-primary w-100" ${m.cifrado ? '' : 'disabled'}><i class="bi bi-plus-lg me-1"></i>Agregar</button></div></form>
-        <p class="small text-body-secondary mt-3 mb-0">Dónde sacarlas: Gemini en aistudio.google.com → Get API key · Claude en console.anthropic.com → API keys. Después de agregar, elige el proveedor arriba, toca «Guardar» y «Probar el elegido».</p></div>`;
+        <p class="small text-body-secondary mt-3 mb-0">Dónde sacarlas: Gemini en aistudio.google.com → Get API key · Claude en console.anthropic.com → API keys. Después de agregar, elige el proveedor arriba, toca «Guardar» y «Probar el elegido».</p></div>
+      <div class="dw-card mt-3"><h2 class="h6"><i class="bi bi-camera-reels me-1"></i>Video (Higgsfield)${SERV.higgsfield.claves.length ? ' <span class="badge text-bg-success ms-1">Clave lista</span>' : ' <span class="badge text-bg-danger ms-1">Falta la clave</span>'}</h2>
+        <p class="small text-body-secondary">Con esta clave los agentes y la pestaña <b>Videos</b> de Diwilo Admin crean videos para redes. Pega la clave completa de open.higgsfield.ai/api-keys, con la forma <code>id:secreto</code> (los dos textos separados por dos puntos). Se guarda cifrada y no se vuelve a mostrar.</p>
+        ${m.cifrado ? '' : '<div class="alert alert-warning small">Falta el secreto maestro <code>CLAVES_KEK</code> en Diwilo Modulos (<code>npx wrangler secret put CLAVES_KEK</code>).</div>'}
+        ${SERV.higgsfield.claves.length ? `<ul class="list-group list-group-flush small mb-2">${SERV.higgsfield.claves.map((c) => `<li class="list-group-item d-flex flex-wrap align-items-center gap-2 px-0 bg-transparent"><b>${esc(c.nombre)}</b><span class="font-monospace text-body-secondary">${esc(c.prefijo)}…</span><button class="btn btn-sm btn-outline-danger ms-auto" data-kdel="${c.id}" data-n="${esc(c.nombre)}">Quitar</button></li>`).join('')}</ul>` : ''}
+        <form class="row g-2 align-items-end" data-hadd>
+          <div class="col-sm-3"><label class="form-label small mb-1">Nombre</label><input class="form-control" name="nombre" maxlength="60" placeholder="ej. Higgsfield principal"></div>
+          <div class="col-sm-7"><label class="form-label small mb-1">Clave (id:secreto)</label><input class="form-control font-monospace" type="password" name="clave" autocomplete="off" required placeholder="xxxxxxxx-xxxx-…:xxxxxxxx…"></div>
+          <div class="col-sm-2"><button class="btn btn-primary w-100" ${m.cifrado ? '' : 'disabled'}><i class="bi bi-plus-lg me-1"></i>Guardar</button></div></form></div>`;
     const val = (n) => el.querySelector(`[name=${n}]`).value.trim(), elegido = () => el.querySelector('[name=prov]:checked')?.value;
     el.querySelector('[data-save]').onclick = async () => {
       try { await api(`${B}/proveedor`, { method: 'PUT', body: { proveedor: elegido(), modelo_claude: val('modelo_claude'), modelo_gemini: val('modelo_gemini') } }); toast('Guardado: ya responde con el modelo elegido'); modelo(el); }
@@ -389,6 +397,11 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
     el.querySelector('[data-kadd]').onsubmit = async (e) => {
       e.preventDefault(); const f = e.target;
       try { await api(`${B}/proveedor/claves`, { method: 'POST', body: { proveedor: f.proveedor.value, nombre: f.nombre.value, clave: f.clave.value } }); toast('Clave guardada (cifrada)'); modelo(el); }
+      catch (x) { toast(x.message, false); }
+    };
+    el.querySelector('[data-hadd]').onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target;
+      try { await api(`${B}/proveedor/claves`, { method: 'POST', body: { proveedor: 'higgsfield', nombre: f.nombre.value, clave: f.clave.value } }); toast('Clave de Higgsfield guardada (cifrada)'); modelo(el); }
       catch (x) { toast(x.message, false); }
     };
     el.onclick = async (e) => {
