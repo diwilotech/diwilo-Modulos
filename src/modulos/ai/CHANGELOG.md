@@ -1,5 +1,10 @@
 # IA (`ai`) — cambios
 
+## 1.8.0 · 2026-10-26
+- **Agentes que terminan el trabajo**: el agente recibe la orden de hacer su trabajo completo (sin presentarse ni cerrar tras leer) y su respuesta final puede ser larga (3000 tokens en vez de 900, que cortaba el JSON). El agente de videos se quedaba en «Soy tu agente…» tras leer la marca.
+- **IA Diwilo**: «Qué puede hacer» ahora son secciones plegables por módulo; se quita la tarjeta del modelo; los flujos son 4 genéricos (2 consultas y 2 acciones) que sirven en cualquier app. Una llamada menos a la API al abrir la pantalla.
+- **Consumo**: tarjetas en una cuadrícula de 12 columnas (gráfico + quién gasta, topes + protecciones) sin huecos; las protecciones van en columnas.
+
 ## 1.7.1 · 2026-10-26
 - La clave de Higgsfield tiene su propia tarjeta «Video (Higgsfield)» en Modelo de IA (antes iba mezclada con las de Claude y Gemini).
 

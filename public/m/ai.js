@@ -196,32 +196,38 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   }
 
   /* ================= IA Diwilo: el asistente (botón flotante) ================= */
+  // Flujos genéricos: sirven en cualquier app, con los módulos que tenga activos
+  const FLUJOS = [
+    { grupo: 'Consultas', icono: 'bi-search', items: [
+      { nombre: 'Resumen de hoy', descripcion: 'Qué importa hoy en el negocio', prompt: 'Hazme un resumen de cómo va hoy el negocio con los módulos que tengo activos: lo importante, lo urgente y una recomendación.' },
+      { nombre: 'Qué está pendiente', descripcion: 'Pendientes y vencidos por urgencia', prompt: '¿Qué cosas pendientes o vencidas debo atender esta semana? Ordénalas de la más urgente a la menos urgente.' }] },
+    { grupo: 'Acciones', icono: 'bi-lightning-charge', items: [
+      { nombre: 'Mensaje con el tono de mi marca', descripcion: 'Te pregunta el tema y lo redacta', prompt: 'Lee la guía de mi marca, pregúntame sobre qué quiero el mensaje para mis clientes y luego redáctalo con su tono.' },
+      { nombre: 'Plan de la semana', descripcion: 'Tareas listas para confirmar', prompt: 'Propón un plan de la semana con 5 tareas concretas según lo que ves en el negocio y déjalas listas para que yo las confirme.' }] },
+  ];
   function asistente(el) {
     const fab = () => { for (const w of [window, window.parent, window.top]) { try { const b = w.document.getElementById('iaFab'); if (b) return { b, ia: w.DwIA }; } catch (_) {} } return {}; };
+    const lanzar = (prompt) => { const f = fab(); if (f.ia?.ask) f.ia.ask(prompt); else { navigator.clipboard?.writeText(prompt); toast('Copiado: pégalo en IA Diwilo'); f.b?.click(); } };
     el.innerHTML = `<div class="dw-grid" style="--min:340px">
       <div class="dw-card"><h2 class="h6"><i class="bi bi-robot"></i> IA Diwilo</h2>
         <p class="text-body-secondary" style="font-size:13px;line-height:1.6">Asistente del negocio (botón flotante abajo a la derecha). Responde con los datos reales de tus módulos activos y, mientras trabaja, te muestra el paso a paso de lo que va haciendo.
         Las acciones que cambian datos te piden confirmar antes de ejecutarse y quedan en la bitácora.</p>
         <button class="btn btn-primary" data-open><i class="bi bi-chat-dots me-1"></i>Abrir IA Diwilo</button></div>
-      <div class="dw-card" data-caps><h2 class="h6">Qué puede hacer</h2><p class="text-body-secondary mb-0">Cargando…</p></div>
-      <div class="dw-card"><h2 class="h6">Modelo de IA</h2><p class="text-body-secondary" style="font-size:13px;line-height:1.6" data-provider>…</p></div>
-      <div class="dw-card" data-fl hidden><h2 class="h6"><i class="bi bi-diagram-3"></i> Flujos de trabajo</h2><p class="text-body-secondary" style="font-size:13px">Toca uno y la IA lo hace paso a paso (te pide confirmar antes de cambiar datos).</p><div class="d-flex flex-wrap gap-2" data-fl-btns></div></div></div>`;
+      <div class="dw-card"><h2 class="h6"><i class="bi bi-diagram-3"></i> Flujos de trabajo</h2><p class="text-body-secondary" style="font-size:13px">Toca uno y la IA lo hace paso a paso (te pide confirmar antes de cambiar datos).</p>
+        ${FLUJOS.map((g) => `<div class="mb-2"><div class="small fw-semibold mb-1"><i class="bi ${g.icono} me-1"></i>${g.grupo}</div><div class="d-flex flex-wrap gap-2">${g.items.map((f) => `<button class="btn btn-sm btn-outline-secondary" data-flujo="${esc(f.prompt)}" title="${esc(f.descripcion)}">${esc(f.nombre)}</button>`).join('')}</div></div>`).join('')}</div>
+      <div class="dw-card" data-caps style="grid-column:1/-1"><h2 class="h6">Qué puede hacer</h2><p class="text-body-secondary mb-0">Cargando…</p></div></div>`;
     $('[data-open]', el).onclick = () => { const f = fab(); if (f.b) f.b.click(); else toast('El botón de IA Diwilo no está en esta pantalla', false); };
-    api(`${B}/uso`).then((u) => { $('[data-provider]', el).textContent = `Usa ${u.motor}. Los chats de clientes, el asistente y los agentes comparten este modelo.`; }).catch(() => {});
+    el.addEventListener('click', (e) => { const b = e.target.closest('[data-flujo]'); if (b) lanzar(b.dataset.flujo); });
     api(`${B}/herramientas`).then((r) => {
-      const hs = r.herramientas.filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura'), chip = (t) => `<span class="badge text-bg-light border fw-normal">${esc(etiqueta(t.name))}</span>`;
-      const lect = hs.filter((t) => t.tipo !== 'escritura'), escr = hs.filter((t) => t.tipo === 'escritura');
-      $('[data-caps]', el).innerHTML = `<h2 class="h6">Qué puede hacer</h2><div class="ia-caps"><b>Consulta</b><span class="d-flex flex-wrap gap-1">${lect.map(chip).join('') || '—'}</span>
-        <b>Con tu confirmación</b><span class="d-flex flex-wrap gap-1">${escr.map(chip).join('') || '—'}</span>
-        <b>No hace</b><span>Borrar datos, cambiar dueños o permisos, ni registrar pagos de suscripciones.</span></div>`;
-    }).catch(() => {});
-    // Flujos: los de cada módulo y los que cruzan varios (el mismo estándar del MCP y de los agentes)
-    api(`${B}/guias`).then((r) => {
-      const fl = [...(r.entre || []).map((f) => ({ ...f, modulo: f.modulos.join(' + ') })), ...r.modulos.flatMap((g) => g.flujos.map((f) => ({ ...f, modulo: g.nombre })))];
-      if (!fl.length) return;
-      const box = $('[data-fl]', el); box.hidden = false;
-      $('[data-fl-btns]', el).innerHTML = fl.map((f, i) => `<button class="btn btn-sm btn-outline-secondary" data-fl="${i}" title="${esc(f.descripcion)}">${esc(f.modulo)} · ${esc(f.nombre)}</button>`).join('');
-      $('[data-fl-btns]', el).onclick = (e) => { const b = e.target.closest('[data-fl]'); if (!b) return; const f = fab(); if (f.ia?.ask) f.ia.ask(fl[+b.dataset.fl].prompt); else { navigator.clipboard?.writeText(fl[+b.dataset.fl].prompt); toast('Flujo copiado: pégalo en IA Diwilo'); f.b?.click(); } };
+      const hs = r.herramientas.filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura'), chip = (t) => `<span class="badge text-bg-light border fw-normal">${esc(etiqueta(t.name).replace(/^[^·]+· /, ''))}</span>`;
+      const NOM = { contenido: 'Contenido (blog y videos)' }, grupos = {};
+      for (const t of hs) (grupos[t.modulo || 'otros'] ||= []).push(t);
+      const secciones = Object.entries(grupos).map(([m, ts]) => {
+        const lect = ts.filter((t) => t.tipo !== 'escritura'), escr = ts.filter((t) => t.tipo === 'escritura');
+        return `<details class="border-bottom py-2"><summary class="fw-semibold" style="cursor:pointer">${esc(NOM[m] || m.charAt(0).toUpperCase() + m.slice(1))} <span class="badge text-bg-secondary fw-normal ms-1">${ts.length}</span></summary>
+          <div class="ia-caps mt-2">${lect.length ? `<b>Consulta</b><span class="d-flex flex-wrap gap-1">${lect.map(chip).join('')}</span>` : ''}${escr.length ? `<b>Con tu confirmación</b><span class="d-flex flex-wrap gap-1">${escr.map(chip).join('')}</span>` : ''}</div></details>`;
+      }).join('');
+      $('[data-caps]', el).innerHTML = `<h2 class="h6">Qué puede hacer</h2><p class="text-body-secondary small mb-2">Toca un módulo para ver sus herramientas. No borra datos, no cambia dueños ni permisos y no registra pagos de suscripciones.</p>${secciones || '<p class="text-body-secondary mb-0">—</p>'}`;
     }).catch(() => {});
   }
 
@@ -323,31 +329,31 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
     const max = Math.max(1, ...u.dias.map((d) => d.tin + d.tout)), puede = CAN && me.canManage;
     const meter = (v, m) => { const p = m ? Math.round((v / m) * 100) : 0; return `<div class="meter ${p > 100 ? 'over' : p >= 80 ? 'warn' : ''}"><i style="width:${Math.min(100, p)}%"></i></div><span class="text-body-secondary" style="font-size:12px">${p}%</span>`; };
     const kpi = (l, v, sub) => `<div class="dw-card kpi"><div class="v">${v}</div><div class="l">${l}</div>${sub ? `<div class="text-body-secondary" style="font-size:12px;margin-top:4px">${sub}</div>` : ''}</div>`;
-    el.innerHTML = `<p class="text-body-secondary" style="margin:0 0 12px;font-size:13px;max-width:820px">Cada vez que la IA responde se cuentan los tokens (lo que lee + lo que escribe). Motor actual: <b>${esc(u.motor)}</b>. Los costos son estimados.</p>
+    el.innerHTML = `<style>.cs{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;margin-top:14px}.cs>*{grid-column:span 6;min-width:0;margin:0}.cs>.c7{grid-column:span 7}.cs>.c5{grid-column:span 5}.cs>.c12{grid-column:1/-1}@media(max-width:991.98px){.cs>*{grid-column:1/-1!important}}.cs-prot{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 18px}.cs-prot span{display:block;font-size:13px}</style>
+      <p class="text-body-secondary" style="margin:0 0 12px;font-size:13px;max-width:820px">Cada vez que la IA responde se cuentan los tokens (lo que lee + lo que escribe). Motor actual: <b>${esc(u.motor)}</b>. Los costos son estimados.</p>
       ${pct >= 80 ? `<div class="dw-card" style="border-color:var(--${pct >= 100 ? 'bad' : 'warn'});margin-bottom:12px"><b><i class="bi bi-exclamation-triangle"></i> ${pct >= 100 ? 'La IA está en pausa hasta mañana: se llegó al tope diario.' : `Llevas el ${pct}% del tope diario de tokens.`}</b></div>` : ''}
-      <div class="dw-grid" style="--min:200px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px">
         ${kpi('Tokens hoy', tok(hoyT), aj.tope_tokens ? `${meter(hoyT, aj.tope_tokens)}<br>Tope diario: ${tok(aj.tope_tokens)}` : 'Sin tope diario')}
         ${kpi('Costo hoy', cop(u.hoy.usd), `${usd(u.hoy.usd)} · ${n(u.hoy.calls)} de ${n(u.tope_dia)} llamadas`)}
-        ${u.neuronas_gratis ? kpi('Cuota gratis de Cloudflare hoy', n(u.hoy.neuronas), `${meter(u.hoy.neuronas, u.neuronas_gratis)}<br>de ${n(u.neuronas_gratis)} neuronas · se renueva 7:00 p. m.`) : ''}
         ${kpi('Tokens del mes', tok(mesT), `${tok(u.mes.tin)} leídos · ${tok(u.mes.tout)} escritos`)}
-        ${kpi('Costo del mes', cop(u.mes.usd), `${usd(u.mes.usd)} · proyección ${cop(u.mes.proyeccion_usd)}`)}</div>
-      <div class="dw-grid" style="--min:360px;margin-top:14px">
-        <div class="dw-card"><h2 class="h6">Últimos 30 días</h2>${u.dias.length ? `<div class="ubars">${u.dias.map((d, i) => `<div title="${esc(d.day)} · ${tok(d.tin + d.tout)} tokens · ${cop(d.usd)}"><i style="height:${(d.tin / max * 100).toFixed(1)}%"></i><b style="height:${(d.tout / max * 100).toFixed(1)}%"></b><span>${i % 5 === 4 || i === u.dias.length - 1 ? +d.day.slice(8) : ''}</span></div>`).join('')}</div>
+        ${kpi('Costo del mes', cop(u.mes.usd), `${usd(u.mes.usd)} · proyección ${cop(u.mes.proyeccion_usd)}`)}
+        ${u.neuronas_gratis ? kpi('Cuota gratis de Cloudflare hoy', n(u.hoy.neuronas), `${meter(u.hoy.neuronas, u.neuronas_gratis)}<br>de ${n(u.neuronas_gratis)} neuronas · se renueva 7:00 p. m.`) : ''}</div>
+      <div class="cs">
+        <div class="dw-card c7"><h2 class="h6">Últimos 30 días</h2>${u.dias.length ? `<div class="ubars">${u.dias.map((d, i) => `<div title="${esc(d.day)} · ${tok(d.tin + d.tout)} tokens · ${cop(d.usd)}"><i style="height:${(d.tin / max * 100).toFixed(1)}%"></i><b style="height:${(d.tout / max * 100).toFixed(1)}%"></b><span>${i % 5 === 4 || i === u.dias.length - 1 ? +d.day.slice(8) : ''}</span></div>`).join('')}</div>
           <div class="legend"><span><i class="ba"></i>Leídos (entrada)</span><span><i class="bb"></i>Escritos (salida)</span><span class="text-body-secondary">Día más alto: ${tok(max)} tokens</span></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo.</p>'}</div>
-        <div class="dw-card"><h2 class="h6">Quién gasta este mes</h2>${u.fuentes.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Origen</th><th>Llamadas</th><th>Tokens</th><th>Costo</th></tr></thead><tbody>${u.fuentes.map((f) => `<tr><td>${esc(FUENTE[f.fuente] || f.fuente)}</td><td>${n(f.calls)}</td><td>${tok(f.tin + f.tout)}</td><td>${cop(f.usd)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo este mes.</p>'}</div></div>
-      <div class="dw-grid" style="--min:360px;margin-top:14px">
-        <form class="dw-card" data-topes><h2 class="h6">Topes y precios</h2>
+        <div class="dw-card c5"><h2 class="h6">Quién gasta este mes</h2>${u.fuentes.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Origen</th><th>Llamadas</th><th>Tokens</th><th>Costo</th></tr></thead><tbody>${u.fuentes.map((f) => `<tr><td>${esc(FUENTE[f.fuente] || f.fuente)}</td><td>${n(f.calls)}</td><td>${tok(f.tin + f.tout)}</td><td>${cop(f.usd)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="text-body-secondary mb-0">Aún no hay consumo este mes.</p>'}</div>
+        <form class="dw-card c5" data-topes><h2 class="h6">Topes y precios</h2>
           <label class="dw-field"><span>Tope diario de tokens (entre todo)</span><input class="form-control" name="tope_tokens" type="number" min="0" step="10000" value="${aj.tope_tokens}" ${puede ? '' : 'disabled'}><small class="text-body-secondary">0 = sin tope. Al llegar, la IA se pausa hasta mañana y los chats pasan a WhatsApp.</small></label>
           <label class="dw-field"><span>Tope por ejecución de un agente (tokens)</span><input class="form-control" name="tope_ejecucion" type="number" min="5000" step="5000" value="${aj.tope_ejecucion}" ${puede ? '' : 'disabled'}><small class="text-body-secondary">Al llegar, el agente para y entrega lo que alcanzó.</small></label>
           <label class="dw-field"><span>Dólar en pesos</span><input class="form-control" name="usd_cop" type="number" min="1000" step="10" value="${aj.usd_cop}" ${puede ? '' : 'disabled'}></label>
           ${puede ? '<div class="dw-row" style="justify-content:flex-end;margin-top:10px"><button class="btn btn-primary">Guardar</button></div>' : ''}</form>
-        <div class="dw-card"><h2 class="h6">Qué te protege de gastar de más</h2><div class="ia-caps">
-          <b>Tope diario</b><span>Nada llama a la IA cuando se llega al tope del día (y máximo ${n(u.tope_dia)} llamadas).</span>
-          <b>Tope por agente</b><span>Cada ejecución tiene su límite de tokens y de pasos (16).</span>
-          <b>Sin repeticiones</b><span>Si un agente pide lo mismo dos veces, se le recuerda que ya lo tiene.</span>
-          <b>Memoria recortada</b><span>En cada paso los resultados viejos se resumen para no pagarlos otra vez.</span>
-          <b>Uno a la vez</b><span>Un agente no corre dos veces al mismo tiempo; las ejecuciones cortadas se cierran solas a los 15 minutos.</span>
-          <b>Chats</b><span>Máximo 20 mensajes por visitante cada 10 minutos y un tope diario por chat.</span></div></div>
+        <div class="dw-card c7"><h2 class="h6">Qué te protege de gastar de más</h2><div class="cs-prot">
+          <div><b>Tope diario</b><span>Nada llama a la IA al llegar al tope del día (y máximo ${n(u.tope_dia)} llamadas).</span></div>
+          <div><b>Tope por agente</b><span>Cada ejecución tiene su límite de tokens y de pasos (16).</span></div>
+          <div><b>Sin repeticiones</b><span>Si un agente pide lo mismo dos veces, se le recuerda que ya lo tiene.</span></div>
+          <div><b>Memoria recortada</b><span>En cada paso los resultados viejos se resumen para no pagarlos otra vez.</span></div>
+          <div><b>Uno a la vez</b><span>Un agente no corre dos veces a la vez; las ejecuciones cortadas se cierran a los 15 minutos.</span></div>
+          <div><b>Chats</b><span>Máximo 20 mensajes por visitante cada 10 minutos y un tope diario por chat.</span></div></div></div>
       </div>`;
     el.querySelector('[data-topes]')?.addEventListener('submit', async (e) => {
       e.preventDefault(); const f = e.target;

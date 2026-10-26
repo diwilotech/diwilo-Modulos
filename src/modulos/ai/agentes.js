@@ -40,10 +40,12 @@ function leerJson(texto) {
   if (i < 0 || j <= i) return null;
   try { return JSON.parse(t.slice(i, j + 1)); } catch { return null; }
 }
-const corto = (v, n = 5000) => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > n ? `${s.slice(0, n)}…` : s; };
+// Un agente trabaja solo: sin esto, algunos modelos se presentan y cierran tras leer la marca sin hacer el trabajo
+const TRABAJO_COMPLETO = '\nIMPORTANTE: eres un agente que trabaja solo. No te presentes ni saludes: haz el trabajo completo de tus INSTRUCCIONES, paso a paso, con las herramientas, y usa "fin" solo cuando hayas entregado el resultado final (ideas, textos, borradores o propuestas de acción). La respuesta final puede ser larga y detallada.\n';
+const corto = (v, n = 4000) => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > n ? `${s.slice(0, n)}…` : s; };
 
 // El bucle. Devuelve { respuesta, pasos }. `pasos` guarda lo que se usó y el estado de cada escritura.
-export async function bucle(env, { org, ctx, system, historial, herramientas, autonomia, fuente, limite, guias = [], maxPasos = MAX_PASOS, topeTokens = 0, progreso = null }) {
+export async function bucle(env, { org, ctx, system, historial, herramientas, autonomia, fuente, limite, guias = [], maxPasos = MAX_PASOS, topeTokens = 0, progreso = null, maxTokens = 900 }) {
   const hist = [...historial], pasos = [], usadas = new Set();
   let respuesta = null, invalidos = 0, gastados = 0, siguientes = [];
   const est = (t) => Math.ceil(String(t || '').length / 4);
@@ -54,7 +56,7 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
     gastados += est(system) + hist.reduce((a, m) => a + est(m.content), 0);
     if (topeTokens && gastados >= topeTokens) { respuesta = `Paré al llegar al tope de ${topeTokens.toLocaleString('es-CO')} tokens por ejecución. Esto es lo que alcancé a hacer.`; break; }
     await avisar(n === 1 ? 'Entendiendo tu pedido…' : 'Pensando el siguiente paso…');
-    const texto = await llamarIA(env, org, system, hist, { fuente, maxTokens: 900, temperature: 0.3, limite });
+    const texto = await llamarIA(env, org, system, hist, { fuente, maxTokens, temperature: 0.3, limite });
     const o = leerJson(texto);
     hist.push({ role: 'assistant', content: texto });
     if (!o || !['usar', 'fin', 'guia'].includes(o.accion)) {
@@ -105,8 +107,8 @@ export async function correrAgente(env, { org, agente, disparador = 'manual', ct
     const disp = herramientasDe(ctx), elegidas = parseList(agente.herramientas);
     const herr = disp.filter((t) => elegidas.includes(t.name));
     const guias = guiasDe(ctx).filter((g) => herr.some((t) => t.modulo === g.modulo));
-    const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias });
-    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: pedido ? `Empieza tu trabajo. Pedido puntual para esta vez: ${String(pedido).slice(0, 500)}` : 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias, maxPasos: MAX_PASOS_AGENTE, topeTokens: aj.tope_ejecucion,
+    const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias, extra: TRABAJO_COMPLETO });
+    const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: pedido ? `Empieza tu trabajo. Pedido puntual para esta vez: ${String(pedido).slice(0, 500)}` : 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias, maxPasos: MAX_PASOS_AGENTE, topeTokens: aj.tope_ejecucion, maxTokens: 3000,
       progreso: escribir ? (info) => escribir('trabajando', info) : null });
     resumen = r.respuesta; pasos = r.pasos;
   } catch (e) { estado = 'error'; resumen = String(e.message || e).slice(0, 500); }
