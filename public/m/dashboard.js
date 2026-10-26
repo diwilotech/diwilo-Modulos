@@ -3,7 +3,8 @@
 // se mandan a la campana del panel/app (window.parent.postMessage). Dentro de Diwilo Admin los enlaces cambian de pestaña del panel.
 // Cada app suma sus propios indicadores con window.DwDashboard.push({ id, titulo, mount(host, { me }) }) antes de cargar este archivo.
 DW.ready.then((me) => {
-  if (!me.pageAllowed) return;
+  // Solo en la pantalla de Inicio: las apps arman todas sus páginas con el mismo shell y este archivo no debe pintar sobre las de otros módulos
+  if (!me.pageAllowed || !document.querySelector('main[data-modulo="dashboard"], main[data-modulo="inicio"]')) return;
   const { api, esc } = window.App;
   const $ = (s, el = document) => el.querySelector(s);
   const view = $('[data-view]');

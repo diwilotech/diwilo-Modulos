@@ -1,5 +1,9 @@
 # Dashboard (`dashboard`) — cambios
 
+## 1.1.1 · 2026-10-26
+- **Se llama «Inicio»** en todas las apps y en Diwilo Admin.
+- Arreglo: `dashboard.js` solo pinta en la pantalla de Inicio (`main[data-modulo=dashboard|inicio]`). Las apps arman todas sus páginas con el mismo shell, y el script pintaba el Inicio encima de Marca y de los demás módulos.
+
 ## 1.1.0 · 2026-10-26
 - Las apps suman sus propios indicadores con `window.DwDashboard.push({ id, titulo, mount(host, { me }) })` (Academia: métricas, semana y últimos 6 meses). Se muestran entre los indicadores centrales y los accesos directos.
 
