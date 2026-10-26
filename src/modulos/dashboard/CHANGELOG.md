@@ -1,5 +1,8 @@
 # Dashboard (`dashboard`) — cambios
 
+## 1.2.0 · 2026-10-26
+- **Apps con varias sedes** (conjuntos, edificios, sucursales; p. ej. Residentes): la app declara `window.DwDashboardAmbito = { etiqueta, plural, items(), actual(), elegir(id) }`. Aparece un selector junto al saludo; sin sede elegida el Inicio es el del **portafolio** (una tarjeta por sede con sus indicadores, más lo de toda la empresa: alertas, Finanzas, Marketing…); con una sede elegida se muestran sus indicadores propios (`mount(host, { me, sede })`). Los módulos centrales son de la empresa, no de cada sede. `ctx.sede` opcional se devuelve en `negocio.sede`.
+
 ## 1.1.1 · 2026-10-26
 - **Se llama «Inicio»** en todas las apps y en Diwilo Admin.
 - Arreglo: `dashboard.js` solo pinta en la pantalla de Inicio (`main[data-modulo=dashboard|inicio]`). Las apps arman todas sus páginas con el mismo shell, y el script pintaba el Inicio encima de Marca y de los demás módulos.

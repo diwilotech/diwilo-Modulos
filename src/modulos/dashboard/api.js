@@ -45,7 +45,7 @@ export async function tablero(c) {
   alertas.sort((a, b) => orden[a.nivel] - orden[b.nivel]);
 
   const atajos = mods.filter((m) => m.menu?.ruta && !m.menu.oculto).map((m) => ({ nombre: m.nombre, icono: m.icono, ruta: m.menu.ruta }));
-  return { negocio: { nombre: c.ctx?.business?.name || null, tema: c.ctx?.business?.tema || null }, hoy: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10), widgets, alertas, atajos };
+  return { negocio: { nombre: c.ctx?.business?.name || null, tema: c.ctx?.business?.tema || null, sede: c.ctx?.sede || null }, hoy: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10), widgets, alertas, atajos };
 }
 
 export function routes(r) {

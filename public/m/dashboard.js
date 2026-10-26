@@ -1,7 +1,11 @@
 // Dashboard (inicio de la app): saludo con la marca, alertas que necesitan atención, indicadores de los módulos y accesos directos.
 // Web y celular (cuadrícula que se adapta), se actualiza solo cada 90 s mientras la pestaña está a la vista, y sus alertas
 // se mandan a la campana del panel/app (window.parent.postMessage). Dentro de Diwilo Admin los enlaces cambian de pestaña del panel.
-// Cada app suma sus propios indicadores con window.DwDashboard.push({ id, titulo, mount(host, { me }) }) antes de cargar este archivo.
+// Cada app suma sus propios indicadores con window.DwDashboard.push({ id, titulo, mount(host, { me, sede }) }) antes de cargar este archivo.
+// Apps con varias sedes (conjuntos, edificios, sucursales) declaran el ÁMBITO con window.DwDashboardAmbito = { etiqueta: 'Conjunto', plural: 'Conjuntos',
+//   items: async () => [{ id, nombre, detalle?, kpis?: [{ valor, titulo }] }], actual: () => id | null, elegir: (id | null) => void }.
+//   Sin sede elegida el Inicio es el del portafolio (tarjetas de cada sede + lo de toda la empresa: alertas, Finanzas, Marketing…); con una elegida
+//   muestra lo de esa sede y pasa { sede } a los indicadores propios de la app. Los módulos centrales son de la empresa, no de cada sede.
 DW.ready.then((me) => {
   // Solo en la pantalla de Inicio: las apps arman todas sus páginas con el mismo shell y este archivo no debe pintar sobre las de otros módulos
   if (!me.pageAllowed || !document.querySelector('main[data-modulo="dashboard"], main[data-modulo="inicio"]')) return;
@@ -51,26 +55,35 @@ DW.ready.then((me) => {
   const saludo = () => { const h = new Date().getHours(); return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'; };
   const primerNombre = () => String(me.user?.name || me.user?.email || '').split(/[\s@]/)[0];
 
+  // Ámbito (sedes): selector junto al saludo y, sin sede elegida, tarjetas del portafolio
+  const AMB = () => window.DwDashboardAmbito || null;
+  const selectorSede = (amb, items) => `<div class="dropdown"><button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-buildings me-1"></i>${esc(items.find((i) => String(i.id) === String(amb.actual()))?.nombre || `Todos los ${String(amb.plural || amb.etiqueta).toLowerCase()}`)}</button>
+      <ul class="dropdown-menu dropdown-menu-end"><li><button type="button" class="dropdown-item ${amb.actual() ? '' : 'active'}" data-sede="">Todos los ${esc(String(amb.plural || amb.etiqueta).toLowerCase())}</button></li>
+      ${items.map((i) => `<li><button type="button" class="dropdown-item ${String(i.id) === String(amb.actual()) ? 'active' : ''}" data-sede="${esc(i.id)}">${esc(i.nombre)}</button></li>`).join('')}</ul></div>`;
+  const tarjetaSede = (i) => `<button type="button" class="dw-card dsh-kpi" data-sede="${esc(i.id)}"><div class="ico"><i class="bi bi-building"></i></div><div class="t fw-semibold" style="font-size:1rem;color:inherit">${esc(i.nombre)}</div>${i.detalle ? `<div class="d">${esc(i.detalle)}</div>` : ''}${(i.kpis || []).length ? `<div class="d-flex gap-3 mt-2 flex-wrap">${i.kpis.map((k) => `<div><div class="v" style="font-size:1.15rem">${esc(k.valor)}</div><div class="d mt-0">${esc(k.titulo)}</div></div>`).join('')}</div>` : ''}</button>`;
   const kpi = (w) => `<${w.ruta ? 'button type="button"' : 'div'} class="dw-card dsh-kpi" ${w.ruta ? `data-ruta="${esc(w.ruta)}"` : ''}><div class="ico"><i class="bi ${esc(w.icono || 'bi-grid')}"></i></div><div class="v">${esc(w.valor)}</div><div class="t">${esc(w.titulo)}</div>${w.detalle ? `<div class="d">${esc(w.detalle)}</div>` : ''}</${w.ruta ? 'button' : 'div'}>`;
 
   async function pintar(primera) {
     if (primera) view.innerHTML = `<div class="dsh-sk" style="height:72px;margin-bottom:18px"></div><div class="dsh-grid">${'<div class="dsh-sk"></div>'.repeat(4)}</div>`;
-    let T, M;
-    try { [T, M] = await Promise.all([api('/api/dashboard'), marca()]); } catch (x) { view.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; return; }
-    const alertas = T.alertas.filter((a) => !VISTAS.has(a.id)), extras = window.DwDashboard || [];
+    let T, M, SEDES = [];
+    try { [T, M] = await Promise.all([api('/api/dashboard'), marca()]); if (AMB()) SEDES = await AMB().items().catch(() => []); } catch (x) { view.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; return; }
+    const porSede = !AMB() || !!AMB().actual();   // sin sede elegida, lo propio de la app (por sede) no se muestra
+    const alertas = T.alertas.filter((a) => !VISTAS.has(a.id)), extras = porSede ? window.DwDashboard || [] : [];
     // La campana del panel/app junta estas alertas con sus avisos
     try { window.parent !== window && window.parent.postMessage({ dw: 'avisos', origen: 'dashboard', alertas: T.alertas.map((a) => ({ id: a.id, icono: a.icono, texto: a.texto, mod: (/\/staff\/([a-z]+)\.html/.exec(a.ruta || '') || [])[1] || null })) }, location.origin); } catch (_) { /* sin campana */ }
     view.innerHTML = `<div class="dsh-hero"><span class="dsh-logo">${M.logo ? `<img src="${esc(M.logo)}" alt="">` : esc(M.nombre[0] || 'D')}</span>
         <div class="flex-grow-1"><h1>${saludo()}${primerNombre() ? `, ${esc(primerNombre())}` : ''}</h1><p class="text-body-secondary">${esc(M.nombre)}${M.lema ? ` · ${esc(M.lema)}` : ''}</p></div>
+        ${AMB() && SEDES.length ? selectorSede(AMB(), SEDES) : ''}
         <button type="button" class="btn btn-outline-secondary btn-sm" data-refrescar aria-label="Actualizar"><i class="bi bi-arrow-clockwise"></i><span class="d-none d-sm-inline ms-1">Actualizar</span></button></div>
       ${alertas.length ? `<div class="dsh-alertas" role="region" aria-label="Alertas">${alertas.map((a) => `<div class="dsh-alerta" data-nivel="${esc(a.nivel)}" ${a.ruta ? `data-ruta="${esc(a.ruta)}" role="button" tabindex="0" style="cursor:pointer"` : ''}><i class="bi ${esc(a.icono)} ic"></i><span>${esc(a.texto)}</span><button type="button" class="btn-close x" data-ocultar="${esc(a.id)}" aria-label="Ocultar alerta"></button></div>`).join('')}</div>` : ''}
-      <div class="dsh-h">Cómo va</div>
+      ${AMB() && !AMB().actual() && SEDES.length ? `<div class="dsh-h">Tus ${esc(String(AMB().plural || AMB().etiqueta).toLowerCase())}</div><div class="dsh-grid">${SEDES.map(tarjetaSede).join('')}</div>` : ''}
+      <div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
       ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}
       ${extras.map((e) => `<div class="dsh-h">${esc(e.titulo)}</div><div data-extra="${esc(e.id)}"></div>`).join('')}
       ${T.atajos.length ? `<div class="dsh-h">Ir a</div><div class="dsh-atajos">${T.atajos.map((a) => `<a class="dsh-atajo" href="${esc(a.ruta)}" data-ruta="${esc(a.ruta)}"><i class="bi ${esc(a.icono)}"></i>${esc(a.nombre)}</a>`).join('')}</div>` : ''}`;
     for (const e of extras) {
       const host = $(`[data-extra="${e.id}"]`, view);
-      Promise.resolve().then(() => e.mount(host, { me })).catch((x) => { host.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
+      Promise.resolve().then(() => e.mount(host, { me, sede: AMB()?.actual() || null })).catch((x) => { host.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
     }
   }
 
@@ -78,6 +91,8 @@ DW.ready.then((me) => {
     const x = e.target.closest('[data-ocultar]');
     if (x) { e.stopPropagation(); VISTAS.add(x.dataset.ocultar); sessionStorage.setItem('dw_dash_ocultas', JSON.stringify([...VISTAS])); x.closest('.dsh-alerta').remove(); return; }
     if (e.target.closest('[data-refrescar]')) return pintar(false);
+    const sd = e.target.closest('[data-sede]');
+    if (sd && AMB()) { AMB().elegir(sd.dataset.sede || null); return pintar(false); }
     const r = e.target.closest('[data-ruta]');
     if (r) { if (r.tagName === 'A') e.preventDefault(); ir(r.dataset.ruta); }
   });
