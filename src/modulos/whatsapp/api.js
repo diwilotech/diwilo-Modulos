@@ -65,8 +65,14 @@ export async function probarBandeja(env, bandeja, para) {
           paso('Mensaje de prueba', t.ok, t.ok ? `Texto enviado a +${to} (esa persona escribió en las últimas 24 h).` : `Meta no lo envió: ${await errMeta(t)}`);
           return { ok: pasos.every((x) => x.ok), pasos };
         }
-        const e = await llamar(`${GRAPH}/${bandeja.phone_number_id}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } }) });
-        paso('Mensaje de prueba', e.ok, e.ok ? `Enviado a +${to}. Debe llegarle en unos segundos.` : `Meta no lo envió: ${await errMeta(e)}${e.status === 400 || e.status === 403 ? '. Este envío usa una plantilla (se factura a la cuenta de mensajería); responder a quien te escribe primero NO la necesita: escríbele al número desde otro WhatsApp y vuelve a probar con ese número para comprobar el texto normal. Si dice «cannot access» o «permission», el usuario del sistema dueño del token no tiene acceso a la cuenta de WhatsApp: en Meta, Configuración del negocio → Usuarios del sistema → Agregar activos → Cuentas de WhatsApp → control total; y genera el token con los permisos whatsapp_business_messaging y whatsapp_business_management.' : ''}`);
+        // Fuera de la ventana de 24 h solo se puede mandar una plantilla APROBADA de la cuenta, sin variables («hello_world» solo sirve en los números de prueba de Meta)
+        const pl = await llamar(`${GRAPH}/${bandeja.waba_id}/message_templates?status=APPROVED&limit=50&fields=name,language,components`);
+        const tpl = pl.ok ? ((await pl.json()).data || []).find((x) => !/\{\{/.test(JSON.stringify(x.components || [])) && x.name !== 'hello_world') : null;
+        if (!tpl) paso('Mensaje de prueba', false, `${pl.ok ? 'La cuenta no tiene plantillas aprobadas sin variables.' : `No se pudieron leer las plantillas: ${await errMeta(pl)}.`} Escríbele al número desde otro WhatsApp (esa persona abre la ventana de 24 h) y prueba de nuevo con ese número: así se envía un texto normal.`);
+        else {
+          const e = await llamar(`${GRAPH}/${bandeja.phone_number_id}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template', template: { name: tpl.name, language: { code: tpl.language } } }) });
+          paso('Mensaje de prueba', e.ok, e.ok ? `Plantilla «${tpl.name}» enviada a +${to}. Debe llegarle en unos segundos.` : `Meta no lo envió: ${await errMeta(e)}${e.status === 400 || e.status === 403 ? '. Si dice «cannot access» o «permission», el usuario del sistema del token no tiene acceso a la cuenta (debe ser Admin, con la app y la cuenta de WhatsApp en control total) y hay que generar el token de nuevo.' : ''}`);
+        }
       }
     }
   } catch (e) { paso('Conexión con Meta', false, e.name === 'AbortError' ? 'Meta tardó más de 8 segundos en responder.' : 'No se pudo conectar con Meta.'); }
