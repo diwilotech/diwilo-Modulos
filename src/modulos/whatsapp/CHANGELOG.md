@@ -1,5 +1,10 @@
 # WhatsApp — cambios
 
+## 3.3.0 · 2026-10-27
+- **Varias cuentas de Google:** se pueden conectar todas las que se necesiten (con el mismo cliente OAuth) y asignar cuál envía y lee el correo y cuál agenda las citas con Meet (p. ej. diwilo.tech@gmail.com para el correo y hola@diwilo.com para las citas). Al conectar se puede indicar el correo de la cuenta; cada cuenta se puede quitar. La cuenta que ya estaba conectada pasa a la lista y sigue haciendo las dos cosas.
+- **Correo de prueba:** en Google → Probar se escribe un correo de destino y se envía por Gmail; dice desde qué dirección salió (la de la bandeja si es un alias «Enviar como» verificado).
+- Migración `0033_google_cuentas.sql`.
+
 ## 3.2.0 · 2026-10-27
 - **Copia a otra dirección** (p. ej. hola@): se agrega como Cc a cada respuesta de correo por Gmail y como invitada a cada cita de Meet. Las copias que vuelven a la bandeja no crean un chat nuevo.
 - **Con qué se envían los correos:** Gmail (desde la cuenta conectada, con Reply-To a la bandeja) o Cloudflare Email Sending (desde la dirección de la bandeja, con su propia firma de dominio).

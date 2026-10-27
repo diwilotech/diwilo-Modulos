@@ -22,21 +22,31 @@ export async function guardarCredenciales(env, org, { client_id, client_secret }
   if (!env.CLAVES_KEK) throw new GoogleError('Falta configurar CLAVES_KEK en Diwilo Modulos para guardar claves de forma segura', 500);
   const t = now(), cif = await cifrarClave(env, client_secret);
   await env.DB.prepare(`INSERT INTO wa_google (business_id, client_id, secreto_cifrado, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT (business_id) DO UPDATE SET client_id = excluded.client_id, secreto_cifrado = excluded.secreto_cifrado, refresh_cifrado = NULL, email = NULL, scopes = NULL, conectado_at = NULL, estado = NULL, estado_exp = NULL, updated_at = excluded.updated_at`).bind(org, client_id, cif, t, t).run();
+    ON CONFLICT (business_id) DO UPDATE SET client_id = excluded.client_id, secreto_cifrado = excluded.secreto_cifrado, refresh_cifrado = NULL, email = NULL, scopes = NULL, conectado_at = NULL, cuenta_gmail = NULL, cuenta_calendario = NULL, estado = NULL, estado_exp = NULL, updated_at = excluded.updated_at`).bind(org, client_id, cif, t, t).run();
+  await env.DB.prepare('DELETE FROM wa_google_cuentas WHERE business_id = ?').bind(org).run();   // los tokens eran de otro cliente OAuth
+  cacheTokens.clear();
 }
 export const filaGoogle = (env, org) => one(env, 'SELECT * FROM wa_google WHERE business_id = ?', org);
-export async function conectado(env, org) { const g = await filaGoogle(env, org); return !!g?.refresh_cifrado; }
-export async function estadoGoogle(env, org) {
-  const g = await filaGoogle(env, org);
-  let agenda = null; try { agenda = g?.agenda ? JSON.parse(g.agenda) : null; } catch { /* sin horario */ }
-  return { credenciales: !!g?.client_id, client_id: g?.client_id ? `${g.client_id.slice(0, 12)}…${g.client_id.slice(-30)}` : null, conectado: !!g?.refresh_cifrado, email: g?.email || null, scopes: g?.scopes ? g.scopes.split(' ').filter((s) => s.startsWith('https://')).map((s) => s.split('/').pop()) : [], conectado_at: g?.conectado_at || null, gmail_activo: g ? !!g.gmail_activo : true, agenda: { ...AGENDA_BASE, ...(agenda || {}) } };
+// Cuenta que se usa para un fin: 'gmail' (enviar y leer correo) o 'calendario' (citas con Meet)
+export async function cuentaPara(env, org, uso = 'gmail') {
+  const g = await filaGoogle(env, org), id = uso === 'calendario' ? g?.cuenta_calendario : g?.cuenta_gmail;
+  return id ? one(env, 'SELECT * FROM wa_google_cuentas WHERE id = ? AND business_id = ?', id, org) : null;
 }
-export async function urlConexion(env, org, redirect) {
+export async function conectado(env, org, uso = 'gmail') { return !!(await cuentaPara(env, org, uso)); }
+export async function estadoGoogle(env, org) {
+  const g = await filaGoogle(env, org), cuentas = await all(env, 'SELECT id, email, scopes, conectado_at FROM wa_google_cuentas WHERE business_id = ? ORDER BY id', org);
+  let agenda = null; try { agenda = g?.agenda ? JSON.parse(g.agenda) : null; } catch { /* sin horario */ }
+  const cg = cuentas.find((c) => c.id === g?.cuenta_gmail), cc = cuentas.find((c) => c.id === g?.cuenta_calendario);
+  return { credenciales: !!g?.client_id, client_id: g?.client_id ? `${g.client_id.slice(0, 12)}…${g.client_id.slice(-30)}` : null, conectado: cuentas.length > 0,
+    cuentas: cuentas.map((c) => ({ id: c.id, email: c.email, permisos: String(c.scopes || '').split(' ').filter((x) => x.startsWith('https://')).map((x) => x.split('/').pop()), conectado_at: c.conectado_at })),
+    cuenta_gmail: cg?.id || null, cuenta_calendario: cc?.id || null, email: cg?.email || cuentas[0]?.email || null, gmail_activo: g ? !!g.gmail_activo : true, agenda: { ...AGENDA_BASE, ...(agenda || {}) } };
+}
+export async function urlConexion(env, org, redirect, correo = '') {
   const g = await filaGoogle(env, org);
   if (!g?.client_id) throw new GoogleError('Primero sube las credenciales de Google');
   const estado = hex(20);
   await env.DB.prepare('UPDATE wa_google SET estado = ?, estado_exp = ? WHERE business_id = ?').bind(estado, now() + 15 * 60000, org).run();
-  const p = new URLSearchParams({ client_id: g.client_id, redirect_uri: redirect, response_type: 'code', scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: estado });
+  const p = new URLSearchParams({ client_id: g.client_id, redirect_uri: redirect, response_type: 'code', scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: estado, ...(/^[^\s@]+@[^\s@]+$/.test(correo) ? { login_hint: correo } : {}) });
   return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
 }
 const pedirToken = async (env, g, params) => {
@@ -53,30 +63,49 @@ export async function completarConexion(env, { code, state, redirect }) {
   const d = await pedirToken(env, g, { code: String(code || ''), grant_type: 'authorization_code', redirect_uri: redirect });
   if (!d.refresh_token) throw new GoogleError('Google no entregó el permiso permanente. Quita el acceso de esta app en myaccount.google.com/permissions y vuelve a conectar.');
   let email = null;
-  try { const u = await (await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${d.access_token}` } })).json(); email = u.email || null; } catch { /* sin correo */ }
-  await env.DB.prepare('UPDATE wa_google SET refresh_cifrado = ?, email = ?, scopes = ?, conectado_at = ?, gmail_desde = ?, estado = NULL, estado_exp = NULL, updated_at = ? WHERE business_id = ?')
-    .bind(await cifrarClave(env, d.refresh_token), email, d.scope || SCOPES.join(' '), now(), Math.floor(now() / 1000) - 600, now(), g.business_id).run();
-  tokens.delete(g.business_id);
+  try { const u = await (await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${d.access_token}` } })).json(); email = String(u.email || '').toLowerCase() || null; } catch { /* sin correo */ }
+  if (!email) throw new GoogleError('Google no entregó el correo de la cuenta: vuelve a conectar aceptando el permiso de correo electrónico');
+  await env.DB.prepare(`INSERT INTO wa_google_cuentas (business_id, email, refresh_cifrado, scopes, conectado_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (business_id, email) DO UPDATE SET refresh_cifrado = excluded.refresh_cifrado, scopes = excluded.scopes, conectado_at = excluded.conectado_at`).bind(g.business_id, email, await cifrarClave(env, d.refresh_token), d.scope || SCOPES.join(' '), now()).run();
+  const cu = await one(env, 'SELECT id FROM wa_google_cuentas WHERE business_id = ? AND email = ?', g.business_id, email);
+  // La primera cuenta sirve para todo; las siguientes se asignan a mano (correo o calendario)
+  await env.DB.prepare('UPDATE wa_google SET cuenta_gmail = COALESCE(cuenta_gmail, ?), cuenta_calendario = COALESCE(cuenta_calendario, ?), gmail_desde = COALESCE(gmail_desde, ?), estado = NULL, estado_exp = NULL, updated_at = ? WHERE business_id = ?')
+    .bind(cu.id, cu.id, Math.floor(now() / 1000) - 600, now(), g.business_id).run();
+  cacheTokens.delete(cu.id);
   return { org: g.business_id, email };
 }
-export async function desconectar(env, org) {
-  const g = await filaGoogle(env, org);
-  if (g?.refresh_cifrado) { try { await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(await descifrarClave(env, g.refresh_cifrado))}`, { method: 'POST' }); } catch { /* ya no sirve igual */ } }
-  await env.DB.prepare('UPDATE wa_google SET refresh_cifrado = NULL, email = NULL, scopes = NULL, conectado_at = NULL, estado = NULL, estado_exp = NULL, updated_at = ? WHERE business_id = ?').bind(now(), org).run();
-  tokens.delete(org);
+export async function desconectar(env, org, cuentaId = null) {
+  const cuentas = await all(env, `SELECT * FROM wa_google_cuentas WHERE business_id = ?${cuentaId ? ' AND id = ?' : ''}`, ...(cuentaId ? [org, Number(cuentaId)] : [org]));
+  for (const c of cuentas) {
+    try { await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(await descifrarClave(env, c.refresh_cifrado))}`, { method: 'POST' }); } catch { /* ya no sirve igual */ }
+    await env.DB.prepare('DELETE FROM wa_google_cuentas WHERE id = ?').bind(c.id).run();
+    cacheTokens.delete(c.id);
+  }
+  // Los usos que apuntaban a una cuenta quitada pasan a otra que quede (o a ninguna)
+  const resto = (await all(env, 'SELECT id FROM wa_google_cuentas WHERE business_id = ? ORDER BY id', org)).map((x) => x.id), g = await filaGoogle(env, org);
+  const ok = (id) => (resto.includes(id) ? id : resto[0] ?? null);
+  await env.DB.prepare('UPDATE wa_google SET cuenta_gmail = ?, cuenta_calendario = ?, estado = NULL, estado_exp = NULL, updated_at = ? WHERE business_id = ?').bind(ok(g?.cuenta_gmail), ok(g?.cuenta_calendario), now(), org).run();
 }
-const tokens = new Map();
-export async function tokenDe(env, org) {
-  const c = tokens.get(org);
+// Qué cuenta se usa para el correo y cuál para el calendario
+export async function asignarUsos(env, org, { cuenta_gmail, cuenta_calendario }) {
+  const existe = async (id) => !id || !!(await one(env, 'SELECT 1 FROM wa_google_cuentas WHERE id = ? AND business_id = ?', Number(id), org));
+  if (!(await existe(cuenta_gmail)) || !(await existe(cuenta_calendario))) throw new GoogleError('Esa cuenta no está conectada');
+  await env.DB.prepare('UPDATE wa_google SET cuenta_gmail = COALESCE(?, cuenta_gmail), cuenta_calendario = COALESCE(?, cuenta_calendario), gmail_desde = ?, updated_at = ? WHERE business_id = ?').bind(cuenta_gmail ? Number(cuenta_gmail) : null, cuenta_calendario ? Number(cuenta_calendario) : null, Math.floor(now() / 1000) - 600, now(), org).run();
+  cacheHuecos.delete(org);
+}
+const cacheTokens = new Map();
+export async function tokenDe(env, org, uso = 'gmail') {
+  const cu = await cuentaPara(env, org, uso);
+  if (!cu) throw new GoogleError(uso === 'calendario' ? 'No hay una cuenta de Google conectada para el calendario' : 'Google no está conectado');
+  const c = cacheTokens.get(cu.id);
   if (c && c.exp > Date.now() + 60000) return c.t;
   const g = await filaGoogle(env, org);
-  if (!g?.refresh_cifrado) throw new GoogleError('Google no está conectado');
-  const d = await pedirToken(env, g, { grant_type: 'refresh_token', refresh_token: await descifrarClave(env, g.refresh_cifrado) });
-  tokens.set(org, { t: d.access_token, exp: Date.now() + (Number(d.expires_in) || 3600) * 1000 });
+  const d = await pedirToken(env, g, { grant_type: 'refresh_token', refresh_token: await descifrarClave(env, cu.refresh_cifrado) });
+  cacheTokens.set(cu.id, { t: d.access_token, exp: Date.now() + (Number(d.expires_in) || 3600) * 1000 });
   return d.access_token;
 }
-export async function gapi(env, org, url, init = {}) {
-  const r = await fetch(url, { ...init, headers: { authorization: `Bearer ${await tokenDe(env, org)}`, 'content-type': 'application/json', ...(init.headers || {}) } });
+export async function gapi(env, org, url, init = {}, uso = 'gmail') {
+  const r = await fetch(url, { ...init, headers: { authorization: `Bearer ${await tokenDe(env, org, uso)}`, 'content-type': 'application/json', ...(init.headers || {}) } });
   const txt = await r.text(); let d = null; try { d = txt ? JSON.parse(txt) : null; } catch { /* no JSON */ }
   if (!r.ok) throw new GoogleError(d?.error?.message || `Google respondió ${r.status}`, r.status === 401 || r.status === 403 ? 403 : 502);
   return d;
@@ -94,8 +123,8 @@ export function armarCorreo({ de, nombre, para, copia, responderA, asunto, texto
 }
 // Responde por Gmail en el mismo hilo (si encuentra el correo original en Gmail) y queda en «Enviados». Desde la dirección de la bandeja si es un alias «Enviar como»; si no, desde la cuenta conectada con Reply-To a la bandeja.
 export async function enviarGmail(env, bandeja, para, texto, { asunto, ref } = {}) {
-  const org = bandeja.business_id, g = await filaGoogle(env, org);
-  let de = g?.email, nombre = bandeja.nombre;
+  const org = bandeja.business_id, cu = await cuentaPara(env, org, 'gmail');
+  let de = cu?.email, nombre = bandeja.nombre;
   try { const alias = (await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs'))?.sendAs?.find((a) => String(a.sendAsEmail).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() && (!a.verificationStatus || a.verificationStatus === 'accepted')); if (alias) { de = alias.sendAsEmail; nombre = alias.displayName || nombre; } } catch { /* sin permiso de alias: se envía desde la cuenta */ }
   if (!de) throw new GoogleError('No sé desde qué cuenta enviar: vuelve a conectar Google');
   let threadId = null;
@@ -104,6 +133,7 @@ export async function enviarGmail(env, bandeja, para, texto, { asunto, ref } = {
   const cc = (await agendaDe(env, org)).copia;   // copia de cada respuesta (p. ej. hola@): si responden a todos, también llega a la bandeja
   const raw = b64url(armarCorreo({ de, nombre, para, copia: cc && cc !== String(para).toLowerCase() && cc !== String(de).toLowerCase() ? cc : null, responderA: String(de).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() ? null : bandeja.phone_number_id, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: ref || null, referencias: ref || null }));
   await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }) });
+  return { de, cuenta: cu.email, alias: String(de).toLowerCase() !== String(cu.email).toLowerCase() };
 }
 const cab = (m, n) => (m.payload?.headers || []).find((h) => h.name.toLowerCase() === n)?.value || '';
 function textoDe(p) {
@@ -115,7 +145,7 @@ function textoDe(p) {
 }
 // Lee los correos nuevos de Gmail dirigidos a cada bandeja de correo (al abrir Mensajes, cada 90 s como máximo, y en la tarea diaria). `registrar(bandeja, datos)` los guarda como chats.
 export async function sincronizarGmail(env, registrar, soloOrg = null) {
-  const filas = await all(env, `SELECT business_id, gmail_desde FROM wa_google WHERE refresh_cifrado IS NOT NULL AND gmail_activo = 1${soloOrg ? ' AND business_id = ?' : ''}`, ...(soloOrg ? [soloOrg] : []));
+  const filas = await all(env, `SELECT business_id, gmail_desde FROM wa_google WHERE cuenta_gmail IS NOT NULL AND gmail_activo = 1${soloOrg ? ' AND business_id = ?' : ''}`, ...(soloOrg ? [soloOrg] : []));
   for (const f of filas) {
     try {
       const bandejas = await all(env, "SELECT * FROM wa_bandejas WHERE business_id = ? AND canal = 'correo' AND activo = 1", f.business_id);
@@ -173,7 +203,7 @@ export async function huecosLibres(env, org, { fresco = false } = {}) {
   const c = cacheHuecos.get(org);
   if (!fresco && c && Date.now() - c.at < 120000) return c.v;
   const a = await agendaDe(env, org);
-  const f = await gapi(env, org, 'https://www.googleapis.com/calendar/v3/freeBusy', { method: 'POST', body: JSON.stringify({ timeMin: new Date().toISOString(), timeMax: new Date(Date.now() + (a.adelanto_dias + 1) * 86400000).toISOString(), timeZone: 'UTC', items: [{ id: a.calendario }] }) });
+  const f = await gapi(env, org, 'https://www.googleapis.com/calendar/v3/freeBusy', { method: 'POST', body: JSON.stringify({ timeMin: new Date().toISOString(), timeMax: new Date(Date.now() + (a.adelanto_dias + 1) * 86400000).toISOString(), timeZone: 'UTC', items: [{ id: a.calendario }] }) }, 'calendario');
   const busy = Object.values(f?.calendars || {})[0]?.busy || [];
   const v = { agenda: a, slots: calcularHuecos(a, busy) };
   cacheHuecos.set(org, { at: Date.now(), v });
@@ -186,7 +216,7 @@ export async function crearCita(env, org, { inicio, nombre, correo, descripcion 
   const ini = new Date(inicio), fin = new Date(ini.getTime() + agenda.duracion * 60000);
   const ev = await gapi(env, org, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(agenda.calendario)}/events?conferenceDataVersion=1&sendUpdates=all`, { method: 'POST', body: JSON.stringify({
     summary: agenda.titulo.replace(/\{nombre\}/gi, nombre || 'cliente'), description: descripcion || 'Cita agendada por el asistente de Mensajes.', start: { dateTime: ini.toISOString() }, end: { dateTime: fin.toISOString() },
-    attendees: [{ email: correo, ...(nombre ? { displayName: nombre } : {}) }, ...(agenda.copia && agenda.copia !== String(correo).toLowerCase() ? [{ email: agenda.copia }] : [])], conferenceData: { createRequest: { requestId: hex(8), conferenceSolutionKey: { type: 'hangoutsMeet' } } } }) });
+    attendees: [{ email: correo, ...(nombre ? { displayName: nombre } : {}) }, ...(agenda.copia && agenda.copia !== String(correo).toLowerCase() ? [{ email: agenda.copia }] : [])], conferenceData: { createRequest: { requestId: hex(8), conferenceSolutionKey: { type: 'hangoutsMeet' } } } }) }, 'calendario');
   cacheHuecos.delete(org);
   return { id: ev.id, inicio: ini.toISOString(), etiqueta: etiquetaHora(ini.getTime(), agenda.offset), link: ev.hangoutLink || ev.htmlLink || null };
 }

@@ -22,7 +22,7 @@ import { guardarMensaje, tocarChat, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
 import { sincronizarSiToca } from './correo.js';
-import { estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
+import { estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, asignarUsos, enviarGmail, cuentaPara, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
 const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -268,9 +268,21 @@ export function routes(r) {
   });
   r.post(`${B}/google/conectar`, `manager:${MOD}`, async (c) => {
     if (c.ctx?.app !== 'diwilo') throw new HttpError(400, 'Conectar Google está disponible por ahora solo en Diwilo');
-    try { return json({ url: await urlConexion(c.env, c.businessId, redirectDe(c)) }); } catch (e) { throw gerr(e); }
+    const body = await readJson(c.req).catch(() => ({}));
+    try { return json({ url: await urlConexion(c.env, c.businessId, redirectDe(c), String(body.correo || '').trim()) }); } catch (e) { throw gerr(e); }
   });
-  r.post(`${B}/google/desconectar`, `manager:${MOD}`, async (c) => { await desconectar(c.env, c.businessId); await audit(c, 'Desconectó Google', { modulo: MOD }); return json({ ok: true }); });
+  r.post(`${B}/google/desconectar`, `manager:${MOD}`, async (c) => {
+    const body = await readJson(c.req).catch(() => ({}));
+    await desconectar(c.env, c.businessId, body.cuenta || null); await audit(c, body.cuenta ? 'Quitó una cuenta de Google' : 'Desconectó Google', { modulo: MOD });
+    return json({ ok: true });
+  });
+  // Qué cuenta envía y lee el correo y cuál agenda las citas con Meet
+  r.put(`${B}/google/usos`, `manager:${MOD}`, async (c) => {
+    const body = await readJson(c.req);
+    try { await asignarUsos(c.env, c.businessId, { cuenta_gmail: body.cuenta_gmail, cuenta_calendario: body.cuenta_calendario }); } catch (e) { throw gerr(e); }
+    await audit(c, 'Cambió las cuentas de Google que envían el correo y agendan las citas', { modulo: MOD });
+    return json({ ok: true });
+  });
   r.put(`${B}/google/agenda`, `manager:${MOD}`, async (c) => {
     const body = await readJson(c.req);
     if (!(await filaGoogle(c.env, c.businessId))) throw new HttpError(400, 'Primero sube las credenciales de Google');
@@ -282,12 +294,28 @@ export function routes(r) {
     return json({ ok: true, agenda });
   });
   r.post(`${B}/google/probar`, `manager:${MOD}`, async (c) => {
-    if (!(await conectado(c.env, c.businessId))) throw new HttpError(400, 'Google no está conectado');
+    const body = await readJson(c.req).catch(() => ({}));
+    if (!(await conectado(c.env, c.businessId)) && !(await conectado(c.env, c.businessId, 'calendario'))) throw new HttpError(400, 'Google no está conectado');
     const pasos = [], paso = async (nombre, f) => { try { pasos.push({ nombre, ok: true, detalle: await f() }); } catch (e) { pasos.push({ nombre, ok: false, detalle: e.message }); } };
-    await paso('Gmail', async () => `Cuenta ${(await gapi(c.env, c.businessId, 'https://gmail.googleapis.com/gmail/v1/users/me/profile')).emailAddress}`);
-    // Con los permisos pedidos (eventos y disponibilidad) se puede leer y crear eventos, no leer los datos del calendario en sí
-    await paso('Calendario', async () => { const e = await gapi(c.env, c.businessId, 'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true&orderBy=startTime&timeMin=' + encodeURIComponent(new Date().toISOString())); return `Puede leer y crear eventos${e.summary ? ` en «${e.summary}»` : ''}${e.items?.[0]?.summary ? `. Próximo evento: ${e.items[0].summary}` : ' (no tienes eventos próximos)'}`; });
-    await paso('Horarios libres', async () => { const h = await huecosLibres(c.env, c.businessId, { fresco: true }); return h.slots.length ? `${h.slots.length} horarios libres, el primero: ${h.slots[0].etiqueta}` : 'No hay horarios libres en el rango (revisa los días, el horario o el calendario)'; });
+    const cg = await cuentaPara(c.env, c.businessId, 'gmail'), cc = await cuentaPara(c.env, c.businessId, 'calendario');
+    if (cg) await paso(`Gmail (${cg.email})`, async () => `Cuenta ${(await gapi(c.env, c.businessId, 'https://gmail.googleapis.com/gmail/v1/users/me/profile')).emailAddress}`);
+    else pasos.push({ nombre: 'Gmail', ok: false, detalle: 'No hay una cuenta asignada al correo' });
+    if (cc) {
+      // Con los permisos pedidos (eventos y disponibilidad) se puede leer y crear eventos, no leer los datos del calendario en sí
+      await paso(`Calendario (${cc.email})`, async () => { const e = await gapi(c.env, c.businessId, 'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true&orderBy=startTime&timeMin=' + encodeURIComponent(new Date().toISOString()), {}, 'calendario'); return `Puede leer y crear eventos${e.items?.[0]?.summary ? `. Próximo evento: ${e.items[0].summary}` : ' (no tienes eventos próximos)'}`; });
+      await paso('Horarios libres', async () => { const h = await huecosLibres(c.env, c.businessId, { fresco: true }); return h.slots.length ? `${h.slots.length} horarios libres, el primero: ${h.slots[0].etiqueta}` : 'No hay horarios libres en el rango (revisa los días, el horario o el calendario)'; });
+    } else pasos.push({ nombre: 'Calendario', ok: false, detalle: 'No hay una cuenta asignada al calendario' });
+    // Correo de prueba: sale por Gmail, desde la dirección de la bandeja de correo si es un alias «Enviar como» verificado
+    const para = String(body.para || '').trim();
+    if (para) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) pasos.push({ nombre: 'Correo de prueba', ok: false, detalle: 'Escribe un correo válido' });
+      else if (!cg) pasos.push({ nombre: 'Correo de prueba', ok: false, detalle: 'No hay una cuenta asignada al correo' });
+      else await paso('Correo de prueba', async () => {
+        const bandeja = (await one(c.env, "SELECT * FROM wa_bandejas WHERE business_id = ? AND canal = 'correo' AND activo = 1 ORDER BY id LIMIT 1", c.businessId)) || { business_id: c.businessId, phone_number_id: cg.email, nombre: 'Diwilo' };
+        const r = await enviarGmail(c.env, bandeja, para, 'Hola 👋\n\nEste es un correo de prueba enviado desde Mensajes por la API de Gmail. Si lo lees, las respuestas por correo funcionan.', { asunto: 'Prueba de Mensajes' });
+        return `Enviado a ${para} desde ${r.de}${r.alias ? ' (alias «Enviar como»: sale con la dirección de la bandeja)' : ` (la cuenta conectada; ${bandeja.phone_number_id} no está como alias verificado en Gmail)`}. Revisa tu bandeja y el correo «Enviados».`;
+      });
+    }
     return json({ ok: pasos.every((p) => p.ok), pasos });
   });
 

@@ -280,17 +280,21 @@ DW.ready.then((me) => {
     const a = g.agenda, DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     el.innerHTML = `<div class="row g-3">
       <div class="col-lg-6"><div class="dw-card h-100 d-grid gap-3 align-content-start">
-        <div class="d-flex align-items-center gap-2"><i class="bi bi-google fs-4"></i><h2 class="h6 mb-0">Conexión con Google</h2><span class="badge ms-auto ${g.conectado ? 'text-bg-success' : g.credenciales ? 'text-bg-warning' : 'text-bg-secondary'}">${g.conectado ? 'Conectado' : g.credenciales ? 'Falta conectar' : 'Sin credenciales'}</span></div>
+        <div class="d-flex align-items-center gap-2"><i class="bi bi-google fs-4"></i><h2 class="h6 mb-0">Conexión con Google</h2><span class="badge ms-auto ${g.conectado ? 'text-bg-success' : g.credenciales ? 'text-bg-warning' : 'text-bg-secondary'}">${g.conectado ? `${g.cuentas.length} cuenta${g.cuentas.length === 1 ? '' : 's'}` : g.credenciales ? 'Falta conectar' : 'Sin credenciales'}</span></div>
         <p class="small text-body-secondary mb-0">Con Google conectado, las respuestas del canal de <b>correo</b> salen por <b>Gmail</b> (quedan en «Enviados» y en el mismo hilo), los correos nuevos de Gmail entran como chats y los agentes pueden <b>agendar citas con Google Meet</b> en tu Calendar.</p>
         <div><div class="small fw-semibold mb-1">1. Credenciales del cliente OAuth</div>
           <div class="small text-body-secondary mb-2">En Google Cloud: APIs y servicios → Credenciales → tu «ID de cliente de OAuth» → <b>Descargar JSON</b>. Súbelo aquí (o pega su contenido). El secreto se guarda cifrado y no se vuelve a mostrar.</div>
           ${g.credenciales ? `<div class="small mb-2"><i class="bi bi-check-circle text-success me-1"></i>Guardadas: <span class="font-monospace">${esc(g.client_id)}</span></div>` : ''}
           ${CAN ? `<form data-cred class="d-grid gap-2"><input class="form-control form-control-sm" type="file" name="archivo" accept=".json,application/json" aria-label="Archivo JSON de credenciales"><textarea class="form-control form-control-sm font-monospace" name="json" rows="3" placeholder='o pega aquí el contenido del JSON: {"web":{"client_id":"…","client_secret":"…"}}'></textarea><button class="btn btn-sm btn-primary">${g.credenciales ? 'Reemplazar credenciales' : 'Guardar credenciales'}</button></form>` : ''}
           <div class="small text-body-secondary mt-2">URL de redirección que debe estar en tu cliente de Google: <button class="btn btn-sm btn-link p-0" data-cp="${esc(g.redirect)}"><i class="bi bi-clipboard"></i> Copiar</button><div class="font-monospace small text-break p-2 rounded-3 mt-1" style="background:rgba(var(--bs-body-color-rgb),.06)">${esc(g.redirect)}</div></div></div>
-        <div><div class="small fw-semibold mb-1">2. Conectar tu cuenta</div>
-          ${g.conectado ? `<div class="small mb-2"><i class="bi bi-person-check text-success me-1"></i>Cuenta: <b>${esc(g.email || '—')}</b> · permisos: ${esc(g.scopes.join(', '))}</div>` : ''}
-          ${CAN ? `<div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-success" data-conectar ${g.credenciales && g.puede_conectar ? '' : 'disabled'}><i class="bi bi-box-arrow-up-right me-1"></i>${g.conectado ? 'Volver a conectar' : 'Conectar con Google'}</button>${g.conectado ? '<button class="btn btn-sm btn-outline-success" data-probar>Probar</button><button class="btn btn-sm btn-outline-danger" data-desc>Desconectar</button>' : ''}</div>` : ''}
-          ${!g.puede_conectar ? '<div class="small text-body-secondary mt-1">Conectar Google está disponible por ahora solo en Diwilo.</div>' : ''}<div data-res class="mt-2"></div></div>
+        <div><div class="small fw-semibold mb-1">2. Cuentas de Google conectadas</div>
+          <div class="small text-body-secondary mb-2">Puedes conectar varias (por ejemplo una para el correo y otra para las citas con Meet). Cada una se autoriza con su propio inicio de sesión de Google.</div>
+          ${g.cuentas.length ? `<div class="d-grid gap-1 mb-2">${g.cuentas.map((c) => `<div class="d-flex flex-wrap gap-2 align-items-center p-2 rounded-3" style="background:rgba(var(--bs-body-color-rgb),.06)"><i class="bi bi-person-check text-success"></i><b class="text-break">${esc(c.email)}</b>${c.id === g.cuenta_gmail ? '<span class="badge text-bg-primary">Correo</span>' : ''}${c.id === g.cuenta_calendario ? '<span class="badge text-bg-info">Calendario y Meet</span>' : ''}${CAN ? `<button class="btn btn-sm btn-outline-danger ms-auto" data-quitar="${c.id}" aria-label="Quitar cuenta"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('')}</div>
+            ${CAN ? `<div class="row g-2 mb-2"><div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">Envía y lee el correo<select class="form-select form-select-sm" data-uso="cuenta_gmail">${g.cuentas.map((c) => `<option value="${c.id}" ${c.id === g.cuenta_gmail ? 'selected' : ''}>${esc(c.email)}</option>`).join('')}</select></label></div>
+              <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">Agenda las citas con Meet<select class="form-select form-select-sm" data-uso="cuenta_calendario">${g.cuentas.map((c) => `<option value="${c.id}" ${c.id === g.cuenta_calendario ? 'selected' : ''}>${esc(c.email)}</option>`).join('')}</select></label></div></div>` : ''}` : '<div class="small text-body-secondary mb-2">Aún no hay cuentas conectadas.</div>'}
+          ${CAN ? `<div class="d-flex flex-wrap gap-2 align-items-end"><label class="small text-body-secondary d-grid gap-1 flex-grow-1">Correo de la cuenta a conectar (opcional)<input class="form-control form-control-sm" data-hint type="email" placeholder="hola@tuempresa.com"></label><button class="btn btn-sm btn-success" data-conectar ${g.credenciales && g.puede_conectar ? '' : 'disabled'}><i class="bi bi-box-arrow-up-right me-1"></i>${g.cuentas.length ? 'Conectar otra cuenta' : 'Conectar con Google'}</button></div>` : ''}
+          ${!g.puede_conectar ? '<div class="small text-body-secondary mt-1">Conectar Google está disponible por ahora solo en Diwilo.</div>' : ''}</div>
+        ${g.conectado && CAN ? `<div><div class="small fw-semibold mb-1">3. Probar</div><div class="d-flex flex-wrap gap-2 align-items-end"><label class="small text-body-secondary d-grid gap-1 flex-grow-1">Enviar un correo de prueba a (opcional)<input class="form-control form-control-sm" data-para type="email" placeholder="tu-correo@gmail.com"></label><button class="btn btn-sm btn-outline-success" data-probar>Probar</button></div><div data-res class="mt-2"></div></div>` : ''}
       </div></div>
       <div class="col-lg-6"><form class="dw-card h-100 d-grid gap-3 align-content-start" data-agenda>
         <div class="d-flex align-items-center gap-2"><i class="bi bi-calendar-check fs-4"></i><h2 class="h6 mb-0">Citas con Meet</h2></div>
@@ -309,16 +313,22 @@ DW.ready.then((me) => {
       const cp = e.target.closest('[data-cp]'); if (cp) return copiar(cp.dataset.cp);
       try {
         if (e.target.closest('[data-conectar]')) {
-          const r = await api(`${B}/google/conectar`, { method: 'POST', body: {} }); window.open(r.url, '_blank', 'noopener');
+          const r = await api(`${B}/google/conectar`, { method: 'POST', body: { correo: ($('[data-hint]', el)?.value || '').trim() } }); window.open(r.url, '_blank', 'noopener');
           toast('Se abrió Google en otra pestaña: autoriza y vuelve aquí');
-          for (let i = 0; i < 60 && view === 'google'; i++) { await new Promise((x) => setTimeout(x, 3000)); const s = await api(`${B}/google`); if (s.conectado && s.email !== g.email) { toast('Google conectado'); return render(); } if (s.conectado && !g.conectado) { toast('Google conectado'); return render(); } }
-        } else if (e.target.closest('[data-desc]')) { if (!(await confirm({ title: '¿Desconectar Google?', text: 'Las respuestas de correo volverán a salir por Cloudflare y los agentes dejarán de agendar.', ok: 'Desconectar' }))) return; await api(`${B}/google/desconectar`, { method: 'POST', body: {} }); toast('Google desconectado'); render(); }
-        else if (e.target.closest('[data-probar]')) {
+          for (let i = 0; i < 60 && view === 'google'; i++) { await new Promise((x) => setTimeout(x, 3000)); const s = await api(`${B}/google`); if (s.cuentas.length > g.cuentas.length || (s.cuentas.length && s.cuentas.some((c) => !g.cuentas.find((o) => o.id === c.id)))) { toast('Cuenta de Google conectada'); return render(); } }
+        } else if (e.target.closest('[data-quitar]')) {
+          if (!(await confirm({ title: '¿Quitar esta cuenta de Google?', text: 'Si era la del correo o la del calendario, pasa a otra cuenta conectada (o a ninguna).', ok: 'Quitar' }))) return;
+          await api(`${B}/google/desconectar`, { method: 'POST', body: { cuenta: +e.target.closest('[data-quitar]').dataset.quitar } }); toast('Cuenta quitada'); render();
+        } else if (e.target.closest('[data-probar]')) {
           const res = $('[data-res]', el); res.innerHTML = '<div class="small text-body-secondary">Probando…</div>';
-          const r = await api(`${B}/google/probar`, { method: 'POST', body: {} });
+          const r = await api(`${B}/google/probar`, { method: 'POST', body: { para: ($('[data-para]', el)?.value || '').trim() } });
           res.innerHTML = r.pasos.map((x) => `<div class="small d-flex gap-2 mb-1"><i class="bi ${x.ok ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i><div><b>${esc(x.nombre)}</b><div class="text-body-secondary">${esc(x.detalle)}</div></div></div>`).join('');
         }
       } catch (x) { toast(x.message, false); }
+    };
+    el.onchange = async (e) => {
+      const u = e.target.closest('[data-uso]'); if (!u) return;
+      try { await api(`${B}/google/usos`, { method: 'PUT', body: { [u.dataset.uso]: +u.value } }); toast('Guardado'); render(); } catch (x) { toast(x.message, false); }
     };
     const fc = $('[data-cred]', el);
     if (fc) {
