@@ -1,5 +1,11 @@
 # WhatsApp — cambios
 
+## 3.1.0 · 2026-10-27
+- **Google (pestaña «Google»):** el equipo sube el JSON de credenciales del cliente OAuth de Google Cloud (el secreto se guarda cifrado y nunca se devuelve), conecta su cuenta y el módulo guarda el token permanente cifrado. Botones para probar, desconectar y ver la URL de redirección (`/admin/api/google/callback`). Por ahora solo en Diwilo.
+- **Gmail:** con Google conectado, las respuestas del canal de correo salen **por Gmail** (quedan en «Enviados» y en el mismo hilo; desde la dirección de la bandeja si es un alias «Enviar como», o desde la cuenta conectada con Reply-To a la bandeja) y los correos nuevos de Gmail dirigidos a cada bandeja entran como chats (cada 2 minutos, sin repetir los que ya entraron por Email Routing). Sin Google, se envía por Cloudflare Email Sending.
+- **Calendar con Meet:** horario de atención configurable (días, horas, duración, descanso, aviso mínimo). Un agente con «Puede agendar citas» ve los horarios libres de tu Calendar, los ofrece, y al elegir uno crea la cita con enlace de Meet, invita a la persona, lo anota en su contacto de Marketing y se lo confirma en el chat.
+- Migración `0032_google.sql`; nuevo cron cada 2 minutos.
+
 ## 3.0.0 · 2026-10-27
 - **Canal de correo:** una dirección de tu dominio (hola@…) como bandeja. Cloudflare Email Routing entrega cada correo al Worker (`email()`); cada remitente es un chat, con su asunto, sin la cita de lo anterior, y se responde desde Mensajes en el mismo hilo (Re:, In-Reply-To) por Cloudflare Email Sending. Siempre se reenvía una copia a la dirección «reenviar a» (o al respaldo) para que ningún correo se pierda; los avisos automáticos, listas y rebotes se reenvían y no se guardan.
 - La IA queda **apagada** en los chats nuevos de correo (se enciende por chat con el interruptor).

@@ -8,6 +8,7 @@
 //   GET   /api/whatsapp/chats?bandeja=&canal=&q=  lista de chats (izquierda) · GET /chats/:id chat completo (mensajes y contacto)
 //   PATCH /api/whatsapp/chats/:id { ia_activa?, agente_id? }  enciende o apaga la IA en ese chat y elige qué agente lo atiende (0 = ninguno) · POST /:id/leer · POST /:id/enviar { texto } (apaga la IA de ese chat)
 //   POST  /api/whatsapp/chats/:id/contacto       guarda / enlaza el contacto en Marketing · DELETE /chats/:id
+//   GET   /api/whatsapp/google · POST /google/credenciales · /google/conectar · /google/desconectar · /google/probar · PUT /google/agenda  conexión con Google (Gmail y Calendar)
 //   GET   /api/whatsapp/mensajes?q=&canal=&bandeja=  todos los mensajes de todos los canales (los 200 más recientes)
 //   GET   /api/whatsapp/contactos?q=             contactos de Marketing (para enviar plantillas)
 //   GET   /api/whatsapp/plantillas?bandeja=      plantillas aprobadas de WhatsApp · POST /plantillas/enviar { bandeja_id, plantilla, idioma, variables, contactos[], chats[] }
@@ -20,6 +21,7 @@ import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValid
 import { guardarMensaje, tocarChat, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
+import { estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
 const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -89,7 +91,7 @@ export const ENTITIES = {
   agentes: {
     table: 'wa_agentes', label: 'el agente', title: 'nombre', search: ['nombre'], order: 'created_at',
     // bandejas = JSON [ids de bandeja donde puede servir]; vacío = todas. `campos` = JSON { campos, extras } con los datos de contacto que pide.
-    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', alerta_asesor: 'bool+', insistir: 'bool+', bienvenida: 'long', bienvenida_conocido: 'long', usar_conocido: 'bool+', campos: 'long' },
+    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', alerta_asesor: 'bool+', insistir: 'bool+', agendar: 'bool', bienvenida: 'long', bienvenida_conocido: 'long', usar_conocido: 'bool+', campos: 'long' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row) {
       textoLargo(row); await fijarBandejas(c, row, true);
@@ -251,6 +253,40 @@ export function routes(r) {
       FROM wa_mensajes m JOIN wa_bandejas b ON b.id = m.bandeja_id LEFT JOIN wa_conversaciones c ON c.bandeja_id = m.bandeja_id AND c.contacto = m.contacto
       WHERE ${donde.join(' AND ')} ORDER BY m.ts DESC, m.id DESC LIMIT 200`, ...args);
     return json({ rows: rows.map(conLugar) });
+  });
+
+  /* Google: credenciales del cliente OAuth, conexión de la cuenta, horario de las citas */
+  const gerr = (e) => (e instanceof GoogleError ? new HttpError(e.status === 500 ? 500 : 400, e.message) : e);
+  const redirectDe = (c) => `${c.ctx?.origin || ''}/admin/api/google/callback`;
+  r.get(`${B}/google`, `tenant:${MOD}`, async (c) => json({ ...(await estadoGoogle(c.env, c.businessId)), redirect: redirectDe(c), puede_conectar: c.ctx?.app === 'diwilo', correos: (await one(c.env, "SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ? AND canal = 'correo'", c.businessId)).n }));
+  r.post(`${B}/google/credenciales`, `manager:${MOD}`, async (c) => {
+    const body = await readJson(c.req);
+    try { await guardarCredenciales(c.env, c.businessId, leerCredenciales(body.json ?? { client_id: body.client_id, client_secret: body.client_secret })); } catch (e) { throw gerr(e); }
+    await audit(c, 'Subió las credenciales de Google', { modulo: MOD });
+    return json({ ok: true });
+  });
+  r.post(`${B}/google/conectar`, `manager:${MOD}`, async (c) => {
+    if (c.ctx?.app !== 'diwilo') throw new HttpError(400, 'Conectar Google está disponible por ahora solo en Diwilo');
+    try { return json({ url: await urlConexion(c.env, c.businessId, redirectDe(c)) }); } catch (e) { throw gerr(e); }
+  });
+  r.post(`${B}/google/desconectar`, `manager:${MOD}`, async (c) => { await desconectar(c.env, c.businessId); await audit(c, 'Desconectó Google', { modulo: MOD }); return json({ ok: true }); });
+  r.put(`${B}/google/agenda`, `manager:${MOD}`, async (c) => {
+    const body = await readJson(c.req);
+    if (!(await filaGoogle(c.env, c.businessId))) throw new HttpError(400, 'Primero sube las credenciales de Google');
+    const agenda = normalizarAgenda(body.agenda || body);
+    if (!agenda.dias.length) throw new HttpError(400, 'Elige al menos un día de atención');
+    if (agenda.desde >= agenda.hasta) throw new HttpError(400, 'La hora de inicio debe ser antes que la de cierre');
+    await c.env.DB.prepare('UPDATE wa_google SET agenda = ?, gmail_activo = COALESCE(?, gmail_activo), updated_at = ? WHERE business_id = ?').bind(JSON.stringify(agenda), typeof body.gmail_activo === 'boolean' ? (body.gmail_activo ? 1 : 0) : null, now(), c.businessId).run();
+    await audit(c, 'Cambió el horario de las citas', { modulo: MOD });
+    return json({ ok: true, agenda });
+  });
+  r.post(`${B}/google/probar`, `manager:${MOD}`, async (c) => {
+    if (!(await conectado(c.env, c.businessId))) throw new HttpError(400, 'Google no está conectado');
+    const pasos = [], paso = async (nombre, f) => { try { pasos.push({ nombre, ok: true, detalle: await f() }); } catch (e) { pasos.push({ nombre, ok: false, detalle: e.message }); } };
+    await paso('Gmail', async () => `Cuenta ${(await gapi(c.env, c.businessId, 'https://gmail.googleapis.com/gmail/v1/users/me/profile')).emailAddress}`);
+    await paso('Calendario', async () => `Calendario «${(await gapi(c.env, c.businessId, 'https://www.googleapis.com/calendar/v3/calendars/primary')).summary}»`);
+    await paso('Horarios libres', async () => { const h = await huecosLibres(c.env, c.businessId, { fresco: true }); return h.slots.length ? `${h.slots.length} horarios libres, el primero: ${h.slots[0].etiqueta}` : 'No hay horarios libres en el rango (revisa los días, el horario o el calendario)'; });
+    return json({ ok: pasos.every((p) => p.ok), pasos });
   });
 
   /* contactos de Marketing y plantillas */

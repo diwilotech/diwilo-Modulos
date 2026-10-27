@@ -244,6 +244,29 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   const pc = await A.app(`${X}/bandejas/${bc.id}/probar`, { method: 'POST', body: {} });
   check('Mensajes: el verificador de correo explica cómo recibir y si el envío está configurado', pc.status === 200 && pc.data.pasos.some((p) => p.nombre === 'Recepción') && pc.data.pasos.some((p) => p.nombre === 'Envío'), JSON.stringify(pc.data));
 
+  /* ---------- Google: credenciales, conexión y horario de las citas ---------- */
+  const G0 = (await A.app(`${X}/google`)).data;
+  check('Mensajes: sin credenciales Google aparece sin conectar, con la URL de redirección', G0.credenciales === false && G0.conectado === false && /\/admin\/api\/google\/callback$/.test(G0.redirect) && G0.agenda.duracion === 45, JSON.stringify(G0));
+  check('Mensajes: credenciales de Google inválidas se rechazan (archivo que no es JSON, sin client_id, sin secreto)', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: 'no es json' } })).status === 400
+    && (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: { web: { client_id: 'abc', client_secret: 'GOCSPX-xxxxxxxxxxxx' } } } })).status === 400
+    && (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: { web: { client_id: '123-abc.apps.googleusercontent.com', client_secret: '' } } } })).status === 400);
+  const credJson = JSON.stringify({ web: { client_id: '123456-abcdef.apps.googleusercontent.com', client_secret: 'GOCSPX-secreto-de-prueba-1234', redirect_uris: ['https://diwilo.com/admin/api/google/callback'] } });
+  const gc = await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: credJson } });
+  if (gc.status === 500 && /CLAVES_KEK/.test(gc.data.error || '')) check('Mensajes: sin CLAVES_KEK no se guardan credenciales (se salta el resto de las pruebas de Google)', true);
+  else {
+    const G1 = (await A.app(`${X}/google`)).data;
+    check('Mensajes: se suben las credenciales con el JSON de Google y el secreto nunca se devuelve', gc.status === 200 && G1.credenciales === true && G1.conectado === false && !JSON.stringify(G1).includes('GOCSPX') && /123456-abcd/.test(G1.client_id), JSON.stringify(G1));
+    check('Mensajes: también se aceptan el client_id y el secreto sueltos', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { client_id: '123456-abcdef.apps.googleusercontent.com', client_secret: 'GOCSPX-secreto-de-prueba-1234' } })).status === 200);
+    check('Mensajes: B no ve las credenciales de A y A no puede conectar fuera de Diwilo (sin cuenta conectada)', (await B.app(`${X}/google`)).data.credenciales === false && (await A.app(`${X}/google/conectar`, { method: 'POST', body: {} })).status === 400 && (await A.app(`${X}/google/probar`, { method: 'POST', body: {} })).status === 400);
+    const ag1 = await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1, 2, 3], desde: '09:00', hasta: '16:00', duracion: 30, buffer: 10, adelanto_dias: 10, minimo_horas: 2, titulo: 'Cita – {nombre}', gmail_activo: false } });
+    const G2 = (await A.app(`${X}/google`)).data;
+    check('Mensajes: se guarda el horario de las citas (días, horas, duración) y el interruptor de Gmail', ag1.status === 200 && G2.agenda.duracion === 30 && G2.agenda.desde === '09:00' && JSON.stringify(G2.agenda.dias) === '[1,2,3]' && G2.gmail_activo === false, JSON.stringify(G2.agenda));
+    check('Mensajes: el horario sin días o con la hora de cierre antes de la de inicio se rechaza', (await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [] } })).status === 400 && (await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1], desde: '17:00', hasta: '08:00' } })).status === 400);
+    check('Mensajes: el personal no sube credenciales ni cambia el horario (403)', (await (await newMember(A.id, 'staff')).app(`${X}/google/credenciales`, { method: 'POST', body: { json: credJson } })).status === 403);
+    check('Mensajes: desconectar Google limpia la conexión (las credenciales quedan)', (await A.app(`${X}/google/desconectar`, { method: 'POST', body: {} })).status === 200 && (await A.app(`${X}/google`)).data.conectado === false);
+  }
+  check('Mensajes: un agente guarda si puede agendar citas', (await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { agendar: true } })).status === 200 && (await ags()).find((a) => a.id === g1.data.id).agendar === 1 && (await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { agendar: false } })).status === 200);
+
   /* ---------- responder a mano y plantillas ---------- */
   const env = await A.app(`${X}/chats/${chA.id}/enviar`, { method: 'POST', body: { texto: 'Hola, te escribo yo' } });
   const d3 = await det();

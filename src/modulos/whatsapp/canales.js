@@ -2,6 +2,7 @@
 // Instagram y Messenger usan el token de la página y el id de la página / de la cuenta profesional de Instagram (se guarda en phone_number_id).
 import { descifrarClave } from '../../lib/ia.js';
 import { one, now } from '../../lib/crud.js';
+import { conectado, enviarGmail } from './google.js';
 
 export const GRAPH = 'https://graph.facebook.com/v21.0';
 export const CANALES = { whatsapp: { nombre: 'WhatsApp', icono: 'bi-whatsapp' }, instagram: { nombre: 'Instagram', icono: 'bi-instagram' }, messenger: { nombre: 'Messenger', icono: 'bi-messenger' }, webhook: { nombre: 'Web / Webhook', icono: 'bi-globe2' }, correo: { nombre: 'Correo', icono: 'bi-envelope' } };
@@ -54,6 +55,11 @@ export async function enviarWeb(bandeja, evento, datos) {
 const escHtml = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 // Responde un correo por Cloudflare Email Sending, en el mismo hilo (Re: asunto, In-Reply-To / References)
 export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref } = {}) {
+  // Con Google conectado, la respuesta sale por Gmail (queda en «Enviados» y en el mismo hilo); si no, por Cloudflare Email Sending
+  if (await conectado(env, bandeja.business_id).catch(() => false)) {
+    try { await enviarGmail(env, bandeja, para, texto, { asunto, ref }); return { estado: 'enviado' }; }
+    catch (e) { console.error('gmail envío', e.message); return { estado: 'error', error: `Gmail no lo envió: ${String(e.message).slice(0, 200)}` }; }
+  }
   if (!env.EMAIL?.send) return { estado: 'error', error: 'El envío de correo no está configurado en Diwilo Modulos' };
   try {
     const t = String(texto).slice(0, 20000), subject = /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
@@ -132,7 +138,7 @@ export async function probarBandeja(env, bandeja, para) {
   const pasos = [], paso = (nombre, ok, detalle) => { pasos.push({ nombre, ok, detalle }); return ok; };
   if (bandeja.canal === 'correo') {
     paso('Recepción', true, `Los correos que lleguen a ${bandeja.phone_number_id} aparecen en Chats si en Cloudflare → Email Routing la regla de esa dirección envía a un Worker → diwilo-modulos.`);
-    if (!env.EMAIL?.send) paso('Envío', false, 'El envío de correo no está configurado en Diwilo Modulos (binding send_email).');
+    if (!env.EMAIL?.send && !(await conectado(env, bandeja.business_id).catch(() => false))) paso('Envío', false, 'No hay cómo enviar: conecta Google en la pestaña «Google» (respuestas por Gmail) o activa Cloudflare Email Sending.');
     else if (!para || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) paso('Envío', true, 'El envío está configurado. Escribe un correo en «Número que recibe el mensaje de prueba» para mandarle una prueba.');
     else { const r = await enviarCorreo(env, bandeja, para.trim(), 'Prueba de conexión de Diwilo: si lees esto, las respuestas por correo funcionan.', { asunto: 'Prueba de conexión' }); paso('Envío', r.estado === 'enviado', r.estado === 'enviado' ? `Correo de prueba enviado a ${para.trim()}.` : r.error); }
     return { ok: pasos.every((p) => p.ok), pasos };

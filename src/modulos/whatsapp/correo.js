@@ -6,6 +6,7 @@ import PostalMime from 'postal-mime';
 import { one, now } from '../../lib/crud.js';
 import { orgUsa } from '../../lib/contexto.js';
 import { guardarMensaje, tocarChat, responder } from './webhook.js';
+import { sincronizarGmail } from './google.js';
 
 const AUTOMATICO = /^(mailer-daemon|postmaster|no-?reply|do-?not-?reply|bounce|notifications?@)/i;
 const CITA = /^(>|on .{5,80} wrote:|el .{5,80} escribi[oó]:|-{2,}\s*(original message|mensaje original)|de:\s.+@|from:\s.+@)/i;
@@ -58,3 +59,6 @@ export async function recibirCorreo(message, env, ctx) {
   } catch (e) { console.error('correo recibir', e.message); }
   await reenviar();
 }
+
+// Cada 2 minutos: los correos nuevos de Gmail dirigidos a cada bandeja de correo entran como chats (los que ya entraron por Email Routing no se repiten: mismo Message-ID)
+export const sincronizarCorreos = (env) => sincronizarGmail(env, (bandeja, datos) => registrarCorreo(env, bandeja, datos));

@@ -35,7 +35,8 @@ import { guiasDe } from './lib/guias.js';
 import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
 import { manejarWhatsapp, registrarWeb, responder } from './modulos/whatsapp/webhook.js';
-import { recibirCorreo } from './modulos/whatsapp/correo.js';
+import { recibirCorreo, sincronizarCorreos } from './modulos/whatsapp/correo.js';
+import { completarConexion, GoogleError } from './modulos/whatsapp/google.js';
 
 const router = new Router();
 for (const m of MODULOS) m.api.routes(router);
@@ -58,6 +59,7 @@ export default {
   // Correo (Mensajes): Cloudflare Email Routing entrega aquí los correos de las direcciones cuya regla apunta a este Worker
   async email(message, env, ctx) { await recibirCorreo(message, env, ctx); },
   async scheduled(event, env, ctx) {
+    if (event.cron === '*/2 * * * *') { ctx.waitUntil(sincronizarCorreos(env).catch((e) => console.error('correos gmail', e.message))); return; }   // cada 2 min: correos nuevos de Gmail
     for (const m of MODULOS) if (typeof m.api.daily === 'function') ctx.waitUntil(m.api.daily(env).catch((e) => console.error(`tarea diaria ${m.manifest.id}`, e.message)));
   },
 };
@@ -154,6 +156,15 @@ export class Modulos extends WorkerEntrypoint {
     const bandeja = await this.env.DB.prepare('SELECT * FROM wa_bandejas WHERE id = ?').bind(reg.bandeja_id).first(), conv = await this.env.DB.prepare('SELECT * FROM wa_conversaciones WHERE id = ?').bind(reg.chat_id).first();
     const respuesta = await responder(this.env, { bandeja, conv, entregar: false, contexto: String(datos.contexto || '').slice(0, 8000) });
     return { ok: true, respuesta, chat_id: reg.chat_id };
+  }
+
+  // Vuelta de Google tras «Conectar con Google»: la app entrega aquí { query, redirect } y muestra la página que devuelve. { status, html }
+  async googleCallback(query = '', redirect = '') {
+    const p = new URLSearchParams(String(query).replace(/^\?/, ''));
+    const pagina = (ok, texto) => ({ status: ok ? 200 : 400, html: `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google · Mensajes</title><body style="font-family:system-ui,sans-serif;max-width:520px;margin:12vh auto;padding:0 20px;text-align:center"><h1 style="font-size:22px">${ok ? '✅ Google conectado' : '⚠️ No se pudo conectar'}</h1><p style="color:#555">${String(texto).replace(/[<>&]/g, '')}</p><p><a href="/admin#whatsapp">Volver a Mensajes</a></p><script>try{window.opener&&window.opener.postMessage({dw:'google'},location.origin)}catch(e){}${ok ? 'setTimeout(function(){location.href="/admin#whatsapp"},1800)' : ''}</script></body>` });
+    if (p.get('error')) return pagina(false, p.get('error') === 'access_denied' ? 'Cancelaste la autorización de Google.' : `Google respondió: ${p.get('error')}`);
+    try { const r = await completarConexion(this.env, { code: p.get('code'), state: p.get('state'), redirect }); return pagina(true, `Conectaste ${r.email || 'tu cuenta'}. Ya puedes responder correos por Gmail y agendar citas con Meet.`); }
+    catch (e) { return pagina(false, e instanceof GoogleError ? e.message : 'Error al conectar con Google'); }
   }
 
   // A qué negocio pertenece el webhook (la app comprueba que siga activo y con WhatsApp antes de entregarle el mensaje)
