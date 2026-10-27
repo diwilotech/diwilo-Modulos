@@ -44,10 +44,13 @@ export async function probarBandeja(env, bandeja, para) {
     try { return await fetch(url, { ...init, signal: ac.signal, headers: { authorization: `Bearer ${clave}`, 'content-type': 'application/json' } }); } finally { clearTimeout(t); }
   };
   try {
-    const r = await llamar(`${GRAPH}/${bandeja.phone_number_id}?fields=display_phone_number,verified_name,code_verification_status`);
+    const r = await llamar(`${GRAPH}/${bandeja.phone_number_id}?fields=display_phone_number,verified_name,code_verification_status,status,name_status,platform_type,quality_rating,account_mode`);
     if (!r.ok) { paso('Clave API e ID del número', false, `Meta no aceptó la clave o el ID del número: ${await errMeta(r)}`); return { ok: false, pasos }; }
     const d = await r.json(), meta = soloDigitos(d.display_phone_number), mio = soloDigitos(bandeja.telefono);
     paso('Clave API e ID del número', true, `Conectado al número ${d.display_phone_number || '—'}${d.verified_name ? ` · nombre verificado «${d.verified_name}»` : ''}.`);
+    // Estado del número en WhatsApp: para que otras personas lo encuentren debe estar CONECTADO (registrado en la Cloud API)
+    const est = d.status ? String(d.status).toUpperCase() : null;
+    if (est) paso('Estado del número', est === 'CONNECTED', `Estado: ${d.status}${d.platform_type ? ` · plataforma ${d.platform_type}` : ''}${d.name_status ? ` · nombre ${d.name_status}` : ''}${d.quality_rating ? ` · calidad ${d.quality_rating}` : ''}${d.account_mode ? ` · modo ${d.account_mode}` : ''}.${est === 'CONNECTED' ? '' : ' Si no está CONECTADO, el número no recibe mensajes: hay que registrarlo en WhatsApp Manager (o con /register).'}${d.account_mode === 'SANDBOX' ? ' Modo SANDBOX: solo recibe de los números de prueba.' : ''}`);
     if (meta && mio && meta !== mio) paso('Teléfono', false, `El teléfono de la bandeja (${bandeja.telefono}) no coincide con el que Meta reporta para ese ID (${d.display_phone_number}).`);
     else paso('Teléfono', true, 'El teléfono coincide con el de Meta.');
     const w = await llamar(`${GRAPH}/${bandeja.waba_id}/phone_numbers?fields=id&limit=50`);
