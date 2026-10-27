@@ -146,6 +146,19 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   const chC = (await chats()).find((x) => x.contacto === '573001119999');
   check('Mensajes: el chat muestra el nombre que dio y queda enlazado al contacto de siempre', chC?.nombre === 'Luis Prado' && chC.contact_id === previo.data.id, JSON.stringify(chC));
 
+  // Un contacto ya completo en Marketing: el chat se enlaza, muestra su nombre, la bienvenida lo trata por ese nombre y el agente no le vuelve a pedir nada
+  const carla = await A.app('/api/marketing/contacts', { method: 'POST', body: { name: 'Carla Ruiz', phone: '+57 300 111 6666', email: 'carla@ruiz.co', company: 'Ruiz SAS', stage: 'cliente', notes: 'Pidió una cotización de dashboards' } });
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { bienvenida: '¡Hola{nombre}! ¿En qué te ayudo?', campos: JSON.stringify({ campos: ['correo', 'empresa', 'tipo', 'interes'], extras: [] }) } });
+  await hook(url, wa('1090000000001', 'wamid.D1', 'hola', '573001116666'));
+  const chD = await esperar(async () => (await chats()).find((x) => x.contacto === '573001116666' && x.ultimo_rol === 'assistant'));
+  const dD = chD && (await A.app(`${X}/chats/${chD.id}`)).data;
+  check('Mensajes: si el teléfono ya está en Marketing, el chat se enlaza, muestra el nombre del contacto (no el del perfil de WhatsApp) y la bienvenida lo saluda por ese nombre', dD?.chat.contact_id === carla.data.id && dD.chat.nombre === 'Carla Ruiz' && dD.mensajes[1].contenido === '¡Hola Carla! ¿En qué te ayudo?', JSON.stringify([dD?.chat.nombre, dD?.mensajes]));
+  await hook(url, wa('1090000000001', 'wamid.D2', '[prueba] quiero hablar con un asesor [[DATOS {"nombre":"Otro Nombre","correo":"otro@x.co"}]]', '573001116666'));
+  await new Promise((r) => setTimeout(r, 700));
+  const dD2 = (await A.app(`${X}/chats/${chD.id}`)).data;
+  check('Mensajes: a quien ya está completo no se le pide ni se le cambia nada, pero sí queda en rojo para el asesor', dD2.chat.datos === null && (await A.app('/api/marketing/contacts?q=Carla')).data.rows.some((c) => c.id === carla.data.id && c.name === 'Carla Ruiz' && c.email === 'carla@ruiz.co') && dD2.chat.atencion === 'pide_asesor', JSON.stringify([dD2.chat.datos, dD2.chat.atencion]));
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { bienvenida: '', campos } });
+
   /* ---------- canal webhook (web, n8n…) ---------- */
   check('Mensajes: la URL de salida de un webhook debe ser https público', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', canal: 'webhook', url_salida: 'http://127.0.0.1/x' } })).status === 400);
   const cw = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Chat de la web', canal: 'webhook' } });
@@ -203,8 +216,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 13);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 12 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 14);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 13 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

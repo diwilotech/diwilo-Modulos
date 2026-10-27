@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 2.5.1 · 2026-10-27
+- **El agente ve el contacto de Marketing:** si el teléfono del chat ya está en Marketing, el chat se enlaza en cada mensaje (no solo el primero), muestra el nombre del contacto (no el del perfil de WhatsApp) y la bienvenida lo saluda por ese nombre. El agente recibe sus datos (nombre, correo, teléfono, empresa, etapa y notas), lo trata por su nombre, retoma lo que ya pidió y **solo pide lo que falta**; si ya está completo no le pide nada y, si pide un asesor, confirma que lo contactarán a su correo o teléfono registrado.
+
 ## 2.5.0 · 2026-10-27
 - **Contactos que ya existían:** si el teléfono ya está en Marketing, lo que la persona dice en el chat completa y corrige el contacto en vez de dejarlo igual: el nombre que da reemplaza al guardado (el anterior pasa a «empresa» si está vacía y queda en las notas), el correo distinto se anota y, si dice que ya es cliente, pasa a «cliente». El chat muestra el nombre que dio. Antes un contacto enlazado por teléfono nunca se identificaba.
 - **Mensaje de bienvenida** por agente: se envía cuando alguien inicia el chat ({nombre} se cambia por su nombre). Si solo saluda, es la respuesta (sin gastar IA); si ya preguntó algo, va seguido de la respuesta. Una sola vez por chat.
