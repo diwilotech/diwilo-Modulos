@@ -22,7 +22,7 @@ export async function cifrarClave(env, texto) {
   const iv = crypto.getRandomValues(new Uint8Array(12)), ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await kek(env), new TextEncoder().encode(texto)));
   return b64(new Uint8Array([...iv, ...ct]));
 }
-async function descifrarClave(env, t) { const u = deB64(t); return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, await kek(env), u.slice(12))); }
+export async function descifrarClave(env, t) { const u = deB64(t); return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, await kek(env), u.slice(12))); }
 export const clavesDe = (env, plat, p) => [...(plat?.claves?.[p] || []).map((k) => k.valor), ...(p === 'claude' ? [env.ANTHROPIC_API_KEY] : p === 'gemini' ? [env.GEMINI_API_KEY] : []).filter(Boolean)];
 export const hayProveedor = (env, p, plat) => (p === 'workers-ai' ? !!env.AI : p === 'claude' || p === 'gemini' ? clavesDe(env, plat, p).length > 0 : false);
 let cachePlat = { at: 0, v: null };

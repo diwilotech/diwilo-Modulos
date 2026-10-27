@@ -18,6 +18,9 @@ import aiManifest from './ai/modulo.json';
 import * as dashboard from './dashboard/api.js';
 import dashboardTools from './dashboard/ia.js';
 import dashboardManifest from './dashboard/modulo.json';
+import * as whatsapp from './whatsapp/api.js';
+import whatsappTools from './whatsapp/ia.js';
+import whatsappManifest from './whatsapp/modulo.json';
 
 export const MODULOS = [
   { manifest: finanzasManifest, api: finanzas, tools: finanzasIa },
@@ -26,4 +29,5 @@ export const MODULOS = [
   { manifest: marcaManifest, api: marca, tools: marcaIa },
   { manifest: aiManifest, api: ai, tools: aiTools },
   { manifest: dashboardManifest, api: dashboard, tools: dashboardTools },
+  { manifest: whatsappManifest, api: whatsapp, tools: whatsappTools },
 ];

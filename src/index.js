@@ -12,6 +12,8 @@
 //   tarjeta(app, rest, origin, opts)  tarjetas de presentación públicas (/c/… en el dominio de la app)
 //   marca(app, businessId)            kit de marca de un negocio (color, CSS, tipografía, tono y prompts de IA) para otro Worker
 //   chat(app, rest, opts)             chats de clientes públicos (/chat/<slug>… en el dominio de la app): página, widget.js y mensajes
+//   whatsapp(app, rest, opts)         webhook de una bandeja de WhatsApp (/wa/<slug> en el dominio de la app): verificación de Meta y mensajes
+//   whatsappNegocio(app, slug)        negocio dueño del webhook (la app verifica que esté activo con WhatsApp antes de llamar a whatsapp())
 //   apiPublica(app, clave, path, query)  API pública del negocio con clave (/v1/… en el dominio de la app)
 //   uso(app, businessId)              registros por módulo (Diwilo avisa antes de quitar un módulo)
 //   purge(app, businessIds)           borra los datos de negocios que la app ya borró
@@ -30,6 +32,7 @@ import { REG, ejecutarHerramienta } from './lib/registro.js';
 import { guiasDe } from './lib/guias.js';
 import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
+import { manejarWhatsapp } from './modulos/whatsapp/webhook.js';
 
 const router = new Router();
 for (const m of MODULOS) m.api.routes(router);
@@ -116,6 +119,19 @@ export class Modulos extends WorkerEntrypoint {
   chat(app, rest, opts = {}) {
     if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
     return manejarChat(this.env, { app, rest, ...opts, waitUntil: (p) => this.ctx.waitUntil(p) });
+  }
+
+  // Webhook de WhatsApp: la app lo llama desde /wa/<slug> con { method, query, body (texto crudo), sig (X-Hub-Signature-256) } y entrega la respuesta tal cual
+  whatsapp(app, rest, opts = {}) {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
+    return manejarWhatsapp(this.env, { app, rest, ...opts, waitUntil: (p) => this.ctx.waitUntil(p) });
+  }
+
+  // A qué negocio pertenece el webhook (la app comprueba que siga activo y con WhatsApp antes de entregarle el mensaje)
+  async whatsappNegocio(app, slug) {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '') || !/^[a-f0-9]{24}$/.test(slug || '')) return null;
+    const b = await this.env.DB.prepare('SELECT business_id FROM wa_bandejas WHERE slug = ? AND business_id LIKE ?').bind(slug, `${app}:%`).first();
+    return b ? b.business_id.slice(app.length + 1) : null;
   }
 
   apiPublica(app, clave, path, query = '') {
