@@ -13,6 +13,7 @@
 //   marca(app, businessId)            kit de marca de un negocio (color, CSS, tipografía, tono y prompts de IA) para otro Worker
 //   chat(app, rest, opts)             chats de clientes públicos (/chat/<slug>… en el dominio de la app): página, widget.js y mensajes
 //   whatsapp(app, rest, opts)         webhook de una bandeja de WhatsApp (/wa/<slug> en el dominio de la app): verificación de Meta y mensajes
+//   mensajesRegistrar(app, negocio, datos)  deja en Mensajes un chat web atendido por otro sistema (chat del sitio de Diwilo)
 //   whatsappNegocio(app, slug)        negocio dueño del webhook (la app verifica que esté activo con WhatsApp antes de llamar a whatsapp())
 //   apiPublica(app, clave, path, query)  API pública del negocio con clave (/v1/… en el dominio de la app)
 //   uso(app, businessId)              registros por módulo (Diwilo avisa antes de quitar un módulo)
@@ -32,7 +33,7 @@ import { REG, ejecutarHerramienta } from './lib/registro.js';
 import { guiasDe } from './lib/guias.js';
 import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
-import { manejarWhatsapp } from './modulos/whatsapp/webhook.js';
+import { manejarWhatsapp, registrarWeb } from './modulos/whatsapp/webhook.js';
 
 const router = new Router();
 for (const m of MODULOS) m.api.routes(router);
@@ -125,6 +126,14 @@ export class Modulos extends WorkerEntrypoint {
   whatsapp(app, rest, opts = {}) {
     if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
     return manejarWhatsapp(this.env, { app, rest, ...opts, waitUntil: (p) => this.ctx.waitUntil(p) });
+  }
+
+  // Un sistema de confianza (el chat del sitio de Diwilo, otra app) deja en Mensajes lo que pasó en un chat web: { ref, nombre, contacto, nombreContacto?, mensajes: [{ id, rol, contenido, ts }], pais?, dispositivo?, pagina? }
+  async mensajesRegistrar(app, negocio, datos = {}) {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '') || !/^[A-Za-z0-9_-]{1,64}$/.test(negocio || '')) throw new HttpError(400, 'App o negocio no válido');
+    if (!/^[a-z0-9:_-]{1,40}$/.test(datos.ref || '') || !/^[A-Za-z0-9_.:@+-]{1,120}$/.test(datos.contacto || '')) throw new HttpError(400, 'ref o contacto no válido');
+    const mensajes = (Array.isArray(datos.mensajes) ? datos.mensajes : []).slice(0, 50).filter((m) => m && typeof m.contenido === 'string' && m.contenido.trim()).map((m) => ({ ...m, contenido: m.contenido.slice(0, 4000) }));
+    return registrarWeb(this.env, { ...datos, mensajes, org: orgId(app, negocio) });
   }
 
   // A qué negocio pertenece el webhook (la app comprueba que siga activo y con WhatsApp antes de entregarle el mensaje)

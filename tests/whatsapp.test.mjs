@@ -108,16 +108,32 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   const pw = (b, u = wurl) => fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }).then(async (r) => ({ status: r.status, data: await r.json() }));
   check('Mensajes: el webhook rechaza un token malo o faltante (401) y datos incompletos (400)', (await pw({ contacto: 'v1', mensaje: 'hola' }, wurl.replace(bw.verify_token, 'malo'))).status === 401 && (await pw({ contacto: 'v1', mensaje: 'hola' }, wurl.split('?')[0])).status === 401
     && (await pw({ contacto: 'con espacios', mensaje: 'hola' })).status === 400 && (await pw({ contacto: 'v1', mensaje: '' })).status === 400);
-  const w1 = await pw({ contacto: 'visitante-1', nombre: 'Visitante Uno', mensaje: 'Hola desde la web', id: 'w-1' });
+  const w1 = await pw({ contacto: 'visitante-1', nombre: 'Visitante Uno', mensaje: 'Hola desde la web', id: 'w-1', pais: 'co', dispositivo: 'desktop', pagina: 'https://ejemplo.co/precios' });
   const w1b = await pw({ contacto: 'visitante-1', mensaje: 'Hola desde la web', id: 'w-1' });
   const chW = (await chats(A, '?canal=webhook')).find((x) => x.contacto === 'visitante-1');
   check('Mensajes: un mensaje al webhook crea el chat de la web (canal Web, con nombre) y no se duplica', w1.status === 200 && w1.data.respuesta === null && w1b.data.duplicado === true && chW?.nombre === 'Visitante Uno' && chW.bandeja === 'Chat de la web' && chW.no_leidos === 1, JSON.stringify([w1.data, chW]));
-  check('Mensajes: se filtra por bandeja con nombre', (await chats(A, `?bandeja=${bw.id}`)).length === 1 && (await chats(A, `?bandeja=${ba.id}`)).every((x) => x.bandeja === 'Ventas'));
+  check('Mensajes: el chat web trae país y dispositivo (CO · escritorio) y la página', chW.pais === 'CO' && chW.dispositivo === 'escritorio' && chW.pagina === 'https://ejemplo.co/precios', JSON.stringify(chW));
+  const wm = await pw({ contacto: 'visitante-3', mensaje: 'Desde un celular', pais: 'US', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17) Mobile/15E148' });
+  check('Mensajes: el user-agent móvil se reconoce (US · móvil) y un país inválido se ignora', wm.status === 200 && (await chats(A, '?canal=webhook')).find((x) => x.contacto === 'visitante-3').dispositivo === 'móvil' && (await chats(A, '?canal=webhook')).find((x) => x.contacto === 'visitante-3').pais === 'US'
+    && (await pw({ contacto: 'visitante-4', mensaje: 'x', pais: 'ZZZ' })).status === 200 && (await chats(A, '?canal=webhook')).find((x) => x.contacto === 'visitante-4').pais === null);
+  check('Mensajes: en WhatsApp el país sale del indicativo (+57 → CO) y en Instagram y Messenger no hay ubicación', (await chats()).find((x) => x.canal === 'whatsapp').pais === 'CO' && (await chats()).filter((x) => x.canal === 'instagram' || x.canal === 'messenger').every((x) => x.pais === null));
+  check('Mensajes: se filtra por bandeja con nombre', (await chats(A, `?bandeja=${bw.id}`)).length === 3 && (await chats(A, `?bandeja=${bw.id}`)).every((x) => x.bandeja === 'Chat de la web') && (await chats(A, `?bandeja=${ba.id}`)).every((x) => x.bandeja === 'Ventas'));
   const w2 = await pw({ contacto: 'visitante-2', mensaje: '[prueba] hola web', responder: true });
   check('Mensajes: con responder:true el agente (el de «todas las bandejas») contesta en la misma llamada', w2.status === 200 && w2.data.respuesta === 'Respuesta de prueba: hola web' && w2.data.chat_id > 0, JSON.stringify(w2.data));
   const w3 = await pw({ contacto: 'visitante-2', mensaje: 'Respuesta de mi propio agente', rol: 'assistant' });
   const dw = (await A.app(`${X}/chats/${w2.data.chat_id}`)).data;
   check('Mensajes: también guarda lo que contestó el agente propio de la web (rol assistant)', w3.status === 200 && dw.mensajes.map((m) => m.rol).join() === 'user,assistant,assistant' && dw.chat.agente_id === gAll.data.id, JSON.stringify(dw.mensajes.map((m) => m.rol)));
+  const feed = (await A.app(`${X}/mensajes?canal=webhook`)).data.rows;
+  check('Mensajes: «Todos los mensajes» lista cada mensaje de todos los canales con su chat, y filtra y busca', feed.length >= 4 && feed.every((m) => m.canal === 'webhook' && m.chat_id > 0) && (await A.app(`${X}/mensajes`)).data.rows.some((m) => m.canal === 'whatsapp')
+    && (await A.app(`${X}/mensajes?q=celular`)).data.rows.length === 1 && (await B.app(`${X}/mensajes`)).data.rows.length === 0);
+  // Los chats de clientes del módulo IA se ven en Mensajes (bandeja web «Chat: <nombre>», sin agente de Mensajes, con dispositivo)
+  const ci2 = await A.app('/api/ai/chats', { method: 'POST', body: { nombre: 'Chat de ventas', whatsapp: '573000000000' } });
+  const slugIa = (await A.app('/api/ai/chats')).data.rows.find((x) => x.id === ci2.data.id).ruta.slice(6);
+  await fetch(`${APP}/chat/${slugIa}/mensaje`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sid: crypto.randomUUID().replace(/-/g, ''), message: '[prueba] cuánto cuesta', page: 'https://ejemplo.co/tarjeta' }) });
+  const chIa = await esperar(async () => (await chats(A, '?canal=webhook')).find((x) => x.bandeja === 'Chat: Chat de ventas'));
+  const dIa = chIa && (await A.app(`${X}/chats/${chIa.id}`)).data;
+  check('Mensajes: el chat de un cliente del módulo IA aparece en Mensajes con sus dos mensajes y su página', chIa && dIa.mensajes.length === 2 && dIa.mensajes[1].contenido === 'Respuesta de prueba: cuánto cuesta' && chIa.agente_id === 0 && chIa.dispositivo === 'escritorio' && chIa.pagina === 'https://ejemplo.co/tarjeta', JSON.stringify(chIa));
+  check('Mensajes: lo del chat de IA de A no aparece en B', (await B.app(`${X}/chats`)).data.rows.length === 0);
   const prw = await A.app(`${X}/bandejas/${bw.id}/probar`, { method: 'POST', body: {} });
   check('Mensajes: el verificador del webhook explica que no hay URL de salida', prw.data.ok === true && /Sin URL de salida/.test(JSON.stringify(prw.data.pasos)), JSON.stringify(prw.data));
   const ew = await A.app(`${X}/chats/${w2.data.chat_id}/enviar`, { method: 'POST', body: { texto: 'Te escribe una persona' } });
@@ -140,8 +156,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 4 && (await chats()).length === 5);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 4 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 8);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 7 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

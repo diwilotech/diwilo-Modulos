@@ -46,6 +46,10 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   if (view === 'conversaciones') view = 'chats';
   if (!VIEWS.some(([k]) => k === view)) view = 'agentes';
   const hasMkt = me.modules.some((m) => m.id === 'marketing');
+  // Con el módulo Mensajes activo, las conversaciones de los chats se ven y se atienden allí (aquí queda solo la configuración del chat)
+  const hasMsg = me.modules.some((m) => m.id === 'whatsapp');
+  const irAMensajes = () => { if (ES_DIWILO) window.parent?.postMessage({ dw: 'go', mod: 'whatsapp' }, location.origin); else window.location.href = me.modules.find((m) => m.id === 'whatsapp')?.menu?.ruta || '/staff/whatsapp.html'; };
+  const avisoMensajes = '<div class="alert alert-info small d-flex flex-wrap gap-2 align-items-center mb-3"><span><i class="bi bi-chat-dots me-1"></i>Las conversaciones de tus chats ahora se ven y se atienden en <b>Mensajes</b>, con filtros por canal, país y dispositivo.</span><button class="btn btn-sm btn-primary ms-auto" data-irmsg>Abrir Mensajes</button></div>';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
   const ago = (ts) => (ts ? fecha(ts, true) : '—');
 
@@ -157,15 +161,16 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
       const c = rows.find((x) => String(x.id) === card.dataset.id);
       if (e.target.closest('[data-edit]')) return editar(c);
       if (e.target.closest('[data-code]')) return codigo(c);
-      if (e.target.closest('[data-conv]')) { filtroChat = c.id; return render(); }
+      if (e.target.closest('[data-conv]')) { if (hasMsg) return irAMensajes(); filtroChat = c.id; return render(); }
       if (e.target.closest('[data-hook]')) { try { const r = await api(`${B}/chats/${c.id}/webhook-prueba`, { method: 'POST' }); toast(r.ok ? 'Evento de prueba enviado' : `El webhook no respondió: ${r.error || r.status}`, !!r.ok); } catch (x) { toast(x.message, false); } }
     };
   }
 
   // Los chats (con sus ajustes) y sus conversaciones van en el mismo lugar
   function chatsYConversaciones(el) {
-    el.innerHTML = '<div data-chats></div><h2 class="h6 mt-4 mb-2"><i class="bi bi-chat-left-text me-1"></i>Conversaciones</h2><div data-convs></div>';
-    chats($('[data-chats]', el)); conversaciones($('[data-convs]', el));
+    el.innerHTML = hasMsg ? `${avisoMensajes}<div data-chats></div>` : '<div data-chats></div><h2 class="h6 mt-4 mb-2"><i class="bi bi-chat-left-text me-1"></i>Conversaciones</h2><div data-convs></div>';
+    const ir = $('[data-irmsg]', el); if (ir) ir.onclick = irAMensajes;
+    chats($('[data-chats]', el)); if (!hasMsg) conversaciones($('[data-convs]', el));
     if (ES_DIWILO) { el.insertAdjacentHTML('beforeend', '<h2 class="h6 mt-4 mb-2"><i class="bi bi-globe2 me-1"></i>Chat del sitio diwilo.com</h2><div data-sitio></div>'); sitioDiwilo($('[data-sitio]', el)); }
   }
 
@@ -183,6 +188,13 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
           <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="chat_enabled" id="sitEn" ${st.chat_enabled ? 'checked' : ''}><label class="form-check-label" for="sitEn">Chat activo en el sitio</label></div></div>
         <label class="form-label small mb-1">Instrucciones del asistente (qué sabe y cómo responde)</label><textarea class="form-control" name="chat_prompt" rows="12" style="font-family:var(--bs-font-monospace);font-size:12px">${esc(st.chat_prompt)}</textarea>
         <div class="d-flex gap-2 mt-3"><button class="btn btn-primary">Guardar</button><button type="button" class="btn btn-outline-secondary" data-reset>Restaurar texto original</button></div></form></div></div>`;
+    // Las conversaciones del sitio se ven y se atienden en Mensajes (bandeja «Chat del sitio»); aquí queda su configuración
+    if (hasMsg) {
+      el.querySelector('[data-lista]').closest('[class*="col-lg-5"]').hidden = true;
+      el.querySelector('[class*="col-lg-7"]').className = 'col-12';
+      el.firstElementChild.insertAdjacentHTML('afterbegin', `<div class="col-12">${avisoMensajes}</div>`);
+      el.querySelector('[data-irmsg]').onclick = irAMensajes;
+    }
     el.querySelector('[data-aj]').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { await sitio('settings', { method: 'POST', body: { chat_prompt: f.chat_prompt.value, chat_enabled: f.chat_enabled.checked ? '1' : '0' } }); toast('Ajustes guardados'); } catch (x) { toast(x.message, false); } };
     el.querySelector('[data-reset]').onclick = () => { el.querySelector('[name=chat_prompt]').value = st.default_prompt; };
     el.querySelector('[data-lista]').onclick = async (e) => {

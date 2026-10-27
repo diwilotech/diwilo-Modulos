@@ -10,6 +10,7 @@ import { brandOf, tonoPrompt } from '../../lib/marca.js';
 import { orgUsa } from '../../lib/contexto.js';
 import { enviarTexto, perfil, CANALES, soloDigitos } from './canales.js';
 import { marketingActivo, contactoPorTelefono, guardarContacto, camposDe, limpiarDatos, CAMPOS } from './contactos.js';
+import { paisDeTelefono, paisValido, dispositivoDe } from './lugar.js';
 
 const texto = (status, body, extra = {}) => ({ status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...extra }, body });
 const igual = (a, b) => { // comparación en tiempo constante
@@ -33,12 +34,12 @@ export async function guardarMensaje(env, { org, bandeja, contacto, nombre = nul
   return r.meta.changes > 0;
 }
 // Crea o actualiza la fila del chat (lista de la izquierda). `leido` = false suma un mensaje sin leer.
-export async function tocarChat(env, { org, bandeja, contacto, nombre = null, rol, contenido, ts = now(), leido = true }) {
-  await env.DB.prepare(`INSERT INTO wa_conversaciones (business_id, bandeja_id, contacto, nombre, ultimo_ts, ultimo_texto, ultimo_rol, no_leidos, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (bandeja_id, contacto) DO UPDATE SET nombre = COALESCE(wa_conversaciones.nombre, excluded.nombre), ultimo_ts = MAX(wa_conversaciones.ultimo_ts, excluded.ultimo_ts),
+export async function tocarChat(env, { org, bandeja, contacto, nombre = null, rol, contenido, ts = now(), leido = true, pais = null, dispositivo = null, pagina = null, sinAgente = false }) {
+  await env.DB.prepare(`INSERT INTO wa_conversaciones (business_id, bandeja_id, contacto, nombre, ultimo_ts, ultimo_texto, ultimo_rol, no_leidos, created_at, pais, dispositivo, pagina, agente_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (bandeja_id, contacto) DO UPDATE SET nombre = COALESCE(wa_conversaciones.nombre, excluded.nombre), pais = COALESCE(wa_conversaciones.pais, excluded.pais), dispositivo = COALESCE(wa_conversaciones.dispositivo, excluded.dispositivo), pagina = COALESCE(wa_conversaciones.pagina, excluded.pagina), ultimo_ts = MAX(wa_conversaciones.ultimo_ts, excluded.ultimo_ts),
       ultimo_texto = CASE WHEN excluded.ultimo_ts >= wa_conversaciones.ultimo_ts THEN excluded.ultimo_texto ELSE wa_conversaciones.ultimo_texto END,
       ultimo_rol = CASE WHEN excluded.ultimo_ts >= wa_conversaciones.ultimo_ts THEN excluded.ultimo_rol ELSE wa_conversaciones.ultimo_rol END, no_leidos = wa_conversaciones.no_leidos + excluded.no_leidos`)
-    .bind(org, bandeja.id, contacto, nombre, ts, String(contenido).slice(0, 200), rol, leido ? 0 : 1, now()).run();
+    .bind(org, bandeja.id, contacto, nombre, ts, String(contenido).slice(0, 200), rol, leido ? 0 : 1, now(), pais, dispositivo, pagina, sinAgente ? 0 : null).run();
   const conv = await one(env, 'SELECT * FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, contacto);
   // Un chat nuevo (o que aún no tiene agente) queda con el primer agente de su bandeja; se cambia desde el chat
   if (conv.agente_id == null) {
@@ -129,6 +130,28 @@ function eventos(data) {
   return out;
 }
 
+const hexa = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
+// Registra en Mensajes lo que pasó en un chat web que atiende otro sistema (el chat del sitio de diwilo.com, los chats de clientes del módulo IA…).
+// La bandeja «webhook» de ese origen (`ref`) se crea sola la primera vez. Solo si el negocio tiene Mensajes activo.
+export async function registrarWeb(env, { org, ref, nombre, contacto, nombreContacto = null, mensajes = [], pais = null, dispositivo = null, pagina = null, contactId = null }) {
+  if (!(await orgUsa(env, org, 'whatsapp'))) return { ok: false, motivo: 'inactivo' };
+  let b = await one(env, 'SELECT * FROM wa_bandejas WHERE business_id = ? AND ref = ?', org, ref);
+  if (!b) {
+    await env.DB.prepare("INSERT OR IGNORE INTO wa_bandejas (business_id, slug, nombre, telefono, phone_number_id, waba_id, verify_token, activo, created_at, updated_at, canal, ref) VALUES (?, ?, ?, '', ?, '', ?, 1, ?, ?, 'webhook', ?)")
+      .bind(org, hexa(12), String(nombre || 'Chat web').slice(0, 80), `wh_${hexa(6)}`, hexa(16), now(), now(), ref).run();
+    b = await one(env, 'SELECT * FROM wa_bandejas WHERE business_id = ? AND ref = ?', org, ref);
+  }
+  let conv = null;
+  for (const m of mensajes) {
+    const rol = m.rol === 'user' ? 'user' : 'assistant', ts = Number(m.ts) || now();
+    const nuevo = await guardarMensaje(env, { org, bandeja: b.id, contacto, nombre: nombreContacto, rol, contenido: m.contenido, wamid: m.id ? `web:${b.id}:${String(m.id).slice(0, 100)}` : null, estado: rol === 'user' ? null : 'enviado', ts });
+    if (nuevo) conv = await tocarChat(env, { org, bandeja: b, contacto, nombre: nombreContacto, rol, contenido: m.contenido, ts, leido: rol !== 'user', pais: paisValido(pais), dispositivo: dispositivoDe({ dispositivo }), pagina: pagina ? String(pagina).slice(0, 300) : null, sinAgente: true });
+  }
+  conv ||= await one(env, 'SELECT * FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', b.id, contacto);
+  if (contactId && conv && !conv.contact_id) await env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ? WHERE id = ?').bind(contactId, conv.id).run();
+  return { ok: true, chat_id: conv?.id ?? null, bandeja_id: b.id };
+}
+
 const jsonRes = (status, obj) => ({ status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify(obj) });
 // Bandeja «webhook» (chat de la web, n8n u otro sistema): POST /wa/<slug>?token=<token> con
 //   { contacto, mensaje, nombre?, rol?: 'user'|'assistant'|'humano', id?, responder?: true }
@@ -146,7 +169,8 @@ async function manejarWeb(env, { raiz, method, query, body }) {
   const rol = ['user', 'assistant', 'humano'].includes(b.rol) ? b.rol : 'user', nombre = b.nombre ? String(b.nombre).trim().slice(0, 120) : null;
   const nuevo = await guardarMensaje(env, { org, bandeja: raiz.id, contacto, nombre, rol, contenido: mensaje, wamid: b.id ? `web:${raiz.id}:${String(b.id).slice(0, 100)}` : null, estado: rol === 'user' ? null : 'enviado' });
   if (!nuevo) return jsonRes(200, { ok: true, duplicado: true });
-  const conv = await tocarChat(env, { org, bandeja: raiz, contacto, nombre, rol, contenido: mensaje, leido: rol !== 'user' });
+  // De dónde escribe: lo manda tu web (país en ISO, p. ej. el encabezado CF-IPCountry; dispositivo o user-agent y página)
+  const conv = await tocarChat(env, { org, bandeja: raiz, contacto, nombre, rol, contenido: mensaje, leido: rol !== 'user', pais: paisValido(b.pais), dispositivo: dispositivoDe({ dispositivo: b.dispositivo, ua: b.ua }), pagina: b.pagina ? String(b.pagina).slice(0, 300) : null });
   const respuesta = rol === 'user' && b.responder === true ? await responder(env, { bandeja: raiz, conv, entregar: false }) : null;
   return jsonRes(200, { ok: true, chat_id: conv.id, respuesta });
 }
@@ -179,7 +203,7 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
     const nuevo = await guardarMensaje(env, { org, bandeja: bandeja.id, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, wamid: ev.id, ts: ev.ts });
     if (!nuevo) continue;
     const primera = !(await one(env, 'SELECT 1 FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto));
-    const conv = await tocarChat(env, { org, bandeja, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, ts: ev.ts, leido: false });
+    const conv = await tocarChat(env, { org, bandeja, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, ts: ev.ts, leido: false, pais: ev.canal === 'whatsapp' ? paisDeTelefono(ev.contacto) : null });
     // Si el contacto ya está en Marketing (mismo teléfono), el chat queda enlazado desde el primer mensaje
     if (primera && ev.canal === 'whatsapp' && !conv.contact_id && (await marketingActivo(env, org))) {
       const c = await contactoPorTelefono(env, org, `+${ev.contacto}`);

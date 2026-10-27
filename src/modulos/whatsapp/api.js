@@ -8,6 +8,7 @@
 //   GET   /api/whatsapp/chats?bandeja=&canal=&q=  lista de chats (izquierda) · GET /chats/:id chat completo (mensajes y contacto)
 //   PATCH /api/whatsapp/chats/:id { ia_activa?, agente_id? }  enciende o apaga la IA en ese chat y elige qué agente lo atiende (0 = ninguno) · POST /:id/leer · POST /:id/enviar { texto } (apaga la IA de ese chat)
 //   POST  /api/whatsapp/chats/:id/contacto       guarda / enlaza el contacto en Marketing · DELETE /chats/:id
+//   GET   /api/whatsapp/mensajes?q=&canal=&bandeja=  todos los mensajes de todos los canales (los 200 más recientes)
 //   GET   /api/whatsapp/contactos?q=             contactos de Marketing (para enviar plantillas)
 //   GET   /api/whatsapp/plantillas?bandeja=      plantillas aprobadas de WhatsApp · POST /plantillas/enviar { bandeja_id, plantilla, idioma, variables, contactos[], chats[] }
 // Público (en el dominio de cada app): GET|POST /wa/<slug> = el webhook (webhook.js).
@@ -18,6 +19,7 @@ import { cifrarClave } from '../../lib/ia.js';
 import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValido, soloDigitos, CANALES } from './canales.js';
 import { guardarMensaje, tocarChat } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
+import { paisDeTelefono } from './lugar.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
 const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -111,13 +113,15 @@ const chatDe = async (c, id) => {
 };
 
 /* ---------- chats ---------- */
-export const chats = (c, { bandeja, canal, q, limite = 200 } = {}) => {
+// El país de un chat de WhatsApp sale del indicativo del número (aunque el chat sea anterior a esta función)
+const conLugar = (r) => ({ ...r, pais: r.pais || (r.canal === 'whatsapp' ? paisDeTelefono(r.contacto) : null) });
+export const chats = async (c, { bandeja, canal, q, limite = 200 } = {}) => {
   const donde = ['c.business_id = ?'], args = [c.businessId];
   if (bandeja) { donde.push('c.bandeja_id = ?'); args.push(Number(bandeja)); }
   if (canal) { donde.push('b.canal = ?'); args.push(String(canal)); }
   if (q) { donde.push('(c.nombre LIKE ? OR c.contacto LIKE ? OR c.ultimo_texto LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
-  return all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol
-    FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args);
+  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
+    FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args)).map(conLugar);
 };
 export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
 export async function chatCompleto(c, id) {
@@ -126,7 +130,7 @@ export async function chatCompleto(c, id) {
   let datos = null; try { datos = chat.datos ? JSON.parse(chat.datos) : null; } catch { /* sin datos */ }
   const agentes = await all(c.env, 'SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND (bandeja_id = ? OR bandeja_id = 0) ORDER BY id', c.businessId, chat.bandeja_id);
   const agente = agentes.find((a) => a.id === chat.agente_id) || null;
-  return { chat: { ...chat, datos }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes };
+  return { chat: { ...conLugar(chat), datos }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes };
 }
 
 // Plantilla con sus {{n}} llenas, para dejar en el chat lo que se envió
@@ -215,6 +219,18 @@ export function routes(r) {
     ]);
     await audit(c, `Borró el chat de ${ch.nombre || ch.contacto} (${ch.bandeja})`, { modulo: MOD });
     return json({ ok: true });
+  });
+
+  // Todos los mensajes de todos los canales, del más reciente al más antiguo (cada uno lleva el chat al que pertenece)
+  r.get(`${B}/mensajes`, `tenant:${MOD}`, async (c) => {
+    const sp = c.url.searchParams, donde = ['m.business_id = ?'], args = [c.businessId], q = (sp.get('q') || '').trim().slice(0, 60);
+    if (sp.get('canal')) { donde.push('b.canal = ?'); args.push(sp.get('canal')); }
+    if (sp.get('bandeja')) { donde.push('m.bandeja_id = ?'); args.push(Number(sp.get('bandeja'))); }
+    if (q) { donde.push('(m.contenido LIKE ? OR m.contacto LIKE ? OR c.nombre LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+    const rows = await all(c.env, `SELECT m.id, m.ts, m.rol, m.contenido, m.estado, m.contacto, m.bandeja_id, b.nombre bandeja, b.canal, c.id chat_id, c.nombre, c.pais, c.dispositivo
+      FROM wa_mensajes m JOIN wa_bandejas b ON b.id = m.bandeja_id LEFT JOIN wa_conversaciones c ON c.bandeja_id = m.bandeja_id AND c.contacto = m.contacto
+      WHERE ${donde.join(' AND ')} ORDER BY m.ts DESC, m.id DESC LIMIT 200`, ...args);
+    return json({ rows: rows.map(conLugar) });
   });
 
   /* contactos de Marketing y plantillas */

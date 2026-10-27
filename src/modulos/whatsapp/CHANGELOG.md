@@ -1,5 +1,12 @@
 # WhatsApp — cambios
 
+## 2.2.0 · 2026-10-27
+- **De dónde escribe cada persona:** en los chats web, país y dispositivo (ej. «CO · escritorio», «US · móvil») y la página; en WhatsApp, el país por el indicativo del teléfono (+57 → CO). Instagram y Messenger no entregan ubicación y quedan sin ella. El webhook acepta `pais`, `dispositivo` (o `ua`) y `pagina`.
+- **Pestaña «Todos los mensajes»:** cada mensaje de todos los canales, con búsqueda y filtros por canal y bandeja; al tocar uno se abre su chat. El filtro «Todos» de Chats ahora siempre aparece.
+- **Los chats de IA pasan a Mensajes:** las conversaciones de los chats de clientes del módulo IA (y las ya guardadas) se ven y se atienden en Mensajes, en una bandeja web «Chat: <nombre>» por chat. En IA queda solo su configuración, con un enlace a Mensajes (si el negocio no tiene Mensajes, todo sigue como antes).
+- **Chat del sitio de diwilo.com:** cada mensaje se registra en Mensajes (bandeja «Chat del sitio»); el chat sigue respondiendo como siempre. Nuevo RPC `mensajesRegistrar(app, negocio, datos)`.
+- Migración `0026_mensajes_origen.sql` (país, dispositivo y página por chat; pasa los chats de IA existentes de los negocios con Mensajes).
+
 ## 2.1.0 · 2026-10-27
 - **El agente se elige por chat:** botón con el nombre del agente en cada chat (en la lista, bajo la hora, y en la cabecera). Se quita el «agente activo» por bandeja de la pestaña Agentes; los chats nuevos empiezan con el primer agente de su bandeja y se puede elegir «Sin agente». Un agente puede servir en una bandeja o en todas (`bandeja_id` 0).
 - **Datos que pide el agente:** al crear el agente se marca qué pide además del nombre (correo, teléfono, negocio, persona o negocio, ciudad, qué necesita) y hasta 5 preguntas propias. Se guardan en Marketing (empresa y notas), sin duplicar por teléfono.
