@@ -1,5 +1,11 @@
 # WhatsApp — cambios
 
+## 3.0.0 · 2026-10-27
+- **Canal de correo:** una dirección de tu dominio (hola@…) como bandeja. Cloudflare Email Routing entrega cada correo al Worker (`email()`); cada remitente es un chat, con su asunto, sin la cita de lo anterior, y se responde desde Mensajes en el mismo hilo (Re:, In-Reply-To) por Cloudflare Email Sending. Siempre se reenvía una copia a la dirección «reenviar a» (o al respaldo) para que ningún correo se pierda; los avisos automáticos, listas y rebotes se reenvían y no se guardan.
+- La IA queda **apagada** en los chats nuevos de correo (se enciende por chat con el interruptor).
+- También acepta correos por webhook (`POST /wa/<código>?token=…` con `{ de, mensaje, asunto, nombre, id }`) para Postmark, n8n, etc.
+- Dependencia nueva: `postal-mime`. Binding nuevo: `send_email` (EMAIL). Migración `0031_correo.sql`.
+
 ## 2.6.0 · 2026-10-27
 - **Saludo para quien ya presentó una solicitud:** si el teléfono del chat nuevo ya está en Marketing, el primer mensaje le dice «vimos la solicitud que presentaste» (con lo que pidió, de sus notas), le agradece y le pregunta si quiere seguir con eso o tiene otra consulta; a quien ya es cliente le dice que da gusto saludarlo de nuevo. Cada agente puede cambiar el texto ({nombre}, {solicitud}, {empresa}) o apagarlo. Si solo saludó, ese es el mensaje; si ya preguntó algo, va seguido de la respuesta.
 - **Formularios mejorados:** el formulario de datos del contacto del chat ahora pide nombre, teléfono con **indicativo de país** (lista con bandera: +57 Colombia, +1 Estados Unidos, +52 México…), correo, negocio, si escribe como persona o negocio, ciudad y si ya es cliente; lo que guarda el equipo reemplaza lo que había. El teléfono de la bandeja de WhatsApp también usa el selector de indicativo.

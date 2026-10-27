@@ -35,6 +35,7 @@ import { guiasDe } from './lib/guias.js';
 import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
 import { manejarWhatsapp, registrarWeb, responder } from './modulos/whatsapp/webhook.js';
+import { recibirCorreo } from './modulos/whatsapp/correo.js';
 
 const router = new Router();
 for (const m of MODULOS) m.api.routes(router);
@@ -54,6 +55,8 @@ function fail(err) {
 export default {
   // Sin acceso desde internet: todo llega por RPC.
   fetch: () => new Response('Diwilo Modulos solo atiende a las apps de Diwilo por service binding.', { status: 404 }),
+  // Correo (Mensajes): Cloudflare Email Routing entrega aquí los correos de las direcciones cuya regla apunta a este Worker
+  async email(message, env, ctx) { await recibirCorreo(message, env, ctx); },
   async scheduled(event, env, ctx) {
     for (const m of MODULOS) if (typeof m.api.daily === 'function') ctx.waitUntil(m.api.daily(env).catch((e) => console.error(`tarea diaria ${m.manifest.id}`, e.message)));
   },

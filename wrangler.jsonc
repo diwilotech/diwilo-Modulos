@@ -21,6 +21,9 @@
   // IA del módulo «IA» (chats de clientes, asistente y agentes) e informes de Marketing: Workers AI (gasta la cuota diaria compartida;
   // cada negocio tiene su tope diario en ia_uso). Con el secreto GEMINI_API_KEY usa Gemini y cae a Workers AI si falla.
   "ai": { "binding": "AI" },
+  // Mensajes · canal de correo: las respuestas salen por Cloudflare Email Sending (el dominio debe estar activado ahí) y los correos sin bandeja se reenvían al respaldo.
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": { "CORREO_RESPALDO": "diwilo.tech@gmail.com" },
   // 3:00 a. m. Colombia: gastos recurrentes y automatizaciones de todos los negocios.
   "triggers": { "crons": ["0 8 * * *"] }
 }

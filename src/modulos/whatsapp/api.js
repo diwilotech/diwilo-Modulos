@@ -30,6 +30,7 @@ function revisarBandeja(row, canal) {
   if (row.nombre && row.nombre.length > 80) throw new HttpError(400, 'El nombre de la bandeja es muy largo (máximo 80 letras)');
   if (row.url_salida && !webhookValido(row.url_salida)) throw new HttpError(400, 'La URL de salida debe ser una dirección https pública');
   if (canal === 'webhook') return;
+  if (canal === 'correo') { if (row.phone_number_id != null) { row.phone_number_id = String(row.phone_number_id).trim().toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.phone_number_id)) throw new HttpError(400, 'Escribe la dirección de correo completa, por ejemplo hola@tuempresa.com'); } return; }
   if (row.phone_number_id != null && !/^\d{5,30}$/.test(row.phone_number_id)) throw new HttpError(400, canal === 'whatsapp' ? 'El id del número de teléfono son solo dígitos (lo da Meta)' : 'El id de la página o de la cuenta de Instagram son solo dígitos (lo da Meta)');
   if (canal === 'whatsapp') {
     if (row.telefono != null && !/^\+\d{8,15}$/.test(String(row.telefono).replace(/[\s-]/g, ''))) throw new HttpError(400, 'El teléfono debe llevar el indicativo, por ejemplo +57 300 123 4567');
@@ -52,17 +53,20 @@ const textoLargo = (row) => {
 export const ENTITIES = {
   bandejas: {
     table: 'wa_bandejas', label: 'la bandeja', title: 'nombre', search: ['nombre', 'telefono'], order: 'created_at',
-    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', activo: 'bool+' },
+    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', activo: 'bool+' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row, body) {
       row.canal ||= 'whatsapp';
       if (row.canal === 'whatsapp' && (!row.telefono || !row.waba_id)) throw new HttpError(400, 'WhatsApp necesita el teléfono y el id de la cuenta de WhatsApp Business');
-      if (row.canal === 'webhook') row.phone_number_id = `wh_${hex(6)}`;     // la bandeja webhook se identifica por su URL, no por un id de Meta
+      if (row.canal === 'webhook') row.phone_number_id = `wh_${hex(6)}`;
+      else if (row.canal === 'correo' && !row.phone_number_id) throw new HttpError(400, 'Falta la dirección de correo de la bandeja');     // la bandeja webhook se identifica por su URL, no por un id de Meta
       else if (!row.phone_number_id) throw new HttpError(400, 'Falta el id del número, de la página o de la cuenta de Instagram');
       revisarBandeja(row, row.canal);
       row.telefono ||= ''; row.waba_id ||= '';
       if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ?', c.businessId)).n >= MAX_BANDEJAS) throw new HttpError(400, `Ya tienes ${MAX_BANDEJAS} bandejas`);
       if (await one(c.env, 'SELECT 1 FROM wa_bandejas WHERE business_id = ? AND canal = ? AND phone_number_id = ?', c.businessId, row.canal, row.phone_number_id)) throw new HttpError(409, 'Ya tienes una bandeja con ese id en ese canal');
+      // Una dirección de correo llega a una sola bandeja de todo el sistema
+      if (row.canal === 'correo' && await one(c.env, "SELECT 1 FROM wa_bandejas WHERE canal = 'correo' AND lower(phone_number_id) = ?", row.phone_number_id)) throw new HttpError(409, 'Esa dirección de correo ya está conectada a una bandeja');
       row.slug = hex(12);
       row.verify_token = hex(16);
       if (body.api_key) { exigirKek(c.env); row.clave_cifrada = await cifrarClave(c.env, claveValida(body.api_key, 'La clave API')); }
@@ -127,7 +131,7 @@ export const chats = async (c, { bandeja, canal, q, limite = 200 } = {}) => {
   if (bandeja) { donde.push('c.bandeja_id = ?'); args.push(Number(bandeja)); }
   if (canal) { donde.push('b.canal = ?'); args.push(String(canal)); }
   if (q) { donde.push('(c.nombre LIKE ? OR c.contacto LIKE ? OR c.ultimo_texto LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
-  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
+  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.asunto, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
     FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args)).map(conLugar);
 };
 export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
@@ -171,7 +175,7 @@ export function routes(r) {
   });
   r.post(`${B}/bandejas/:id/probar`, `manager:${MOD}`, async (c) => {
     const b = await bandejaDe(c, c.params.id), body = await readJson(c.req);
-    const res = await probarBandeja(c.env, b, body.para ? String(body.para).slice(0, 30) : null);
+    const res = await probarBandeja(c.env, b, body.para ? String(body.para).slice(0, 120) : null);
     await audit(c, `Probó la conexión de la bandeja «${b.nombre}»${res.ok ? '' : ' (con fallas)'}`, { modulo: MOD });
     return json(res);
   });
@@ -208,13 +212,13 @@ export function routes(r) {
     const t = String(body.texto || '').trim();
     if (!t || t.length > 4000) throw new HttpError(400, 'Escribe un mensaje (máximo 4000 letras)');
     if (!b.activo) throw new HttpError(400, 'La bandeja está desactivada');
-    const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t, { rol: 'humano' });
+    const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t, { rol: 'humano', asunto: ch.asunto, ref: ch.ref_correo });
     await guardarMensaje(c.env, { org: c.businessId, bandeja: b.id, contacto: ch.contacto, rol: 'humano', contenido: t, estado });
     // Cuando una persona responde, la IA se apaga en ese chat (se vuelve a encender con el interruptor)
     await tocarChat(c.env, { org: c.businessId, bandeja: b, contacto: ch.contacto, rol: 'humano', contenido: t });
     await c.env.DB.prepare('UPDATE wa_conversaciones SET ia_activa = 0, atencion = NULL, atencion_ts = NULL WHERE id = ?').bind(ch.id).run();
     if (estado === 'sin_destino') throw new HttpError(400, 'Esta bandeja web no tiene URL de salida: tu respuesta quedó guardada en el chat, pero no se envía a tu sistema. Agrégala en Ajustes de la bandeja.');
-    if (estado !== 'enviado') throw new HttpError(estado === 'sin_clave' ? 400 : 502, estado === 'sin_clave' ? 'La bandeja no tiene clave API: agrégala para poder enviar' : `No se envió: ${error || 'Meta no aceptó el mensaje'}${b.canal === 'whatsapp' ? '. Pasadas 24 h desde el último mensaje de la persona hay que usar una plantilla.' : '. Solo se puede responder dentro de las 24 h siguientes al último mensaje.'}`);
+    if (estado !== 'enviado') throw new HttpError(estado === 'sin_clave' ? 400 : 502, estado === 'sin_clave' ? 'La bandeja no tiene clave API: agrégala para poder enviar' : `No se envió: ${error || 'Meta no aceptó el mensaje'}${b.canal === 'whatsapp' ? '. Pasadas 24 h desde el último mensaje de la persona hay que usar una plantilla.' : b.canal === 'correo' ? '' : '. Solo se puede responder dentro de las 24 h siguientes al último mensaje.'}`);
     return json({ ok: true, estado, ia_activa: false });
   });
   r.post(`${B}/chats/:id/contacto`, `tenant:${MOD}`, async (c) => {

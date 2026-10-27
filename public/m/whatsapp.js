@@ -6,7 +6,7 @@ DW.ready.then((me) => {
   const { api, esc, toast, confirm, modal, empty } = window.App;
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
-  const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' } };
+  const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
   const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['plantillas', 'Enviar plantillas']];
   let view = (location.hash || '#chats').slice(1), timers = [], abrirId = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'chats';
@@ -90,7 +90,7 @@ DW.ready.then((me) => {
     function armarChat() {
       const c = det.chat;
       cont.innerHTML = `<div class="wa-cab"><button class="btn btn-sm btn-outline-secondary wa-back" data-back aria-label="Volver"><i class="bi bi-arrow-left"></i></button><span class="wa-av">${esc((c.nombre || c.contacto).trim()[0]?.toUpperCase() || '?')}${ico(c.canal)}</span>
-        <div class="t"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b><small class="text-body-secondary">${esc(CAN_[c.canal]?.n || c.canal)} · ${esc(c.bandeja)} ${lugar(c)}</small></div>
+        <div class="t"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b><small class="text-body-secondary">${esc(CAN_[c.canal]?.n || c.canal)} · ${esc(c.bandeja)} ${lugar(c)}${c.asunto ? ` · ${esc(c.asunto)}` : ''}</small></div>
         <div data-acc class="d-flex align-items-center gap-2 flex-wrap justify-content-end"></div></div>
         <div data-aviso></div><div class="wa-log" data-log></div>
         ${RO ? '' : `<form class="wa-comp" data-form><textarea class="form-control" name="texto" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea><button class="btn btn-primary" aria-label="Enviar"><i class="bi bi-send-fill"></i></button></form>`}`;
@@ -279,6 +279,7 @@ DW.ready.then((me) => {
     whatsapp: 'Número de WhatsApp Business (Cloud API). En Meta: WhatsApp → Configuración de la API.',
     instagram: 'Cuenta profesional de Instagram conectada a una página. Token de la página con permiso instagram_manage_messages; el ID es el de la cuenta de Instagram.',
     messenger: 'Página de Facebook. Token de la página con permiso pages_messaging; el ID es el de la página.',
+    correo: 'Una dirección de tu dominio (hola@tuempresa.com): los correos que lleguen aparecen como chats y respondes desde aquí, en el mismo hilo. Se conecta con Cloudflare Email Routing.',
     webhook: 'Para el chat de tu web, n8n u otro sistema: tu sistema envía cada mensaje a la URL de abajo y aquí lo ves y lo atiendes. Puedes crear todas las que necesites, cada una con su nombre.',
   };
   const ejemplo = (b) => `curl -X POST "${b.webhook_url}?token=${b.verify_token}" \\\n  -H "content-type: application/json" \\\n  -d '{"contacto":"visitante-123","nombre":"Ana","mensaje":"Hola, quiero información","responder":true}'`;
@@ -290,8 +291,10 @@ DW.ready.then((me) => {
         <div class="d-flex align-items-start gap-2"><span class="fs-4">${ico(b.canal)}</span><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(b.nombre)}</h2><span class="small text-body-secondary">${esc(CAN_[b.canal]?.n || b.canal)}${b.telefono ? ` · ${esc(b.telefono)}` : ''}</span></div>
           <span class="badge ${b.activo ? 'text-bg-success' : 'text-bg-secondary'}">${b.activo ? 'Activa' : 'En pausa'}</span></div>
         <div class="small mt-2 d-grid gap-1">
+          ${b.canal === 'correo' ? `<div>Dirección: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.reenviar_a ? ` · copia a <span class="font-monospace">${esc(b.reenviar_a)}</span>` : ''}</div>
+            <div class="text-body-secondary">Para recibir: en <b>Cloudflare → Email Routing → Routing rules</b>, la regla de <b>${esc(b.phone_number_id)}</b> debe usar la acción <b>Send to a Worker → diwilo-modulos</b>. Las respuestas salen por Cloudflare Email Sending.</div>` : ''}
           ${b.canal === 'webhook' ? `<div>Respuestas a tu sistema: ${b.url_salida ? `<span class="font-monospace text-break">${esc(b.url_salida)}</span>` : '<span class="text-body-secondary">sin URL de salida</span>'}</div>`
-            : `<div>${b.canal === 'whatsapp' ? 'ID de número' : b.canal === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.waba_id ? ` · Cuenta: <span class="font-monospace">${esc(b.waba_id)}</span>` : ''}</div>
+            : b.canal === 'correo' ? '' : `<div>${b.canal === 'whatsapp' ? 'ID de número' : b.canal === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.waba_id ? ` · Cuenta: <span class="font-monospace">${esc(b.waba_id)}</span>` : ''}</div>
           <div>Clave API: ${b.tiene_clave ? '<span class="text-success">guardada</span>' : '<span class="text-danger">falta</span>'}${b.tiene_secreto ? ' · firma del webhook validada' : ''}</div>`}
           <div class="d-flex align-items-center gap-1"><span class="text-body-secondary">URL del webhook</span><button class="btn btn-sm btn-link p-0 ms-auto" data-cp="${esc(b.webhook_url)}"><i class="bi bi-clipboard"></i> Copiar</button></div>
           <div class="font-monospace small text-break p-2 rounded-3" style="background:rgba(var(--bs-body-color-rgb),.06)">${esc(b.webhook_url)}</div>
@@ -315,36 +318,37 @@ DW.ready.then((me) => {
         <div data-meta class="d-grid gap-3">${campo('phone_number_id', `<span data-idl>${canal0 === 'whatsapp' ? 'ID del número de teléfono' : canal0 === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}</span>`, b?.phone_number_id, 'inputmode="numeric"')}
           ${campo('api_key', 'Clave API (token de acceso de Meta)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_clave ? 'Guardada — déjalo vacío para conservarla' : 'EAAG…'}"`)}
           ${campo('app_secret', 'Secreto de la app de Meta (opcional, valida la firma del webhook)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_secreto ? 'Guardado — déjalo vacío para conservarlo' : ''}"`)}</div>
+        <div data-mail class="d-grid gap-3">${campo('correo_dir', 'Dirección de correo de la bandeja', b?.canal === 'correo' ? b.phone_number_id : '', 'type="email" placeholder="hola@tuempresa.com"')}${campo('reenviar_a', 'Seguir enviando una copia de cada correo a (opcional; debe estar verificada en Cloudflare)', b?.reenviar_a || '', 'type="email" placeholder="tu-correo@gmail.com"')}</div>
         <div data-web class="d-grid gap-3">${campo('url_salida', 'URL de salida (opcional): aquí enviamos las respuestas del equipo y del agente', b?.url_salida || '', 'type="url" placeholder="https://tu-sistema.com/mensajes"')}</div>
         <button class="btn btn-primary">${b ? 'Guardar' : 'Crear bandeja'}</button></form>`);
       const f = mo.querySelector('form');
-      const ver = () => { const c = b ? b.canal : f.canal.value; f.querySelector('[data-wa]').hidden = c !== 'whatsapp'; f.querySelector('[data-meta]').hidden = c === 'webhook'; f.querySelector('[data-web]').hidden = c !== 'webhook'; f.querySelector('[data-ayuda]').textContent = AYUDA[c]; f.querySelector('[data-idl]').textContent = c === 'whatsapp' ? 'ID del número de teléfono' : c === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'; };
+      const ver = () => { const c = b ? b.canal : f.canal.value; f.querySelector('[data-wa]').hidden = c !== 'whatsapp'; f.querySelector('[data-meta]').hidden = c === 'webhook' || c === 'correo'; f.querySelector('[data-mail]').hidden = c !== 'correo'; f.querySelector('[data-web]').hidden = c !== 'webhook'; f.querySelector('[data-ayuda]').textContent = AYUDA[c]; f.querySelector('[data-idl]').textContent = c === 'whatsapp' ? 'ID del número de teléfono' : c === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'; };
       if (f.canal) f.canal.onchange = ver; ver();
       f.onsubmit = async (e) => {
         e.preventDefault(); const v = (n) => f[n].value.trim(), btn = f.querySelector('button'), canal = b ? b.canal : v('canal'); btn.disabled = true;
-        const core = canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id') } : {}) };
+        const core = canal === 'correo' ? { nombre: v('nombre'), phone_number_id: v('correo_dir'), reenviar_a: v('reenviar_a') } : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id') } : {}) };
         try {
           if (b) {
             await api(`${B}/bandejas/${b.id}`, { method: 'PATCH', body: core });
-            const cred = {}; if (canal !== 'webhook' && v('api_key')) cred.api_key = v('api_key'); if (canal !== 'webhook' && v('app_secret')) cred.app_secret = v('app_secret');
+            const cred = {}; if (canal !== 'webhook' && canal !== 'correo' && v('api_key')) cred.api_key = v('api_key'); if (canal !== 'webhook' && canal !== 'correo' && v('app_secret')) cred.app_secret = v('app_secret');
             if (Object.keys(cred).length) await api(`${B}/bandejas/${b.id}/credenciales`, { method: 'POST', body: cred });
-          } else await api(`${B}/bandejas`, { method: 'POST', body: { ...core, canal, ...(canal !== 'webhook' && v('api_key') ? { api_key: v('api_key') } : {}), ...(canal !== 'webhook' && v('app_secret') ? { app_secret: v('app_secret') } : {}) } });
+          } else await api(`${B}/bandejas`, { method: 'POST', body: { ...core, canal, ...(canal !== 'webhook' && canal !== 'correo' && v('api_key') ? { api_key: v('api_key') } : {}), ...(canal !== 'webhook' && canal !== 'correo' && v('app_secret') ? { app_secret: v('app_secret') } : {}) } });
           mm.hide(); toast(b ? 'Bandeja guardada' : 'Bandeja creada'); render();
         } catch (x) { toast(x.message, false); btn.disabled = false; }
       };
     };
     // Verificador: revisa la clave y los IDs contra Meta y, en WhatsApp, si pones un número manda un mensaje de prueba
     const probar = (b) => {
-      const wa = b.canal === 'whatsapp';
+      const wa = b.canal === 'whatsapp' || b.canal === 'correo', correo = b.canal === 'correo';
       const { el: mo } = modal(`${cab('Probar conexión')}<form class="modal-body d-grid gap-3" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain">
         <p class="small text-body-secondary mb-0">Revisa la clave API y los IDs con Meta${wa ? '. Si escribes un número, también le enviamos un mensaje de prueba (un texto si escribió en las últimas 24 h; si no, una plantilla aprobada).' : '.'}</p>
-        ${wa ? campo('para', 'Número que recibe el mensaje de prueba (opcional)', '+57', 'placeholder="+57 300 123 4567" inputmode="tel"') : ''}
+        ${correo ? campo('para', 'Correo que recibe la prueba (opcional)', '', 'type="email" placeholder="tu-correo@gmail.com"') : wa ? campo('para', 'Número que recibe el mensaje de prueba (opcional)', '+57', 'placeholder="+57 300 123 4567" inputmode="tel"') : ''}
         <button class="btn btn-success">Probar</button><div data-res></div></form>`);
       mo.querySelector('form').onsubmit = async (ev) => {
         ev.preventDefault(); const f = ev.target, btn = f.querySelector('button'), res = f.querySelector('[data-res]'), p = f.para ? f.para.value.trim() : '';
         btn.disabled = true; res.innerHTML = '<div class="small text-body-secondary">Probando…</div>';
         try {
-          const r = await api(`${B}/bandejas/${b.id}/probar`, { method: 'POST', body: p.replace(/\D/g, '').length > 3 ? { para: p } : {} });
+          const r = await api(`${B}/bandejas/${b.id}/probar`, { method: 'POST', body: (correo ? p.includes('@') : p.replace(/\D/g, '').length > 3) ? { para: p } : {} });
           res.innerHTML = `<div class="alert ${r.ok ? 'alert-success' : 'alert-danger'} small mb-2">${r.ok ? 'Todo bien: la bandeja está conectada.' : 'Hay algo por corregir.'}</div>`
             + r.pasos.map((x) => `<div class="small d-flex gap-2 mb-1"><i class="bi ${x.ok ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i><div><b>${esc(x.nombre)}</b><div class="text-body-secondary">${esc(x.detalle)}</div></div></div>`).join('')
             + '<div class="small text-body-secondary mt-2">El webhook se verifica desde Meta («Verificar y guardar»); los mensajes que lleguen aparecerán en Chats.</div>';

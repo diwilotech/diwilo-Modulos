@@ -221,6 +221,29 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: responder a mano en un chat web sin URL de salida avisa y deja el mensaje guardado', ew.status === 400 && /URL de salida/.test(ew.data.error || '') && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.mensajes.at(-1).rol === 'humano');
   check('Mensajes: el webhook responde a un GET de salud con su token', (await fetch(wurl)).status === 200);
 
+  /* ---------- canal de correo ---------- */
+  check('Mensajes: una bandeja de correo pide una dirección válida y no se repite en todo el sistema', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', canal: 'correo', phone_number_id: 'no-es-correo' } })).status === 400
+    && (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', canal: 'correo' } })).status === 400);
+  const cc = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Soporte', canal: 'correo', phone_number_id: 'Soporte-A@Ejemplo.com', reenviar_a: 'equipo@ejemplo.com' } });
+  const bc = (await A.app(`${X}/bandejas`)).data.rows.find((x) => x.id === cc.data.id);
+  check('Mensajes: crea la bandeja de correo (dirección en minúsculas y copia a otra dirección)', cc.status === 201 && bc.canal === 'correo' && bc.phone_number_id === 'soporte-a@ejemplo.com' && bc.reenviar_a === 'equipo@ejemplo.com', JSON.stringify(bc));
+  check('Mensajes: la misma dirección no se puede conectar en otro negocio', (await B.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Otro', canal: 'correo', phone_number_id: 'soporte-a@ejemplo.com' } })).status === 409);
+  const murl = bc.webhook_url.replace(/^.*\/wa\//, `${APP}/wa/`) + `?token=${bc.verify_token}`;
+  const pm = (b) => fetch(murl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }).then(async (r) => ({ status: r.status, data: await r.json() }));
+  const m1 = await pm({ de: 'Cliente@X.co', nombre: 'Cliente X', asunto: 'Cotización', mensaje: 'Hola, necesito precios.\n\nEl lunes, 26 de oct escribió:\n> mensaje anterior que no debe verse', id: '<m1@x.co>' });
+  await pm({ de: 'cliente@x.co', asunto: 'Cotización', mensaje: 'Hola, necesito precios.', id: '<m1@x.co>' });
+  const chM = (await chats(A, '?canal=correo')).find((x) => x.contacto === 'cliente@x.co');
+  const dM = chM && (await A.app(`${X}/chats/${chM.id}`)).data;
+  check('Mensajes: un correo crea el chat del remitente (nombre, asunto, IA apagada), sin la cita de lo anterior y sin duplicarse', m1.status === 200 && chM?.nombre === 'Cliente X' && chM.asunto === 'Cotización' && chM.ia_activa === 0 && chM.no_leidos === 1
+    && dM.mensajes.length === 1 && dM.mensajes[0].contenido === 'Asunto: Cotización\n\nHola, necesito precios.', JSON.stringify(dM?.mensajes));
+  await pm({ de: 'cliente@x.co', asunto: 'Re: Cotización', mensaje: 'Gracias, ¿y el plazo?', id: '<m2@x.co>' });
+  check('Mensajes: una respuesta del mismo hilo no repite el asunto', (await A.app(`${X}/chats/${chM.id}`)).data.mensajes.at(-1).contenido === 'Gracias, ¿y el plazo?');
+  check('Mensajes: un remitente inválido o la propia dirección de la bandeja no crean chats', (await pm({ de: 'nadie', mensaje: 'x' })).status === 400 && (await pm({ de: 'soporte-a@ejemplo.com', mensaje: 'x' })).status === 400 && (await chats(A, '?canal=correo')).length === 1);
+  const er = await A.app(`${X}/chats/${chM.id}/enviar`, { method: 'POST', body: { texto: 'Te respondo por correo' } });
+  check('Mensajes: responder un correo queda guardado en el chat (si el envío no está activo en Cloudflare, avisa)', [200, 502].includes(er.status) && (await A.app(`${X}/chats/${chM.id}`)).data.mensajes.at(-1).rol === 'humano', JSON.stringify([er.status, er.data]));
+  const pc = await A.app(`${X}/bandejas/${bc.id}/probar`, { method: 'POST', body: {} });
+  check('Mensajes: el verificador de correo explica cómo recibir y si el envío está configurado', pc.status === 200 && pc.data.pasos.some((p) => p.nombre === 'Recepción') && pc.data.pasos.some((p) => p.nombre === 'Envío'), JSON.stringify(pc.data));
+
   /* ---------- responder a mano y plantillas ---------- */
   const env = await A.app(`${X}/chats/${chA.id}/enviar`, { method: 'POST', body: { texto: 'Hola, te escribo yo' } });
   const d3 = await det();
@@ -237,8 +260,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 16);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 15 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 6 && (await chats()).length === 17);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 16 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

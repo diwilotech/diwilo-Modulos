@@ -4,7 +4,7 @@ import { descifrarClave } from '../../lib/ia.js';
 import { one, now } from '../../lib/crud.js';
 
 export const GRAPH = 'https://graph.facebook.com/v21.0';
-export const CANALES = { whatsapp: { nombre: 'WhatsApp', icono: 'bi-whatsapp' }, instagram: { nombre: 'Instagram', icono: 'bi-instagram' }, messenger: { nombre: 'Messenger', icono: 'bi-messenger' }, webhook: { nombre: 'Web / Webhook', icono: 'bi-globe2' } };
+export const CANALES = { whatsapp: { nombre: 'WhatsApp', icono: 'bi-whatsapp' }, instagram: { nombre: 'Instagram', icono: 'bi-instagram' }, messenger: { nombre: 'Messenger', icono: 'bi-messenger' }, webhook: { nombre: 'Web / Webhook', icono: 'bi-globe2' }, correo: { nombre: 'Correo', icono: 'bi-envelope' } };
 export const soloDigitos = (s) => String(s || '').replace(/\D/g, '');
 export const errMeta = async (r) => { try { const d = await r.json(); return `${d.error?.message || 'Error'}${d.error?.code ? ` (código ${d.error.code})` : ''}`.slice(0, 300); } catch { return `Meta respondió ${r.status}`; } };
 
@@ -51,8 +51,21 @@ export async function enviarWeb(bandeja, evento, datos) {
   } catch (e) { return { estado: 'error', error: e.name === 'AbortError' ? 'Tu URL tardó más de 4 s' : 'No se pudo conectar con tu URL' }; } finally { clearTimeout(t); }
 }
 
+const escHtml = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+// Responde un correo por Cloudflare Email Sending, en el mismo hilo (Re: asunto, In-Reply-To / References)
+export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref } = {}) {
+  if (!env.EMAIL?.send) return { estado: 'error', error: 'El envío de correo no está configurado en Diwilo Modulos' };
+  try {
+    const t = String(texto).slice(0, 20000), subject = /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
+    await env.EMAIL.send({ to: para, from: { email: bandeja.phone_number_id, name: bandeja.nombre }, subject: subject.slice(0, 200), text: t, html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap">${escHtml(t)}</div>`,
+      ...(ref ? { headers: { 'In-Reply-To': ref, References: ref } } : {}) });
+    return { estado: 'enviado' };
+  } catch (e) { console.error('correo envío', e.message); return { estado: 'error', error: `${String(e.message || e).slice(0, 220)}. Revisa que el dominio esté activado en Cloudflare Email Sending.` }; }
+}
+
 // Texto libre: WhatsApp, Instagram y Messenger solo lo permiten dentro de las 24 h siguientes al último mensaje de la persona.
 export async function enviarTexto(env, bandeja, para, texto, extra = {}) {
+  if (bandeja.canal === 'correo') return enviarCorreo(env, bandeja, para, texto, extra);
   if (bandeja.canal === 'webhook') return enviarWeb(bandeja, 'mensaje', { chat: para, texto: String(texto).slice(0, 4000), ...extra });
   try {
     const t = String(texto).slice(0, bandeja.canal === 'whatsapp' ? 4000 : 1900);
@@ -117,6 +130,13 @@ async function probarSocial(env, bandeja, pasos, paso) {
 // Verificador de la bandeja (como el de Chatwoot): comprueba la clave API y el ID del número contra Meta y, si se da un destino, manda un mensaje de prueba.
 export async function probarBandeja(env, bandeja, para) {
   const pasos = [], paso = (nombre, ok, detalle) => { pasos.push({ nombre, ok, detalle }); return ok; };
+  if (bandeja.canal === 'correo') {
+    paso('Recepción', true, `Los correos que lleguen a ${bandeja.phone_number_id} aparecen en Chats si en Cloudflare → Email Routing la regla de esa dirección envía a un Worker → diwilo-modulos.`);
+    if (!env.EMAIL?.send) paso('Envío', false, 'El envío de correo no está configurado en Diwilo Modulos (binding send_email).');
+    else if (!para || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) paso('Envío', true, 'El envío está configurado. Escribe un correo en «Número que recibe el mensaje de prueba» para mandarle una prueba.');
+    else { const r = await enviarCorreo(env, bandeja, para.trim(), 'Prueba de conexión de Diwilo: si lees esto, las respuestas por correo funcionan.', { asunto: 'Prueba de conexión' }); paso('Envío', r.estado === 'enviado', r.estado === 'enviado' ? `Correo de prueba enviado a ${para.trim()}.` : r.error); }
+    return { ok: pasos.every((p) => p.ok), pasos };
+  }
   if (bandeja.canal === 'webhook') {
     paso('Webhook de entrada', true, 'Tu sistema envía los mensajes a la URL de la bandeja con su token (ver el ejemplo en la tarjeta).');
     if (!bandeja.url_salida) paso('URL de salida', true, 'Sin URL de salida: las respuestas del equipo se guardan en el chat pero no se envían a tu sistema (si quieres recibirlas, agrégala en Ajustes).');
