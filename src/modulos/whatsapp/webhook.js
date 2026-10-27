@@ -121,10 +121,18 @@ function eventos(data) {
     }
   } else if (data.object === 'page' || data.object === 'instagram') {
     const canal = data.object === 'page' ? 'messenger' : 'instagram';
-    for (const ent of data.entry || []) for (const ev of ent.messaging || []) {
+    for (const ent of data.entry || []) {
+      // Instagram con inicio de sesión de Instagram entrega los mensajes en entry.changes[field=messages] en vez de entry.messaging
+      for (const ch of canal === 'instagram' ? ent.changes || [] : []) {
+        const v = ch.value || {}, msg = v.message;
+        if (ch.field !== 'messages' || !msg || msg.is_echo || !v.sender?.id || !msg.mid) continue;
+        out.push({ canal, cuenta: String(ent.id || v.recipient?.id || ''), contacto: String(v.sender.id), nombre: null, tipo: msg.text ? 'text' : 'attachment', texto: msg.text || null, id: String(msg.mid), ts: Number(v.timestamp) ? Number(v.timestamp) * (Number(v.timestamp) < 1e12 ? 1000 : 1) : now() });
+      }
+    for (const ev of ent.messaging || []) {
       const msg = ev.message;
       if (!msg || msg.is_echo || !ev.sender?.id || !msg.mid) continue;                // los ecos son lo que mandamos nosotros
       out.push({ canal, cuenta: String(ent.id || ev.recipient?.id || ''), contacto: String(ev.sender.id), nombre: null, tipo: msg.text ? 'text' : 'attachment', texto: msg.text || null, id: String(msg.mid), ts: Number(ev.timestamp) || now() });
+    }
     }
   }
   return out;
@@ -194,11 +202,18 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
   if (!(await firmaValida(env, raiz, cuerpo, sig))) return out(texto(401, 'Firma no válida'));
   let data; try { data = JSON.parse(cuerpo); } catch { return out(texto(400, 'JSON no válido')); }
 
+  const lista = eventos(data);
+  console.log(`mensajes: webhook ${data.object || '?'} con ${lista.length} mensaje(s) en ${org}`);
   const nuevos = new Map();
-  for (const ev of eventos(data)) {
+  for (const ev of lista) {
     // Cada evento va a la bandeja de ese canal con ese id de número / página / cuenta (varias bandejas pueden compartir la URL)
-    const bandeja = await one(env, 'SELECT * FROM wa_bandejas WHERE business_id = ? AND canal = ? AND phone_number_id = ? AND activo = 1', org, ev.canal, ev.cuenta);
-    if (!bandeja) continue;
+    let bandeja = await one(env, 'SELECT * FROM wa_bandejas WHERE business_id = ? AND canal = ? AND phone_number_id = ? AND activo = 1', org, ev.canal, ev.cuenta);
+    if (!bandeja && ev.canal !== 'whatsapp') {
+      // Instagram y Messenger a veces traen otro id para la misma cuenta: con una sola bandeja de ese canal, no hay duda de a cuál va
+      const unicas = await all(env, 'SELECT * FROM wa_bandejas WHERE business_id = ? AND canal = ? AND activo = 1', org, ev.canal);
+      if (unicas.length === 1) { bandeja = unicas[0]; console.warn(`mensajes: ${ev.canal} llegó con el id ${ev.cuenta} y la bandeja tiene ${bandeja.phone_number_id}; se enrutó a la única bandeja del canal`); }
+    }
+    if (!bandeja) { console.warn(`mensajes: evento de ${ev.canal} sin bandeja (id ${ev.cuenta}) en ${org}`); continue; }
     const nombre = ev.nombre || (ev.canal !== 'whatsapp' && !(await one(env, 'SELECT 1 FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto)) ? await perfil(env, bandeja, ev.contacto) : null);
     const nuevo = await guardarMensaje(env, { org, bandeja: bandeja.id, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, wamid: ev.id, ts: ev.ts });
     if (!nuevo) continue;

@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 2.2.1 · 2026-10-27
+- Instagram y Messenger: si el evento llega con otro ID pero el negocio tiene una sola bandeja de ese canal, se enruta a ella; Instagram también con el formato nuevo (`entry.changes`); el envío usa `/me/messages` (token de la página); el verificador muestra de quién es el token; el webhook deja registro de lo que recibe y de lo que no pudo enrutar.
+
 ## 2.2.0 · 2026-10-27
 - **De dónde escribe cada persona:** en los chats web, país y dispositivo (ej. «CO · escritorio», «US · móvil») y la página; en WhatsApp, el país por el indicativo del teléfono (+57 → CO). Instagram y Messenger no entregan ubicación y quedan sin ella. El webhook acepta `pais`, `dispositivo` (o `ua`) y `pagina`.
 - **Pestaña «Todos los mensajes»:** cada mensaje de todos los canales, con búsqueda y filtros por canal y bandeja; al tocar uno se abre su chat. El filtro «Todos» de Chats ahora siempre aparece.

@@ -50,7 +50,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   ls = await chats();
   check('Mensajes: Messenger e Instagram crean sus chats con su canal, y los ecos se ignoran', ls.length === 3 && ls.some((x) => x.canal === 'messenger' && x.contacto === 'psid42') && ls.some((x) => x.canal === 'instagram' && x.contacto === 'igsid42') && !ls.some((x) => x.ultimo_texto === 'eco nuestro'), JSON.stringify(ls));
   check('Mensajes: se filtra la lista por canal', (await chats(A, '?canal=instagram')).length === 1 && (await chats(A, '?canal=whatsapp')).length === 1);
-  check('Mensajes: un evento de Messenger para una página sin bandeja no crea nada', (await hook(url, social('page', '123456', 'm_x', 'psid1', 'hola'))).status === 200 && (await chats()).length === 3);
+  check('Mensajes: si Messenger llega con otro id y el negocio tiene una sola bandeja de ese canal, va a esa; un canal sin bandeja no crea nada', (await hook(url, social('page', '123456', 'm_x', 'psid1', 'hola'))).status === 200 && (await chats()).some((x) => x.canal === 'messenger' && x.contacto === 'psid1') && (await hook(url, { object: 'instagram', entry: [{ id: '1', changes: [{ field: 'messages', value: { sender: { id: 'igsid9' }, recipient: { id: '1' }, timestamp: 1790000000, message: { mid: 'ig_new', text: 'formato nuevo' } } }] }] })).status === 200 && (await chats()).some((x) => x.contacto === 'igsid9' && x.ultimo_texto === 'formato nuevo'));
 
   /* ---------- agentes, agente por chat e interruptor de IA ---------- */
   const campos = JSON.stringify({ campos: ['correo', 'empresa', 'tipo', 'interes'], extras: ['Cargo'] });
@@ -156,8 +156,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 8);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 7 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 10);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 9 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }
