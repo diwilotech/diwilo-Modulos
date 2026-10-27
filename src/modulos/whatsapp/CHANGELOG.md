@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 2.2.2 · 2026-10-27
+- Instagram y Messenger: el envío busca solo el token de la PÁGINA vinculada (GET /me/accounts) cuando la clave guardada es la de un usuario del sistema, y envía por `/{página}/messages`; si la clave ya es la de la página, se usa tal cual. El verificador indica si encontró la página.
+
 ## 2.2.1 · 2026-10-27
 - Instagram y Messenger: si el evento llega con otro ID pero el negocio tiene una sola bandeja de ese canal, se enruta a ella; Instagram también con el formato nuevo (`entry.changes`); el envío usa `/me/messages` (token de la página); el verificador muestra de quién es el token; el webhook deja registro de lo que recibe y de lo que no pudo enrutar.
 

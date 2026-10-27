@@ -9,10 +9,27 @@ export const soloDigitos = (s) => String(s || '').replace(/\D/g, '');
 export const errMeta = async (r) => { try { const d = await r.json(); return `${d.error?.message || 'Error'}${d.error?.code ? ` (código ${d.error.code})` : ''}`.slice(0, 300); } catch { return `Meta respondió ${r.status}`; } };
 
 // Llamada a Graph con el token de la bandeja (8 s de espera). Lanza Error('sin_clave') si no la tiene.
-async function graph(env, bandeja, url, init = {}, ms = 8000) {
+async function graph(env, bandeja, url, init = {}, ms = 8000, token = null) {
   if (!bandeja.clave_cifrada) throw new Error('sin_clave');
-  const clave = await descifrarClave(env, bandeja.clave_cifrada), ac = new AbortController(), t = setTimeout(() => ac.abort(), ms);
+  const clave = token || await descifrarClave(env, bandeja.clave_cifrada), ac = new AbortController(), t = setTimeout(() => ac.abort(), ms);
   try { return await fetch(url, { ...init, signal: ac.signal, headers: { authorization: `Bearer ${clave}`, 'content-type': 'application/json' } }); } finally { clearTimeout(t); }
+}
+// Instagram y Messenger se envían con el token de la PÁGINA. Si la clave guardada es la de un usuario del sistema (o de otro usuario con la página asignada),
+// se le pide a Meta el token de la página vinculada (GET /me/accounts); si la clave ya es la de la página, esa lista viene vacía y se usa tal cual (/me).
+const cachePag = new Map();
+export async function paginaDe(env, bandeja) {
+  const k = `${bandeja.id}:${bandeja.updated_at}`, c = cachePag.get(k);
+  if (c && Date.now() - c.at < 3000000) return c.v;
+  let v = null;
+  try {
+    const r = await graph(env, bandeja, `${GRAPH}/me/accounts?fields=id,name,access_token,instagram_business_account&limit=100`);
+    if (r.ok) {
+      const p = ((await r.json()).data || []).find((x) => (bandeja.canal === 'messenger' ? x.id === bandeja.phone_number_id : x.instagram_business_account?.id === bandeja.phone_number_id));
+      if (p?.access_token) v = { id: p.id, token: p.access_token, nombre: p.name };
+    }
+  } catch { /* sin página: se prueba con la clave tal cual */ }
+  cachePag.set(k, { v, at: v ? Date.now() : Date.now() - 2940000 });   // si no se encontró, se reintenta al minuto
+  return v;
 }
 const post = (env, b, ruta, body) => graph(env, b, `${GRAPH}/${b.phone_number_id}/${ruta}`, { method: 'POST', body: JSON.stringify(body) });
 const resultado = async (r, ctx) => { if (!r.ok) console.error(ctx, r.status, (await r.clone().text()).slice(0, 200)); return r.ok ? { estado: 'enviado' } : { estado: 'error', error: await errMeta(r) }; };
@@ -41,9 +58,10 @@ export async function enviarTexto(env, bandeja, para, texto, extra = {}) {
     const t = String(texto).slice(0, bandeja.canal === 'whatsapp' ? 4000 : 1900);
     if (!bandeja.canal || bandeja.canal === 'whatsapp') return await resultado(await post(env, bandeja, 'messages', { messaging_product: 'whatsapp', to: soloDigitos(para), type: 'text', text: { body: t } }), 'whatsapp envío');
     // «me» = la página (o la cuenta de Instagram) dueña del token: así sirve con el token de la página sin necesitar su id
-    const r = await graph(env, bandeja, `${GRAPH}/me/messages`, { method: 'POST', body: JSON.stringify({ recipient: { id: String(para) }, messaging_type: 'RESPONSE', message: { text: t } }) });
+    const via = await paginaDe(env, bandeja);
+    const r = await graph(env, bandeja, `${GRAPH}/${via ? via.id : 'me'}/messages`, { method: 'POST', body: JSON.stringify({ recipient: { id: String(para) }, messaging_type: 'RESPONSE', message: { text: t } }) }, 8000, via?.token);
     const res = await resultado(r, `${bandeja.canal} envío`);
-    return res.estado === 'error' ? { ...res, error: `${res.error}. Para Instagram y Messenger el token debe ser el de la PÁGINA con permiso de mensajes, no el del usuario del sistema.` } : res;
+    return res.estado === 'error' ? { ...res, error: `${res.error}${via ? '' : '. No encontré la página vinculada a esta cuenta entre las páginas del token: asígnala al usuario del sistema (control total) y genera el token de nuevo con pages_show_list, pages_messaging e instagram_manage_messages'}` } : res;
   } catch (e) { return e.message === 'sin_clave' ? { estado: 'sin_clave' } : { estado: 'error', error: e.name === 'AbortError' ? 'Meta tardó más de 8 segundos' : e.message }; }
 }
 
@@ -81,9 +99,14 @@ async function probarSocial(env, bandeja, pasos, paso) {
     if (!r.ok) paso('Clave API e ID de la cuenta', false, `Meta no aceptó la clave o el ID: ${await errMeta(r)}. Usa el token de la página y el ID de la ${bandeja.canal === 'instagram' ? 'cuenta profesional de Instagram' : 'página'}.`);
     else {
       const d = await r.json(); paso('Clave API e ID de la cuenta', true, `Conectado a «${d.name || d.username || d.id}».`);
-      // Para enviar, el token debe ser el de la página (o de la cuenta de Instagram): «me» devuelve su dueño
-      const yo = await graph(env, bandeja, `${GRAPH}/me?fields=id,name`);
-      if (yo.ok) { const m = await yo.json(); const ok = bandeja.canal === 'messenger' ? m.id === bandeja.phone_number_id : !/system ?user/i.test(m.name || ''); paso('Dueño del token', ok, `El token pertenece a «${m.name || m.id}» (${m.id}).${ok ? '' : ' Para enviar mensajes necesitas el token de la PÁGINA, no el de un usuario del sistema.'}`); }
+      // Para enviar se usa el token de la PÁGINA vinculada: se busca entre las páginas del token (o el token ya es el de la página)
+      const pg = await paginaDe(env, bandeja);
+      if (pg) paso('Página vinculada', true, `Encontré la página «${pg.nombre}» (${pg.id}): los mensajes se envían con su token.`);
+      else {
+        const yo = await graph(env, bandeja, `${GRAPH}/me?fields=id,name`);
+        const m = yo.ok ? await yo.json() : null, esPagina = m && bandeja.canal === 'messenger' && m.id === bandeja.phone_number_id;
+        paso('Página vinculada', !!esPagina, esPagina ? `El token ya es el de la página «${m.name}».` : `No encontré la página vinculada a esta cuenta entre las que ve el token${m ? ` (el token es de «${m.name}»)` : ''}. En Meta: Usuarios del sistema → Agregar activos → asigna la página con control total y genera el token con pages_show_list, pages_messaging e instagram_manage_messages.`);
+      }
     }
   } catch (e) { paso('Conexión con Meta', false, e.name === 'AbortError' ? 'Meta tardó más de 8 segundos en responder.' : 'No se pudo conectar con Meta.'); }
   pasos.push({ nombre: 'Mensajes', ok: true, detalle: `Escríbele a la ${bandeja.canal === 'instagram' ? 'cuenta de Instagram' : 'página'} desde otra cuenta: el mensaje debe aparecer en Chats. Responder solo se puede dentro de las 24 h siguientes.` });
