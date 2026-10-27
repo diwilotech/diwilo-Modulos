@@ -13,8 +13,20 @@ DW.ready.then((me) => {
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
   const cab = (t) => `<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${t}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>`;
   const campo = (n, l, v = '', extra = '') => `<label class="small text-body-secondary d-grid gap-1">${l}<input class="form-control" name="${n}" value="${esc(v)}" ${extra}></label>`;
+  const SCROLL = 'style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain"';
   const hora = (ts) => { if (!ts) return ''; const d = new Date(ts), h = new Date(); return d.toDateString() === h.toDateString() ? d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }); };
   const horaLarga = (ts) => (ts ? new Date(ts).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+  // Teléfono con indicativo de país (+57 Colombia, +1 Estados Unidos…): lista de países y número nacional; se guarda como «+57 3001112233»
+  const PAISES = [['57', 'CO', 'Colombia'], ['1', 'US', 'Estados Unidos / Canadá'], ['52', 'MX', 'México'], ['34', 'ES', 'España'], ['51', 'PE', 'Perú'], ['54', 'AR', 'Argentina'], ['56', 'CL', 'Chile'], ['593', 'EC', 'Ecuador'], ['58', 'VE', 'Venezuela'], ['507', 'PA', 'Panamá'], ['506', 'CR', 'Costa Rica'], ['502', 'GT', 'Guatemala'], ['503', 'SV', 'El Salvador'], ['504', 'HN', 'Honduras'], ['505', 'NI', 'Nicaragua'], ['591', 'BO', 'Bolivia'], ['595', 'PY', 'Paraguay'], ['598', 'UY', 'Uruguay'], ['55', 'BR', 'Brasil'], ['53', 'CU', 'Cuba'], ['1809', 'DO', 'Rep. Dominicana'], ['1787', 'PR', 'Puerto Rico'], ['44', 'GB', 'Reino Unido'], ['33', 'FR', 'Francia'], ['49', 'DE', 'Alemania'], ['39', 'IT', 'Italia'], ['351', 'PT', 'Portugal'], ['31', 'NL', 'Países Bajos'], ['41', 'CH', 'Suiza'], ['971', 'AE', 'Emiratos Árabes'], ['972', 'IL', 'Israel'], ['86', 'CN', 'China'], ['81', 'JP', 'Japón'], ['91', 'IN', 'India'], ['61', 'AU', 'Australia'], ['27', 'ZA', 'Sudáfrica']];
+  const partirTel = (v) => {
+    const d = String(v || '').replace(/\D/g, '').replace(/^00/, '');
+    if (!d) return { cc: '57', iso: 'CO', num: '' };
+    if (d.length === 10 && d[0] === '3') return { cc: '57', iso: 'CO', num: d };
+    const p = [...PAISES].sort((a, b) => b[0].length - a[0].length).find(([cc]) => d.startsWith(cc));
+    return p ? { cc: p[0], iso: p[1], num: d.slice(p[0].length) } : { cc: '57', iso: 'CO', num: d };
+  };
+  const telCampo = (nombre, etiqueta, valor = '') => { const p = partirTel(valor); return `<div class="small text-body-secondary d-grid gap-1">${etiqueta}<div class="d-flex gap-2"><select class="form-select" style="max-width:190px;flex:none" name="${nombre}_cc" aria-label="Indicativo del país">${PAISES.map(([cc, iso, n]) => `<option value="${cc}|${iso}" ${cc === p.cc && iso === p.iso ? 'selected' : ''}>${bandera(iso)} +${cc} ${n}</option>`).join('')}</select><input class="form-control" name="${nombre}_num" value="${esc(p.num)}" inputmode="tel" placeholder="300 123 4567" aria-label="Número"></div></div>`; };
+  const leerTel = (f, nombre) => { const num = f[`${nombre}_num`].value.replace(/\D/g, '').replace(/^0+/, ''); return num ? `+${f[`${nombre}_cc`].value.split('|')[0]}${num}` : ''; };
   // De dónde escribe: país (por el indicativo del teléfono o lo que manda la web) y dispositivo. Instagram y Messenger no entregan ubicación.
   const bandera = (p) => String.fromCodePoint(...[...String(p).toUpperCase()].map((c) => 127397 + c.charCodeAt(0)));
   const paisNombre = (p) => { try { return new Intl.DisplayNames(['es'], { type: 'region' }).of(String(p).toUpperCase()); } catch { return p; } };
@@ -177,22 +189,26 @@ DW.ready.then((me) => {
 
   // Datos del contacto del chat: lo que capturó el agente o lo que escribe el equipo → contacto de Marketing (sin duplicar por teléfono)
   function contacto(det, listo) {
-    const c = det.chat, k = det.contact, d = c.datos || {};
-    const { el: mo, m: mm } = modal(`${cab('Contacto del chat')}<form class="modal-body d-grid gap-3" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain">
-      ${k ? `<div class="alert alert-success small mb-0"><i class="bi bi-check-circle me-1"></i>Enlazado con el contacto <b>${esc(k.name)}</b> de Marketing${k.stage ? ` (${esc(k.stage)})` : ''}.</div>` : ''}
+    const c = det.chat, k = det.contact, d = c.datos || {}, wa = c.canal === 'whatsapp';
+    const opt = (v, l, sel) => `<option value="${v}" ${sel === v ? 'selected' : ''}>${l}</option>`;
+    const cliente = k?.stage === 'cliente' || /^s[ií]/i.test(d.es_cliente || '') ? 'si' : 'no';
+    const { el: mo, m: mm } = modal(`${cab('Datos del contacto')}<form class="modal-body d-grid gap-3" ${SCROLL}>
+      ${k ? `<div class="alert alert-success small mb-0"><i class="bi bi-check-circle me-1"></i>Enlazado con el contacto <b>${esc(k.name)}</b> de Marketing${k.stage ? ` (${esc(k.stage)})` : ''}. Lo que cambies aquí lo actualiza.</div>` : '<div class="alert alert-light border small mb-0">Este chat aún no está en Marketing. Completa los datos y se crea el contacto (si el teléfono ya existe, se actualiza el de siempre).</div>'}
       ${!det.marketing ? '<div class="alert alert-warning small mb-0">Marketing no está activo en tu negocio: pídele a Diwilo que lo active para guardar contactos.</div>' : ''}
-      ${campo('nombre', 'Nombre', k?.name || d.nombre || c.nombre || '', 'maxlength="120"')}
-      ${c.canal === 'whatsapp' ? `<div class="small text-body-secondary">Teléfono: <b>+${esc(c.contacto)}</b> (el del chat)</div>` : campo('telefono', 'Teléfono', k?.phone || d.telefono || '', 'inputmode="tel"')}
-      ${campo('correo', 'Correo', k?.email || d.correo || '', 'type="email"')}
-      ${campo('empresa', 'Empresa o negocio', k?.company || d.empresa || '', 'maxlength="120"')}
-      ${d.tipo || d.ciudad ? `<div class="small text-body-secondary">${d.tipo ? `Tipo: <b>${esc(d.tipo)}</b>` : ''}${d.tipo && d.ciudad ? ' · ' : ''}${d.ciudad ? `Ciudad: <b>${esc(d.ciudad)}</b>` : ''}</div>` : ''}
-      ${d.extras && Object.keys(d.extras).length ? `<div class="small text-body-secondary">${Object.entries(d.extras).map(([a, z]) => `${esc(a)}: <b>${esc(z)}</b>`).join('<br>')}</div>` : ''}
+      ${campo('nombre', 'Nombre de la persona', k?.name || d.nombre || '', 'maxlength="120" placeholder="Nombre y apellido"')}
+      ${wa ? `<div class="small text-body-secondary">Teléfono: <b>+${esc(c.contacto)}</b> ${c.pais ? `${bandera(c.pais)} ${esc(paisNombre(c.pais))}` : ''} (el del chat)</div>` : telCampo('tel', 'Teléfono (elige el indicativo del país)', k?.phone || d.telefono || '')}
+      ${campo('correo', 'Correo electrónico', k?.email || d.correo || '', 'type="email" placeholder="nombre@empresa.com"')}
+      <div class="row g-2"><div class="col-sm-6">${campo('empresa', 'Negocio o empresa', k?.company || d.empresa || '', 'maxlength="120"')}</div>
+        <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">Escribe como<select class="form-select" name="tipo">${opt('', '—', d.tipo || '')}${opt('persona', 'Persona', d.tipo || '')}${opt('negocio', 'Negocio o empresa', d.tipo || '')}</select></label></div></div>
+      <div class="row g-2"><div class="col-sm-6">${campo('ciudad', 'Ciudad', d.ciudad || '', 'maxlength="80"')}</div>
+        <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">¿Ya es cliente?<select class="form-select" name="es_cliente">${opt('no', 'No, es nuevo (lead)', cliente)}${opt('si', 'Sí, ya es cliente', cliente)}</select></label></div></div>
       ${campo('interes', 'Qué busca / notas', d.interes || '', 'maxlength="300"')}
+      ${d.extras && Object.keys(d.extras).length ? `<div class="small text-body-secondary">${Object.entries(d.extras).map(([a, z]) => `${esc(a)}: <b>${esc(z)}</b>`).join('<br>')}</div>` : ''}
       <button class="btn btn-primary" ${det.marketing && !RO ? '' : 'disabled'}>${k ? 'Actualizar en Marketing' : 'Guardar en Marketing'}</button></form>`);
     mo.querySelector('form').onsubmit = async (e) => {
-      e.preventDefault(); const f = e.target, btn = f.querySelector('button'); btn.disabled = true;
-      const body = { nombre: f.nombre.value.trim(), correo: f.correo.value.trim(), empresa: f.empresa.value.trim(), interes: f.interes.value.trim(), ...(d.tipo ? { tipo: d.tipo } : {}), ...(d.ciudad ? { ciudad: d.ciudad } : {}), ...(d.extras ? { extras: d.extras } : {}), ...(f.telefono ? { telefono: f.telefono.value.trim() } : {}) };
-      try { const r = await api(`${B}/chats/${c.id}/contacto`, { method: 'POST', body }); mm.hide(); toast(r.creado ? 'Contacto creado en Marketing' : 'Contacto enlazado'); listo?.(); } catch (x) { toast(x.message, false); btn.disabled = false; }
+      e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
+      const body = { nombre: f.nombre.value.trim(), correo: f.correo.value.trim(), empresa: f.empresa.value.trim(), interes: f.interes.value.trim(), tipo: f.tipo.value, ciudad: f.ciudad.value.trim(), es_cliente: f.es_cliente.value, ...(d.extras ? { extras: d.extras } : {}), ...(wa ? {} : { telefono: leerTel(f, 'tel') }) };
+      try { const r = await api(`${B}/chats/${c.id}/contacto`, { method: 'POST', body }); mm.hide(); toast(r.creado ? 'Contacto creado en Marketing' : 'Contacto actualizado'); listo?.(); } catch (x) { toast(x.message, false); btn.disabled = false; }
     };
   }
 
@@ -295,7 +311,7 @@ DW.ready.then((me) => {
         ${b ? '' : `<label class="small text-body-secondary d-grid gap-1">Canal<select class="form-select" name="canal">${Object.entries(CAN_).map(([k, v]) => `<option value="${k}">${v.n}</option>`).join('')}</select></label>`}
         <div class="small text-body-secondary" data-ayuda>${AYUDA[canal0]}</div>
         ${campo('nombre', 'Nombre de la bandeja de entrada', b?.nombre, 'required maxlength="80" placeholder="Ventas"')}
-        <div data-wa class="d-grid gap-3">${campo('telefono', 'Número de teléfono', b?.telefono || '+57', 'placeholder="+57 300 123 4567" inputmode="tel"')}${campo('waba_id', 'ID de la cuenta de WhatsApp Business', b?.waba_id, 'inputmode="numeric"')}</div>
+        <div data-wa class="d-grid gap-3">${telCampo('tel', 'Número de teléfono de WhatsApp (elige el indicativo del país)', b?.telefono || '')}${campo('waba_id', 'ID de la cuenta de WhatsApp Business', b?.waba_id, 'inputmode="numeric"')}</div>
         <div data-meta class="d-grid gap-3">${campo('phone_number_id', `<span data-idl>${canal0 === 'whatsapp' ? 'ID del número de teléfono' : canal0 === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}</span>`, b?.phone_number_id, 'inputmode="numeric"')}
           ${campo('api_key', 'Clave API (token de acceso de Meta)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_clave ? 'Guardada — déjalo vacío para conservarla' : 'EAAG…'}"`)}
           ${campo('app_secret', 'Secreto de la app de Meta (opcional, valida la firma del webhook)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_secreto ? 'Guardado — déjalo vacío para conservarlo' : ''}"`)}</div>
@@ -306,7 +322,7 @@ DW.ready.then((me) => {
       if (f.canal) f.canal.onchange = ver; ver();
       f.onsubmit = async (e) => {
         e.preventDefault(); const v = (n) => f[n].value.trim(), btn = f.querySelector('button'), canal = b ? b.canal : v('canal'); btn.disabled = true;
-        const core = canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: v('telefono'), waba_id: v('waba_id') } : {}) };
+        const core = canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id') } : {}) };
         try {
           if (b) {
             await api(`${B}/bandejas/${b.id}`, { method: 'PATCH', body: core });
@@ -377,6 +393,9 @@ DW.ready.then((me) => {
           <div class="d-grid gap-1" data-bandejas>${bands.length ? bands.map((b) => `<div class="form-check"><input class="form-check-input" type="checkbox" name="b_${b.id}" id="wab-${b.id}" ${(a?.bandejas || []).includes(b.id) ? 'checked' : ''}><label class="form-check-label small" for="wab-${b.id}">${ico(b.canal)} ${esc(b.nombre)} <span class="text-body-secondary">· ${esc(CAN_[b.canal]?.n || b.canal)}</span></label></div>`).join('') : '<div class="small text-body-secondary">Aún no tienes bandejas.</div>'}</div></fieldset>
         <label class="small text-body-secondary d-grid gap-1">Instrucciones (qué sabe y cómo responde)<textarea class="form-control" name="instrucciones" rows="6" maxlength="4000" placeholder="Atiendes consultas sobre cursos. Horario: lunes a viernes 8-5. Si piden precio, ofrece que un asesor los contacte.">${esc(a?.instrucciones || '')}</textarea></label>
         <label class="small text-body-secondary d-grid gap-1">Mensaje de bienvenida (opcional)<textarea class="form-control" name="bienvenida" rows="4" maxlength="1500" placeholder="¡Hola{nombre}! Soy el asistente de mi negocio. ¿En qué te ayudo?&#10;1️⃣ Información&#10;2️⃣ Cotizar&#10;3️⃣ Hablar con un asesor">${esc(a?.bienvenida || '')}</textarea><span class="text-body-tertiary">Se envía cuando alguien inicia el chat. {nombre} se cambia por su nombre. Si ya preguntó algo, la bienvenida va seguida de la respuesta.</span></label>
+        <fieldset class="border rounded-3 p-3"><legend class="small fw-semibold float-none w-auto px-2 mb-0">Si la persona ya está en Marketing</legend>
+          <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="usar_conocido" id="wauc" ${!a || a.usar_conocido ? 'checked' : ''}><label class="form-check-label small" for="wauc">Saludarla distinto: «vimos la solicitud que presentaste…»</label></div>
+          <label class="small text-body-secondary d-grid gap-1">Mensaje para quien ya presentó una solicitud (opcional)<textarea class="form-control" name="bienvenida_conocido" rows="3" maxlength="1500" placeholder="¡Hola{nombre}! 👋 Vimos la solicitud que presentaste{solicitud}. Gracias por escribirnos. ¿Quieres que sigamos con eso o tienes otra consulta?">${esc(a?.bienvenida_conocido || '')}</textarea><span class="text-body-tertiary">Si el teléfono del chat ya está en Marketing, este saludo reemplaza a la bienvenida. {nombre} = su nombre, {solicitud} = lo que pidió (de sus notas), {empresa}. Vacío = el mensaje de arriba. A quien ya es cliente le dice que da gusto saludarlo de nuevo.</span></label></fieldset>
         <fieldset class="border rounded-3 p-3"><legend class="small fw-semibold float-none w-auto px-2 mb-0">Datos de contacto que pide</legend>
           <div class="small text-body-secondary mb-2">Cuando alguien quiere comprar o que lo contacten, el agente le pide el nombre y estos datos, y los guarda como contacto en Marketing (sin duplicar). Si no marcas ninguno, no pide datos.</div>
           <div class="d-grid gap-1">${Object.entries(DATOS).map(([k, l]) => `<div class="form-check"><input class="form-check-input" type="checkbox" name="c_${k}" id="wc-${k}" ${cd.campos.includes(k) ? 'checked' : ''}><label class="form-check-label small" for="wc-${k}">${esc(l)}</label></div>`).join('')}</div>
@@ -388,7 +407,7 @@ DW.ready.then((me) => {
       mo.querySelector('form').onsubmit = async (e) => {
         e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
         const campos = JSON.stringify({ campos: Object.keys(DATOS).filter((k) => f[`c_${k}`].checked), extras: f.extras.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 5) });
-        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, alerta_asesor: f.alerta_asesor.checked, insistir: f.insistir.checked, bienvenida: f.bienvenida.value.trim(), campos };
+        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, alerta_asesor: f.alerta_asesor.checked, insistir: f.insistir.checked, bienvenida: f.bienvenida.value.trim(), usar_conocido: f.usar_conocido.checked, bienvenida_conocido: f.bienvenida_conocido.value.trim(), campos };
         try { if (a) await api(`${B}/agentes/${a.id}`, { method: 'PATCH', body }); else await api(`${B}/agentes`, { method: 'POST', body }); mm.hide(); toast('Agente guardado'); render(); }
         catch (x) { toast(x.message, false); btn.disabled = false; }
       };

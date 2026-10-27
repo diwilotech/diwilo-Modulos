@@ -1,5 +1,11 @@
 # WhatsApp — cambios
 
+## 2.6.0 · 2026-10-27
+- **Saludo para quien ya presentó una solicitud:** si el teléfono del chat nuevo ya está en Marketing, el primer mensaje le dice «vimos la solicitud que presentaste» (con lo que pidió, de sus notas), le agradece y le pregunta si quiere seguir con eso o tiene otra consulta; a quien ya es cliente le dice que da gusto saludarlo de nuevo. Cada agente puede cambiar el texto ({nombre}, {solicitud}, {empresa}) o apagarlo. Si solo saludó, ese es el mensaje; si ya preguntó algo, va seguido de la respuesta.
+- **Formularios mejorados:** el formulario de datos del contacto del chat ahora pide nombre, teléfono con **indicativo de país** (lista con bandera: +57 Colombia, +1 Estados Unidos, +52 México…), correo, negocio, si escribe como persona o negocio, ciudad y si ya es cliente; lo que guarda el equipo reemplaza lo que había. El teléfono de la bandeja de WhatsApp también usa el selector de indicativo.
+- **Teléfonos con indicativo:** se guardan en Marketing como «+57…», «+1…»; un celular colombiano de 10 dígitos sin indicativo recibe +57. El agente pide el teléfono con indicativo cuando el canal no lo trae (Instagram, Messenger, web).
+- Migración `0030_bienvenida_conocido.sql`.
+
 ## 2.5.1 · 2026-10-27
 - **El agente ve el contacto de Marketing:** si el teléfono del chat ya está en Marketing, el chat se enlaza en cada mensaje (no solo el primero), muestra el nombre del contacto (no el del perfil de WhatsApp) y la bienvenida lo saluda por ese nombre. El agente recibe sus datos (nombre, correo, teléfono, empresa, etapa y notas), lo trata por su nombre, retoma lo que ya pidió y **solo pide lo que falta**; si ya está completo no le pide nada y, si pide un asesor, confirma que lo contactarán a su correo o teléfono registrado.
 

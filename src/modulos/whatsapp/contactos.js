@@ -32,6 +32,17 @@ export function limpiarDatos(d) {
   return out;
 }
 
+// Teléfono con indicativo de país: «+57 3001112233», «0057…» o «3001112233» (celular colombiano de 10 dígitos que empieza en 3 → +57). Otros números sin indicativo se guardan como llegaron.
+export function normalizarTelefono(t) {
+  const crudo = String(t || '').trim();
+  if (!crudo) return null;
+  const d = crudo.replace(/\D/g, '');
+  if (d.length < 7) return null;
+  if (crudo.startsWith('+')) return `+${d}`;
+  if (d.startsWith('00') && d.length > 9) return `+${d.slice(2)}`;
+  if (d.length === 10 && d[0] === '3') return `+57${d}`;
+  return d;
+}
 export const marketingActivo = (env, org) => orgUsa(env, org, 'marketing');
 const ultimos = (tel) => soloDigitos(tel).slice(-10);
 
@@ -46,9 +57,10 @@ export const contactoPorId = (env, org, id) => (id ? one(env, 'SELECT id, name, 
 
 // Guarda lo que se sabe de la persona del chat como contacto de Marketing y lo enlaza al chat. `d` = { nombre, telefono, correo, empresa, interes }.
 // Devuelve { id, creado } o null si no hay Marketing activo o faltan datos mínimos.
-export async function guardarContacto(env, org, { bandeja, conv, d }) {
+// manual = lo guarda una persona del equipo desde el formulario: lo que escribe reemplaza lo guardado (el agente, en cambio, solo completa y corrige el nombre).
+export async function guardarContacto(env, org, { bandeja, conv, d, manual = false }) {
   if (!(await marketingActivo(env, org))) return null;
-  const tel = bandeja.canal === 'whatsapp' ? `+${soloDigitos(conv.contacto)}` : (String(d.telefono || '').replace(/[^\d+]/g, '') || null);
+  const tel = bandeja.canal === 'whatsapp' ? `+${soloDigitos(conv.contacto)}` : normalizarTelefono(d.telefono);
   const nombre = String(d.nombre || conv.nombre || '').trim().slice(0, 120), correo = String(d.correo || '').trim().toLowerCase();
   const correoOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo) ? correo : null;
   const empresa = String(d.empresa || '').trim().slice(0, 120) || null;
@@ -68,6 +80,11 @@ export async function guardarContacto(env, org, { bandeja, conv, d }) {
     const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/).filter((w) => w.length > 2);
     const previo = await env.DB.prepare('SELECT name, email, company, stage FROM mk_contacts WHERE id = ? AND business_id = ?').bind(existente.id, org).first();
     const mismoNombre = !nombre || norm(previo?.name).some((w) => norm(nombre).includes(w));
+    if (manual) {
+      await env.DB.prepare('UPDATE mk_contacts SET name = COALESCE(?, name), email = COALESCE(?, email), phone = COALESCE(?, phone), company = COALESCE(?, company), stage = CASE WHEN ? = 1 AND stage = \'lead\' THEN \'cliente\' ELSE stage END, notes = CASE WHEN ? IS NULL OR instr(COALESCE(notes, \'\'), ?) > 0 THEN notes ELSE COALESCE(notes || char(10), \'\') || ? END, updated_at = ? WHERE id = ? AND business_id = ?')
+        .bind(nombre || null, correoOk, tel, empresa, eraCliente ? 1 : 0, notas, notas, notas, now(), existente.id, org).run();
+      return { id: existente.id, creado: false };
+    }
     const extra = [];
     let nuevoNombre = previo?.name, empresaNueva = empresa;
     if (!mismoNombre) { nuevoNombre = nombre; extra.push(`Nombre anterior: ${previo.name}`); if (!previo.company && !empresa) empresaNueva = previo.name; }

@@ -115,7 +115,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   await new Promise((r) => setTimeout(r, 500));
   check('Mensajes: no duplica el contacto', (await A.app('/api/marketing/contacts?q=Ana')).data.rows.filter((c) => c.name === 'Ana Pérez').length === 1);
   const man = await A.app(`${X}/chats/${(await chats()).find((x) => x.contacto === 'igsid42').id}/contacto`, { method: 'POST', body: { nombre: 'Luis Gómez', telefono: '3105556677', interes: 'ofertas' } });
-  check('Mensajes: el equipo guarda el contacto de un chat de Instagram a mano', man.status === 200 && man.data.creado === true && man.data.contact.phone === '3105556677');
+  check('Mensajes: el equipo guarda el contacto de un chat de Instagram a mano', man.status === 200 && man.data.creado === true && man.data.contact.phone === '+573105556677');
   check('Mensajes: sin datos mínimos no guarda contacto', (await A.app(`${X}/chats/${(await chats()).find((x) => x.contacto === 'psid42').id}/contacto`, { method: 'POST', body: { nombre: '' } })).status === 400);
   check('Mensajes: B no ve los contactos de A', (await B.app(`${X}/contactos`)).data.rows.length === 0 && (await B.app('/api/marketing/contacts?q=Ana')).data.rows.length === 0);
   const lc = (await A.app(`${X}/contactos?q=Ana`)).data;
@@ -152,12 +152,33 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   await hook(url, wa('1090000000001', 'wamid.D1', 'hola', '573001116666'));
   const chD = await esperar(async () => (await chats()).find((x) => x.contacto === '573001116666' && x.ultimo_rol === 'assistant'));
   const dD = chD && (await A.app(`${X}/chats/${chD.id}`)).data;
-  check('Mensajes: si el teléfono ya está en Marketing, el chat se enlaza, muestra el nombre del contacto (no el del perfil de WhatsApp) y la bienvenida lo saluda por ese nombre', dD?.chat.contact_id === carla.data.id && dD.chat.nombre === 'Carla Ruiz' && dD.mensajes[1].contenido === '¡Hola Carla! ¿En qué te ayudo?', JSON.stringify([dD?.chat.nombre, dD?.mensajes]));
+  check('Mensajes: si el teléfono ya está en Marketing, el chat se enlaza, muestra el nombre del contacto (no el del perfil de WhatsApp) y lo saluda por ese nombre (cliente: «qué gusto saludarte de nuevo»)', dD?.chat.contact_id === carla.data.id && dD.chat.nombre === 'Carla Ruiz' && dD.mensajes[1].contenido === '¡Hola Carla! 👋 Qué gusto saludarte de nuevo. ¿En qué te podemos ayudar hoy?', JSON.stringify([dD?.chat.nombre, dD?.mensajes]));
   await hook(url, wa('1090000000001', 'wamid.D2', '[prueba] quiero hablar con un asesor [[DATOS {"nombre":"Otro Nombre","correo":"otro@x.co"}]]', '573001116666'));
   await new Promise((r) => setTimeout(r, 700));
   const dD2 = (await A.app(`${X}/chats/${chD.id}`)).data;
   check('Mensajes: a quien ya está completo no se le pide ni se le cambia nada, pero sí queda en rojo para el asesor', dD2.chat.datos === null && (await A.app('/api/marketing/contacts?q=Carla')).data.rows.some((c) => c.id === carla.data.id && c.name === 'Carla Ruiz' && c.email === 'carla@ruiz.co') && dD2.chat.atencion === 'pide_asesor', JSON.stringify([dD2.chat.datos, dD2.chat.atencion]));
   await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { bienvenida: '', campos } });
+
+  // Quien ya presentó una solicitud (un lead del formulario del sitio con sus notas): el primer mensaje le dice que la vimos y le pregunta si sigue con eso u otra consulta
+  const lead = await A.app('/api/marketing/contacts', { method: 'POST', body: { name: 'Mario Lara', phone: '+57 300 111 5555', email: 'mario@lara.co', stage: 'lead', source: 'Sitio web', notes: 'Apps: Residentes — dos sedes' } });
+  await hook(url, wa('1090000000001', 'wamid.E1', 'hola', '573001115555'));
+  const chE = await esperar(async () => (await chats()).find((x) => x.contacto === '573001115555' && x.ultimo_rol === 'assistant'));
+  const mE = chE && (await A.app(`${X}/chats/${chE.id}`)).data.mensajes;
+  check('Mensajes: quien ya presentó una solicitud recibe «vimos la solicitud que presentaste» (con lo que pidió) y la pregunta de si sigue con eso u otra consulta', mE?.[1]?.contenido === '¡Hola Mario! 👋 Vimos la solicitud que presentaste («Apps: Residentes — dos sedes»). Gracias por escribirnos. ¿Quieres que sigamos con eso o tienes otra consulta?', JSON.stringify(mE));
+  await hook(url, wa('1090000000001', 'wamid.E2', '[prueba] háblame de residentes', '573001115555'));
+  await new Promise((r) => setTimeout(r, 600));
+  check('Mensajes: el saludo es solo la primera vez; después responde el agente', (await A.app(`${X}/chats/${chE.id}`)).data.mensajes.at(-1).contenido === 'Respuesta de prueba: háblame de residentes');
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { bienvenida_conocido: '¡Hola{nombre}! Soy de Diwilo y vi a {empresa}.', usar_conocido: true } });
+  await A.app('/api/marketing/contacts', { method: 'POST', body: { name: 'Nora Vega', phone: '+57 300 111 4444', email: 'nora@vega.co', company: 'Vega SAS', stage: 'lead' } });
+  await hook(url, wa('1090000000001', 'wamid.E3', 'hola', '573001114444'));
+  const chE3 = await esperar(async () => (await chats()).find((x) => x.contacto === '573001114444' && x.ultimo_rol === 'assistant'));
+  check('Mensajes: el agente puede tener su propio saludo para quienes ya están en Marketing ({nombre}, {empresa})', (await A.app(`${X}/chats/${chE3.id}`)).data.mensajes[1].contenido === '¡Hola Nora! Soy de Diwilo y vi a Vega SAS.');
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { bienvenida_conocido: '', usar_conocido: false } });
+  // el teléfono de un chat sin teléfono se guarda con indicativo
+  const igChat = (await chats()).find((x) => x.contacto === 'igsid42');
+  const tel1 = await A.app(`${X}/chats/${igChat.id}/contacto`, { method: 'POST', body: { nombre: 'Luis Gómez', telefono: '+1 415 555 2671', tipo: 'persona', ciudad: 'Miami', es_cliente: 'no' } });
+  check('Mensajes: un teléfono con otro indicativo (+1) se guarda tal cual y un celular colombiano de 10 dígitos recibe +57', tel1.status === 200 && tel1.data.contact.phone === '+14155552671'
+    && (await A.app(`${X}/chats/${(await chats()).find((x) => x.contacto === 'psid42').id}/contacto`, { method: 'POST', body: { nombre: 'Pedro Soto', telefono: '3105556677' } })).data.contact.phone === '+573105556677');
 
   /* ---------- canal webhook (web, n8n…) ---------- */
   check('Mensajes: la URL de salida de un webhook debe ser https público', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', canal: 'webhook', url_salida: 'http://127.0.0.1/x' } })).status === 400);
@@ -216,8 +237,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 14);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 13 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 16);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 15 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

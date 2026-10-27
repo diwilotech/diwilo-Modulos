@@ -46,7 +46,7 @@ const exigirKek = (env) => { if (!env.CLAVES_KEK) throw new HttpError(500, 'Falt
 const textoLargo = (row) => {
   if (row.nombre && row.nombre.length > 80) throw new HttpError(400, 'El nombre del agente es muy largo (máximo 80 letras)');
   if (row.instrucciones && row.instrucciones.length > 4000) throw new HttpError(400, 'Las instrucciones son muy largas (máximo 4000 letras)');
-  if (row.bienvenida && row.bienvenida.length > 1500) throw new HttpError(400, 'El mensaje de bienvenida es muy largo (máximo 1500 letras)');
+  if ((row.bienvenida && row.bienvenida.length > 1500) || (row.bienvenida_conocido && row.bienvenida_conocido.length > 1500)) throw new HttpError(400, 'El mensaje de bienvenida es muy largo (máximo 1500 letras)');
 };
 
 export const ENTITIES = {
@@ -85,7 +85,7 @@ export const ENTITIES = {
   agentes: {
     table: 'wa_agentes', label: 'el agente', title: 'nombre', search: ['nombre'], order: 'created_at',
     // bandejas = JSON [ids de bandeja donde puede servir]; vacío = todas. `campos` = JSON { campos, extras } con los datos de contacto que pide.
-    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', alerta_asesor: 'bool+', insistir: 'bool+', bienvenida: 'long', campos: 'long' },
+    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', alerta_asesor: 'bool+', insistir: 'bool+', bienvenida: 'long', bienvenida_conocido: 'long', usar_conocido: 'bool+', campos: 'long' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row) {
       textoLargo(row); await fijarBandejas(c, row, true);
@@ -220,7 +220,7 @@ export function routes(r) {
   r.post(`${B}/chats/:id/contacto`, `tenant:${MOD}`, async (c) => {
     const ch = await chatDe(c, c.params.id), b = await bandejaDe(c, ch.bandeja_id), d = await readJson(c.req);
     if (!(await marketingActivo(c.env, c.businessId))) throw new HttpError(400, 'Los contactos se guardan en Marketing: pídele a Diwilo que lo active para tu negocio');
-    const res = await guardarContacto(c.env, c.businessId, { bandeja: b, conv: ch, d });
+    const res = await guardarContacto(c.env, c.businessId, { bandeja: b, conv: ch, d, manual: true });
     if (!res) throw new HttpError(400, 'Faltan datos: el nombre y un teléfono o correo');
     const limpio = limpiarDatos(d);
     await c.env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ?, datos = ?, nombre = COALESCE(?, nombre) WHERE id = ? AND business_id = ?').bind(res.id, JSON.stringify(limpio), limpio.nombre || null, ch.id, c.businessId).run();
