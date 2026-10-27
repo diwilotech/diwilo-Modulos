@@ -17,7 +17,7 @@ import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { cifrarClave } from '../../lib/ia.js';
 import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValido, soloDigitos, CANALES } from './canales.js';
-import { guardarMensaje, tocarChat } from './webhook.js';
+import { guardarMensaje, tocarChat, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
 
@@ -83,21 +83,27 @@ export const ENTITIES = {
   },
   agentes: {
     table: 'wa_agentes', label: 'el agente', title: 'nombre', search: ['nombre'], order: 'created_at',
-    // bandeja_id 0 = el agente se puede usar en todas las bandejas. `campos` = JSON { campos, extras } con los datos de contacto que pide.
-    fields: { nombre: 'text!', bandeja_id: 'int!', instrucciones: 'long', usar_marca: 'bool+', campos: 'long' },
+    // bandejas = JSON [ids de bandeja donde puede servir]; vacío = todas. `campos` = JSON { campos, extras } con los datos de contacto que pide.
+    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', campos: 'long' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row) {
-      textoLargo(row); await revisarBandejaDelAgente(c, row.bandeja_id);
+      textoLargo(row); await fijarBandejas(c, row, true);
       if (row.campos) row.campos = normalizarCampos(row.campos);
       if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_agentes WHERE business_id = ?', c.businessId)).n >= MAX_AGENTES) throw new HttpError(400, `Ya tienes ${MAX_AGENTES} agentes`);
     },
-    async beforeUpdate(c, row) { textoLargo(row); if (row.bandeja_id != null) await revisarBandejaDelAgente(c, row.bandeja_id); if (row.campos) row.campos = normalizarCampos(row.campos); },
+    async beforeUpdate(c, row) { textoLargo(row); await fijarBandejas(c, row, false); if (row.campos) row.campos = normalizarCampos(row.campos); },
     // Si se borra un agente, los chats que lo usaban quedan sin asignar (se les pone otro al próximo mensaje)
     async afterDelete(c, before) { await c.env.DB.prepare('UPDATE wa_conversaciones SET agente_id = NULL WHERE business_id = ? AND agente_id = ?').bind(c.businessId, before.id).run(); },
+    decorate: (c, rows) => rows.map((r) => ({ ...r, bandejas: listaBandejas(r.bandejas) })),
   },
 };
-async function revisarBandejaDelAgente(c, id) {
-  if (id !== 0 && !(await one(c.env, 'SELECT 1 FROM wa_bandejas WHERE id = ? AND business_id = ?', id, c.businessId))) throw new HttpError(400, 'La bandeja no existe en este negocio');
+const listaBandejas = (t) => { try { const x = JSON.parse(t || '[]'); return Array.isArray(x) ? x.filter((n) => Number.isInteger(n) && n > 0) : []; } catch { return []; } };
+// Valida las bandejas elegidas (todas deben ser del negocio) y deja bandeja_id (la primera, o 0 = todas) por compatibilidad
+async function fijarBandejas(c, row, creando) {
+  if (row.bandejas == null && !creando) return;
+  const ids = [...new Set(listaBandejas(row.bandejas))].slice(0, 20);
+  for (const id of ids) if (!(await one(c.env, 'SELECT 1 FROM wa_bandejas WHERE id = ? AND business_id = ?', id, c.businessId))) throw new HttpError(400, 'Una de las bandejas no existe en este negocio');
+  row.bandejas = JSON.stringify(ids); row.bandeja_id = ids[0] || 0;
 }
 export const api = crud({ get() {}, post() {}, patch() {}, delete() {} }, { base: '/ia/whatsapp', modulo: MOD, entities: ENTITIES });
 
@@ -128,7 +134,7 @@ export async function chatCompleto(c, id) {
   const chat = await chatDe(c, id), marketing = await marketingActivo(c.env, c.businessId);
   const ultimoEntrante = (await one(c.env, "SELECT MAX(ts) t FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol = 'user'", c.businessId, chat.bandeja_id, chat.contacto))?.t || 0;
   let datos = null; try { datos = chat.datos ? JSON.parse(chat.datos) : null; } catch { /* sin datos */ }
-  const agentes = await all(c.env, 'SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND (bandeja_id = ? OR bandeja_id = 0) ORDER BY id', c.businessId, chat.bandeja_id);
+  const agentes = await all(c.env, `SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND ${AGENTE_EN} ORDER BY id`, c.businessId, chat.bandeja_id);
   const agente = agentes.find((a) => a.id === chat.agente_id) || null;
   return { chat: { ...conLugar(chat), datos }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes };
 }
@@ -179,7 +185,7 @@ export function routes(r) {
     if (body.agente_id !== undefined) {
       const id = Number(body.agente_id);
       if (!Number.isInteger(id) || id < 0) throw new HttpError(400, 'agente_id no válido');
-      if (id > 0 && !(await one(c.env, 'SELECT 1 FROM wa_agentes WHERE id = ? AND business_id = ? AND (bandeja_id = ? OR bandeja_id = 0)', id, c.businessId, ch.bandeja_id))) throw new HttpError(400, 'Ese agente no está disponible para esta bandeja');
+      if (id > 0 && !(await one(c.env, `SELECT 1 FROM wa_agentes WHERE id = ? AND business_id = ? AND ${AGENTE_EN}`, id, c.businessId, ch.bandeja_id))) throw new HttpError(400, 'Ese agente no está disponible para esta bandeja');
       set.push('agente_id = ?'); args.push(id);
       await audit(c, `Cambió el agente del chat de ${quien}`, { modulo: MOD });
     }

@@ -1,5 +1,9 @@
 # WhatsApp — cambios
 
+## 2.3.0 · 2026-10-27
+- **Un agente puede servir en varias bandejas:** al crear o editar un agente se marcan las bandejas (WhatsApp, Instagram, Messenger, web…) donde puede usarse; sin marcar ninguna, sirve en todas. Los chats solo ofrecen los agentes de su bandeja.
+- Migración `0027_agente_varias_bandejas.sql` (los agentes existentes conservan su bandeja). La herramienta de IA `crear_agente` recibe `bandejas` (lista de ids) en vez de `bandeja_id`.
+
 ## 2.2.2 · 2026-10-27
 - Instagram y Messenger: el envío busca solo el token de la PÁGINA vinculada (GET /me/accounts) cuando la clave guardada es la de un usuario del sistema, y envía por `/{página}/messages`; si la clave ya es la de la página, se usa tal cual. El verificador indica si encontró la página.
 

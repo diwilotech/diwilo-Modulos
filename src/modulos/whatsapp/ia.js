@@ -1,6 +1,7 @@
 // Herramientas de IA del módulo Mensajes (MCP del negocio). Nunca devuelven claves ni secretos.
 import { api, chats, chatCompleto } from './api.js';
 import { HttpError } from '../../lib/http.js';
+import { AGENTE_EN } from './webhook.js';
 
 const S = (props, required = []) => ({ type: 'object', properties: props, ...(required.length ? { required } : {}), additionalProperties: false });
 const vista = ({ id, nombre, canal, telefono, activo, tiene_clave, webhook_url }) => ({ id, nombre, canal, telefono, activo: !!activo, tiene_clave, webhook_url });
@@ -12,7 +13,7 @@ export default [
     inputSchema: S({}),
     run: async (c) => {
       const [bandejas, agentes] = await Promise.all([api.list(c, 'bandejas'), api.list(c, 'agentes')]);
-      return { bandejas: bandejas.map((b) => ({ ...vista(b), agentes: agentes.filter((a) => a.bandeja_id === b.id || a.bandeja_id === 0).map(({ id, nombre }) => ({ id, nombre })) })) };
+      return { bandejas: bandejas.map((b) => ({ ...vista(b), agentes: agentes.filter((a) => !a.bandejas.length || a.bandejas.includes(b.id)).map(({ id, nombre }) => ({ id, nombre })) })) };
     },
   },
   {
@@ -45,15 +46,15 @@ export default [
       const ch = await c.env.DB.prepare('SELECT bandeja_id FROM wa_conversaciones WHERE id = ? AND business_id = ?').bind(Number(a.chat_id), c.businessId).first();
       if (!ch) throw new HttpError(404, 'No encontré ese chat');
       const id = Number(a.agente_id);
-      if (id > 0 && !(await c.env.DB.prepare('SELECT 1 FROM wa_agentes WHERE id = ? AND business_id = ? AND (bandeja_id = ? OR bandeja_id = 0)').bind(id, c.businessId, ch.bandeja_id).first())) throw new HttpError(400, 'Ese agente no está disponible para la bandeja del chat');
+      if (id > 0 && !(await c.env.DB.prepare(`SELECT 1 FROM wa_agentes WHERE id = ? AND business_id = ? AND ${AGENTE_EN}`).bind(id, c.businessId, ch.bandeja_id).first())) throw new HttpError(400, 'Ese agente no está disponible para la bandeja del chat');
       await c.env.DB.prepare('UPDATE wa_conversaciones SET agente_id = ? WHERE id = ? AND business_id = ?').bind(Math.max(0, id), Number(a.chat_id), c.businessId).run();
       return { ok: true, agente_id: Math.max(0, id) };
     },
   },
   {
     name: 'whatsapp.crear_agente', modulo: 'whatsapp', rol: 'admin', tipo: 'escritura',
-    description: 'Crea un agente de IA (de una bandeja, o de todas con bandeja_id 0). Pide los datos de contacto indicados en `pedir` (correo, telefono, empresa, tipo, ciudad, interes) y los guarda en Marketing.',
-    inputSchema: S({ bandeja_id: { type: 'number', description: '0 = todas las bandejas' }, nombre: { type: 'string' }, instrucciones: { type: 'string', description: 'Qué sabe y cómo responde (máx. 4000 letras)' }, pedir: { type: 'array', items: { type: 'string' }, description: 'Datos de contacto que pide además del nombre' } }, ['bandeja_id', 'nombre']),
-    run: async (c, a) => ({ creado: await api.create(c, 'agentes', { bandeja_id: Number(a.bandeja_id), nombre: a.nombre, instrucciones: a.instrucciones, campos: JSON.stringify({ campos: Array.isArray(a.pedir) ? a.pedir : ['correo'], extras: [] }) }) }),
+    description: 'Crea un agente de IA (que sirve en las bandejas de `bandejas`, o en todas si va vacía). Pide los datos de contacto indicados en `pedir` (correo, telefono, empresa, tipo, ciudad, interes) y los guarda en Marketing.',
+    inputSchema: S({ bandejas: { type: 'array', items: { type: 'number' }, description: 'Ids de las bandejas donde sirve; vacío = todas' }, nombre: { type: 'string' }, instrucciones: { type: 'string', description: 'Qué sabe y cómo responde (máx. 4000 letras)' }, pedir: { type: 'array', items: { type: 'string' }, description: 'Datos de contacto que pide además del nombre' } }, ['nombre']),
+    run: async (c, a) => ({ creado: await api.create(c, 'agentes', { bandejas: JSON.stringify(Array.isArray(a.bandejas) ? a.bandejas.map(Number) : []), nombre: a.nombre, instrucciones: a.instrucciones, campos: JSON.stringify({ campos: Array.isArray(a.pedir) ? a.pedir : ['correo'], extras: [] }) }) }),
   },
 ];

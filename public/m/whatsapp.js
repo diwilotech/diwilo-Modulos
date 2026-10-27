@@ -113,7 +113,7 @@ DW.ready.then((me) => {
     // Elegir qué agente atiende un chat: los de su bandeja y los de todas las bandejas
     async function elegirAgente(chat) {
       try { agentes = (await api(`${B}/agentes`)).rows; } catch (_) {}
-      const ops = agentes.filter((a) => a.bandeja_id === 0 || a.bandeja_id === chat.bandeja_id);
+      const ops = agentes.filter((a) => !(a.bandejas || []).length || a.bandejas.includes(chat.bandeja_id));
       const { el: mo, m: mm } = modal(`${cab('Agente de este chat')}<div class="modal-body d-grid gap-2">
         <div class="small text-body-secondary mb-1">Chat de <b>${esc(chat.nombre || chat.contacto)}</b> · ${esc(chat.bandeja)}</div>
         ${ops.map((a) => `<button class="btn ${a.id === chat.agente_id ? 'btn-primary' : 'btn-outline-secondary'} text-start" data-a="${a.id}"><i class="bi bi-robot me-2"></i>${esc(a.nombre)}${a.id === chat.agente_id ? ' <i class="bi bi-check2 float-end"></i>' : ''}</button>`).join('') || '<div class="small text-body-secondary">No hay agentes para esta bandeja. Créalos en la pestaña «Agentes de IA».</div>'}
@@ -356,11 +356,12 @@ DW.ready.then((me) => {
   const camposDe = (a) => { try { const x = JSON.parse(a.campos || 'null'); if (x && Array.isArray(x.campos)) return { campos: x.campos, extras: x.extras || [] }; } catch (_) {} return BASE; };
   async function agentesView(el) {
     let rows, bands; try { [rows, bands] = await Promise.all([api(`${B}/agentes`).then((r) => r.rows), api(`${B}/bandejas`).then((r) => r.rows)]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    const nom = (id) => (id === 0 ? { nombre: 'Todas las bandejas' } : bands.find((b) => b.id === id) || {});
+    // Dónde sirve cada agente: las bandejas que se eligieron (varias) o todas
+    const dondeSirve = (a) => ((a.bandejas || []).length ? a.bandejas.map((id) => bands.find((b) => b.id === id)).filter(Boolean).map((b) => `<span class="badge text-bg-light border">${ico(b.canal)} ${esc(b.nombre)}</span>`).join(' ') : '<span class="badge text-bg-light border"><i class="bi bi-collection"></i> Todas las bandejas</span>');
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-robot me-1"></i>Un agente de IA contesta con las instrucciones que le des y, si lo configuras, <b>pide los datos de contacto</b> a quien quiere comprar y los guarda en <b>Marketing</b>. El agente de cada chat se elige en la pestaña <b>Chats</b> (botón con su nombre); los chats nuevos empiezan con el primer agente de su bandeja.</div>
       ${CAN && bands.length ? '<div class="mb-3"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nuevo agente</button></div>' : ''}
       <div class="row g-3">${rows.length ? rows.map((a) => { const cd = camposDe(a); return `<div class="col-lg-6"><div class="dw-card h-100" data-id="${a.id}">
-        <div class="d-flex align-items-start gap-2"><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(a.nombre)}</h2><span class="small text-body-secondary">${a.bandeja_id ? ico(nom(a.bandeja_id).canal) : '<i class="bi bi-collection"></i>'} ${esc(nom(a.bandeja_id).nombre || '—')}</span></div></div>
+        <div class="d-flex align-items-start gap-2"><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(a.nombre)}</h2><span class="small d-flex flex-wrap gap-1 mt-1">${dondeSirve(a)}</span></div></div>
         <p class="small text-body-secondary mt-2 mb-2" style="white-space:pre-wrap">${esc((a.instrucciones || 'Sin instrucciones: responde con el tono de la marca.').slice(0, 220))}</p>
         <div class="small"><span class="text-body-secondary">Datos que pide:</span> ${cd.campos.length || cd.extras.length ? [...cd.campos.map((k) => DATOS[k]?.split(' (')[0] || k), ...cd.extras].map((t) => `<span class="badge text-bg-light border">${esc(t)}</span>`).join(' ') : '<span class="text-body-secondary">ninguno</span>'}</div>
         ${CAN ? '<div class="d-flex gap-1 mt-3"><button class="btn btn-sm btn-primary" data-edit><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button></div>' : ''}</div></div>`; }).join('')
@@ -369,7 +370,9 @@ DW.ready.then((me) => {
       const cd = a ? camposDe(a) : BASE;
       const { el: mo, m: mm } = modal(`${cab(a ? 'Editar agente' : 'Nuevo agente')}<form class="modal-body d-grid gap-3">
         ${campo('nombre', 'Nombre del agente', a?.nombre, 'required maxlength="80" placeholder="Asesor de ventas"')}
-        <label class="small text-body-secondary d-grid gap-1">¿En qué bandeja sirve?<select class="form-select" name="bandeja_id"><option value="0" ${a?.bandeja_id === 0 ? 'selected' : ''}>Todas las bandejas</option>${bands.map((b) => `<option value="${b.id}" ${a?.bandeja_id === b.id ? 'selected' : ''}>${esc(CAN_[b.canal]?.n || b.canal)} · ${esc(b.nombre)}</option>`).join('')}</select></label>
+        <fieldset class="border rounded-3 p-3"><legend class="small fw-semibold float-none w-auto px-2 mb-0">¿En qué bandejas puede servir?</legend>
+          <div class="small text-body-secondary mb-2">Marca una o varias (WhatsApp, Instagram, Messenger, web…). Si no marcas ninguna, sirve en todas.</div>
+          <div class="d-grid gap-1" data-bandejas>${bands.length ? bands.map((b) => `<div class="form-check"><input class="form-check-input" type="checkbox" name="b_${b.id}" id="wab-${b.id}" ${(a?.bandejas || []).includes(b.id) ? 'checked' : ''}><label class="form-check-label small" for="wab-${b.id}">${ico(b.canal)} ${esc(b.nombre)} <span class="text-body-secondary">· ${esc(CAN_[b.canal]?.n || b.canal)}</span></label></div>`).join('') : '<div class="small text-body-secondary">Aún no tienes bandejas.</div>'}</div></fieldset>
         <label class="small text-body-secondary d-grid gap-1">Instrucciones (qué sabe y cómo responde)<textarea class="form-control" name="instrucciones" rows="6" maxlength="4000" placeholder="Atiendes consultas sobre cursos. Horario: lunes a viernes 8-5. Si piden precio, ofrece que un asesor los contacte.">${esc(a?.instrucciones || '')}</textarea></label>
         <fieldset class="border rounded-3 p-3"><legend class="small fw-semibold float-none w-auto px-2 mb-0">Datos de contacto que pide</legend>
           <div class="small text-body-secondary mb-2">Cuando alguien quiere comprar o que lo contacten, el agente le pide el nombre y estos datos, y los guarda como contacto en Marketing (sin duplicar). Si no marcas ninguno, no pide datos.</div>
@@ -380,7 +383,7 @@ DW.ready.then((me) => {
       mo.querySelector('form').onsubmit = async (e) => {
         e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
         const campos = JSON.stringify({ campos: Object.keys(DATOS).filter((k) => f[`c_${k}`].checked), extras: f.extras.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 5) });
-        const body = { nombre: f.nombre.value.trim(), bandeja_id: +f.bandeja_id.value, instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, campos };
+        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, campos };
         try { if (a) await api(`${B}/agentes/${a.id}`, { method: 'PATCH', body }); else await api(`${B}/agentes`, { method: 'POST', body }); mm.hide(); toast('Agente guardado'); render(); }
         catch (x) { toast(x.message, false); btn.disabled = false; }
       };

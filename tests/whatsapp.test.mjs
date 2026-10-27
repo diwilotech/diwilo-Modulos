@@ -54,14 +54,14 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
 
   /* ---------- agentes, agente por chat e interruptor de IA ---------- */
   const campos = JSON.stringify({ campos: ['correo', 'empresa', 'tipo', 'interes'], extras: ['Cargo'] });
-  const g1 = await A.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: ba.id, nombre: 'Asesor', instrucciones: 'Atiende ventas.', campos } });
-  const g2 = await A.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: ba.id, nombre: 'Soporte' } });
-  const gAll = await A.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: 0, nombre: 'Para todas', campos: JSON.stringify({ campos: [], extras: [] }) } });
+  const g1 = await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: JSON.stringify([ba.id, cm.data.id]), nombre: 'Asesor', instrucciones: 'Atiende ventas.', campos } });
+  const g2 = await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: JSON.stringify([ba.id]), nombre: 'Soporte' } });
+  const gAll = await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: '[]', nombre: 'Para todas', campos: JSON.stringify({ campos: [], extras: [] }) } });
   const ags = () => A.app(`${X}/agentes`).then((r) => r.data.rows);
   check('Mensajes: crea agentes de una bandeja y uno para todas las bandejas (sin «activo»)', g1.status === 201 && g2.status === 201 && gAll.status === 201 && (await ags()).every((a) => !('activo' in a) || a.activo === 1));
   check('Mensajes: el agente guarda qué datos pide y descarta los que no existen', JSON.parse((await ags()).find((a) => a.id === g1.data.id).campos).extras[0] === 'Cargo'
-    && JSON.parse((await A.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: 0, nombre: 'x', campos: JSON.stringify({ campos: ['correo', 'inventado'], extras: [] }) } }).then(() => ags())).at(-1).campos).campos.join() === 'correo');
-  check('Mensajes: no se crea un agente en una bandeja ajena ni inexistente', (await B.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: ba.id, nombre: 'Intruso' } })).status === 400 && (await A.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: 9999, nombre: 'x' } })).status === 400);
+    && JSON.parse((await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: '[]', nombre: 'x', campos: JSON.stringify({ campos: ['correo', 'inventado'], extras: [] }) } }).then(() => ags())).at(-1).campos).campos.join() === 'correo');
+  check('Mensajes: no se crea un agente en una bandeja ajena ni inexistente', (await B.app(`${X}/agentes`, { method: 'POST', body: { bandejas: JSON.stringify([ba.id]), nombre: 'Intruso' } })).status === 400 && (await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: '[9999]', nombre: 'x' } })).status === 400);
   await hook(url, wa('1090000000001', 'wamid.A3', '[prueba] hola'));
   const det = async () => (await A.app(`${X}/chats/${chA.id}`)).data;
   const resp = await esperar(async () => (await det()).mensajes.find((m) => m.rol === 'assistant'));
@@ -70,6 +70,10 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: la lista de chats trae el nombre del agente', (await chats()).find((x) => x.id === chA.id).agente === 'Asesor');
   check('Mensajes: el chat ofrece los agentes de su bandeja y los de todas', dA.agentes.map((a) => a.id).sort().join() === [g1.data.id, g2.data.id, gAll.data.id].concat().sort().join() || dA.agentes.length >= 3, JSON.stringify(dA.agentes));
   const cambia = await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { agente_id: g2.data.id } });
+  const agsLista = await ags();
+  check('Mensajes: un agente guarda varias bandejas (WhatsApp y Messenger) y otro sirve en todas', JSON.stringify(agsLista.find((a) => a.id === g1.data.id).bandejas) === JSON.stringify([ba.id, cm.data.id]) && agsLista.find((a) => a.id === gAll.data.id).bandejas.length === 0);
+  const chMs = (await chats()).find((x) => x.contacto === 'psid42'), dMs = (await A.app(`${X}/chats/${chMs.id}`)).data;
+  check('Mensajes: el chat de Messenger ofrece al agente de varias bandejas y al de todas, pero no al de solo WhatsApp', dMs.agentes.some((a) => a.id === g1.data.id) && dMs.agentes.some((a) => a.id === gAll.data.id) && !dMs.agentes.some((a) => a.id === g2.data.id), JSON.stringify(dMs.agentes));
   check('Mensajes: se cambia el agente de un chat y el de otro negocio se rechaza', cambia.status === 200 && (await det()).chat.agente_id === g2.data.id && (await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { agente_id: 999999 } })).status === 400 && (await B.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { agente_id: 0 } })).status === 404);
   await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { agente_id: 0 } });
   await hook(url, wa('1090000000001', 'wamid.A3b', '[prueba] sin agente'));

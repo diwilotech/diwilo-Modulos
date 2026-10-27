@@ -48,9 +48,11 @@ export async function tocarChat(env, { org, bandeja, contacto, nombre = null, ro
   }
   return conv;
 }
-// Agentes de una bandeja (bandeja_id = 0: sirven en todas las bandejas)
+// ¿Este agente sirve en la bandeja ? (su lista de bandejas vacía = en todas). Va en un WHERE sobre wa_agentes, con el id de la bandeja como parámetro.
+export const AGENTE_EN = "(wa_agentes.bandejas IS NULL OR wa_agentes.bandejas IN ('', '[]') OR EXISTS (SELECT 1 FROM json_each(wa_agentes.bandejas) WHERE value = ?))";
+// Agentes de una bandeja: primero los que la tienen elegida, y si no hay, uno de los que sirven en todas
 export async function agentePorDefecto(env, org, bandejaId) {
-  return (await one(env, 'SELECT * FROM wa_agentes WHERE business_id = ? AND bandeja_id = ? ORDER BY id LIMIT 1', org, bandejaId)) || (await one(env, 'SELECT * FROM wa_agentes WHERE business_id = ? AND bandeja_id = 0 ORDER BY id LIMIT 1', org));
+  return one(env, `SELECT * FROM wa_agentes WHERE business_id = ? AND ${AGENTE_EN} ORDER BY (wa_agentes.bandejas IS NOT NULL AND wa_agentes.bandejas NOT IN ('', '[]')) DESC, id LIMIT 1`, org, bandejaId);
 }
 
 /* ---------- el agente ---------- */
@@ -61,7 +63,7 @@ const MARCADOR = /\[\[DATOS\s*(\{[\s\S]*?\})\s*\]\]/;
 export async function responder(env, { bandeja, conv, entregar = true }) {
   const org = bandeja.business_id;
   if (!conv.ia_activa || conv.agente_id === 0) return null;
-  const agente = conv.agente_id ? await one(env, 'SELECT * FROM wa_agentes WHERE id = ? AND business_id = ? AND (bandeja_id = ? OR bandeja_id = 0)', conv.agente_id, org, bandeja.id) : null;
+  const agente = conv.agente_id ? await one(env, `SELECT * FROM wa_agentes WHERE id = ? AND business_id = ? AND ${AGENTE_EN}`, conv.agente_id, org, bandeja.id) : null;
   if (!agente) return null;
   const o = await one(env, 'SELECT name, solo_lectura FROM orgs WHERE id = ?', org);
   if (o?.solo_lectura) return null;                              // suscripción vencida: la IA no corre
