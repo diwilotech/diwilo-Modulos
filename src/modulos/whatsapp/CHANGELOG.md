@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 3.3.2 · 2026-10-27
+- **Corrección:** volver a subir las credenciales de Google borraba todas las cuentas conectadas. Ahora, si el cliente (client_id) es el mismo, las cuentas se conservan; solo si es otro cliente hay que reconectarlas, y el panel avisa antes de reemplazar.
+
 ## 3.3.1 · 2026-10-27
 - Si el permiso de una cuenta de Google venció o se revocó (en apps de Google en modo «Prueba» pasa a los 7 días), el mensaje dice que hay que volver a conectarla en vez de un error técnico.
 

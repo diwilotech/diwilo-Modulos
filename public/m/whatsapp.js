@@ -333,7 +333,7 @@ DW.ready.then((me) => {
     const fc = $('[data-cred]', el);
     if (fc) {
       fc.archivo.onchange = async () => { const f = fc.archivo.files[0]; if (f) fc.json.value = await f.text(); };
-      fc.onsubmit = async (e) => { e.preventDefault(); const btn = fc.querySelector('button'); btn.disabled = true; try { await api(`${B}/google/credenciales`, { method: 'POST', body: { json: fc.json.value.trim() } }); toast('Credenciales guardadas'); render(); } catch (x) { toast(x.message, false); btn.disabled = false; } };
+      fc.onsubmit = async (e) => { e.preventDefault(); if (g.cuentas.length && !(await confirm({ title: '¿Reemplazar las credenciales?', text: 'Si es el mismo cliente de Google, tus cuentas siguen conectadas. Si es otro cliente distinto, tendrás que volver a conectarlas. Para agregar otra cuenta NO hace falta subir credenciales: usa «Conectar otra cuenta».', ok: 'Reemplazar' }))) return; const btn = fc.querySelector('button'); btn.disabled = true; try { const r = await api(`${B}/google/credenciales`, { method: 'POST', body: { json: fc.json.value.trim() } }); toast(r.cuentas_conservadas ? 'Credenciales guardadas: tus cuentas siguen conectadas' : g.cuentas.length ? 'Credenciales guardadas: es otro cliente de Google, vuelve a conectar tus cuentas' : 'Credenciales guardadas'); render(); } catch (x) { toast(x.message, false); btn.disabled = false; } };
     }
     const fa = $('[data-agenda]', el);
     if (fa) fa.onsubmit = async (e) => {

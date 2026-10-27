@@ -262,9 +262,9 @@ export function routes(r) {
   r.get(`${B}/google`, `tenant:${MOD}`, async (c) => json({ ...(await estadoGoogle(c.env, c.businessId)), redirect: redirectDe(c), puede_conectar: c.ctx?.app === 'diwilo', correos: (await one(c.env, "SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ? AND canal = 'correo'", c.businessId)).n }));
   r.post(`${B}/google/credenciales`, `manager:${MOD}`, async (c) => {
     const body = await readJson(c.req);
-    try { await guardarCredenciales(c.env, c.businessId, leerCredenciales(body.json ?? { client_id: body.client_id, client_secret: body.client_secret })); } catch (e) { throw gerr(e); }
+    let r; try { r = await guardarCredenciales(c.env, c.businessId, leerCredenciales(body.json ?? { client_id: body.client_id, client_secret: body.client_secret })); } catch (e) { throw gerr(e); }
     await audit(c, 'Subió las credenciales de Google', { modulo: MOD });
-    return json({ ok: true });
+    return json({ ok: true, cuentas_conservadas: !!r.cuentasConservadas });
   });
   r.post(`${B}/google/conectar`, `manager:${MOD}`, async (c) => {
     if (c.ctx?.app !== 'diwilo') throw new HttpError(400, 'Conectar Google está disponible por ahora solo en Diwilo');

@@ -256,6 +256,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   else {
     const G1 = (await A.app(`${X}/google`)).data;
     check('Mensajes: se suben las credenciales con el JSON de Google y el secreto nunca se devuelve', gc.status === 200 && G1.credenciales === true && G1.conectado === false && !JSON.stringify(G1).includes('GOCSPX') && /123456-abcd/.test(G1.client_id), JSON.stringify(G1));
+    check('Mensajes: volver a subir las credenciales del mismo cliente no desconecta las cuentas', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: credJson } })).data.cuentas_conservadas === true);
     check('Mensajes: también se aceptan el client_id y el secreto sueltos', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { client_id: '123456-abcdef.apps.googleusercontent.com', client_secret: 'GOCSPX-secreto-de-prueba-1234' } })).status === 200);
     check('Mensajes: B no ve las credenciales de A y A no puede conectar fuera de Diwilo (sin cuenta conectada)', (await B.app(`${X}/google`)).data.credenciales === false && (await A.app(`${X}/google/conectar`, { method: 'POST', body: {} })).status === 400 && (await A.app(`${X}/google/probar`, { method: 'POST', body: {} })).status === 400);
     const ag1 = await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1, 2, 3], desde: '09:00', hasta: '16:00', duracion: 30, buffer: 10, adelanto_dias: 10, minimo_horas: 2, titulo: 'Cita – {nombre}', gmail_activo: false, copia: 'Hola@Ejemplo.com', envio: 'cloudflare' } });

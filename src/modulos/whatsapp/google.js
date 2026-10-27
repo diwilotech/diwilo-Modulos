@@ -20,11 +20,17 @@ export function leerCredenciales(entrada) {
 }
 export async function guardarCredenciales(env, org, { client_id, client_secret }) {
   if (!env.CLAVES_KEK) throw new GoogleError('Falta configurar CLAVES_KEK en Diwilo Modulos para guardar claves de forma segura', 500);
-  const t = now(), cif = await cifrarClave(env, client_secret);
+  const t = now(), cif = await cifrarClave(env, client_secret), previo = await filaGoogle(env, org);
+  // Mismo cliente (solo cambia el secreto o se vuelve a subir el mismo archivo): las cuentas conectadas siguen valiendo. Otro cliente: sus permisos eran de otro, hay que reconectar.
+  if (previo && previo.client_id === client_id) {
+    await env.DB.prepare('UPDATE wa_google SET secreto_cifrado = ?, updated_at = ? WHERE business_id = ?').bind(cif, t, org).run();
+    return { cuentasConservadas: true };
+  }
   await env.DB.prepare(`INSERT INTO wa_google (business_id, client_id, secreto_cifrado, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT (business_id) DO UPDATE SET client_id = excluded.client_id, secreto_cifrado = excluded.secreto_cifrado, refresh_cifrado = NULL, email = NULL, scopes = NULL, conectado_at = NULL, cuenta_gmail = NULL, cuenta_calendario = NULL, estado = NULL, estado_exp = NULL, updated_at = excluded.updated_at`).bind(org, client_id, cif, t, t).run();
-  await env.DB.prepare('DELETE FROM wa_google_cuentas WHERE business_id = ?').bind(org).run();   // los tokens eran de otro cliente OAuth
+  await env.DB.prepare('DELETE FROM wa_google_cuentas WHERE business_id = ?').bind(org).run();
   cacheTokens.clear();
+  return { cuentasConservadas: false };
 }
 export const filaGoogle = (env, org) => one(env, 'SELECT * FROM wa_google WHERE business_id = ?', org);
 // Cuenta que se usa para un fin: 'gmail' (enviar y leer correo) o 'calendario' (citas con Meet)
