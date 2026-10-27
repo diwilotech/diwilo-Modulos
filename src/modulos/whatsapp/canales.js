@@ -2,7 +2,7 @@
 // Instagram y Messenger usan el token de la página y el id de la página / de la cuenta profesional de Instagram (se guarda en phone_number_id).
 import { descifrarClave } from '../../lib/ia.js';
 import { one, now } from '../../lib/crud.js';
-import { conectado, enviarGmail } from './google.js';
+import { conectado, enviarGmail, agendaDe } from './google.js';
 
 export const GRAPH = 'https://graph.facebook.com/v21.0';
 export const CANALES = { whatsapp: { nombre: 'WhatsApp', icono: 'bi-whatsapp' }, instagram: { nombre: 'Instagram', icono: 'bi-instagram' }, messenger: { nombre: 'Messenger', icono: 'bi-messenger' }, webhook: { nombre: 'Web / Webhook', icono: 'bi-globe2' }, correo: { nombre: 'Correo', icono: 'bi-envelope' } };
@@ -56,7 +56,7 @@ const escHtml = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': 
 // Responde un correo por Cloudflare Email Sending, en el mismo hilo (Re: asunto, In-Reply-To / References)
 export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref } = {}) {
   // Con Google conectado, la respuesta sale por Gmail (queda en «Enviados» y en el mismo hilo); si no, por Cloudflare Email Sending
-  if (await conectado(env, bandeja.business_id).catch(() => false)) {
+  if ((await conectado(env, bandeja.business_id).catch(() => false)) && (await agendaDe(env, bandeja.business_id).catch(() => ({}))).envio !== 'cloudflare') {
     try { await enviarGmail(env, bandeja, para, texto, { asunto, ref }); return { estado: 'enviado' }; }
     catch (e) { console.error('gmail envío', e.message); return { estado: 'error', error: `Gmail no lo envió: ${String(e.message).slice(0, 200)}` }; }
   }

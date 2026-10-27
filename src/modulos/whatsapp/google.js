@@ -88,8 +88,8 @@ const b64url = (s) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=
 const deB64url = (s) => { const b = atob(String(s || '').replace(/-/g, '+').replace(/_/g, '/')); return new TextDecoder().decode(Uint8Array.from(b, (c) => c.charCodeAt(0))); };
 const encCab = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${utf8b64(s)}?=`);
 // Correo listo para la API de Gmail (texto plano UTF-8)
-export function armarCorreo({ de, nombre, para, responderA, asunto, texto, enReplyA, referencias }) {
-  const cab = [`From: ${nombre ? `${encCab(nombre)} <${de}>` : de}`, `To: ${para}`, ...(responderA ? [`Reply-To: ${responderA}`] : []), `Subject: ${encCab(asunto)}`, ...(enReplyA ? [`In-Reply-To: ${enReplyA}`] : []), ...(referencias ? [`References: ${referencias}`] : []), 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64'];
+export function armarCorreo({ de, nombre, para, copia, responderA, asunto, texto, enReplyA, referencias }) {
+  const cab = [`From: ${nombre ? `${encCab(nombre)} <${de}>` : de}`, `To: ${para}`, ...(copia ? [`Cc: ${copia}`] : []), ...(responderA ? [`Reply-To: ${responderA}`] : []), `Subject: ${encCab(asunto)}`, ...(enReplyA ? [`In-Reply-To: ${enReplyA}`] : []), ...(referencias ? [`References: ${referencias}`] : []), 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64'];
   return `${cab.join('\r\n')}\r\n\r\n${(utf8b64(texto).match(/.{1,76}/g) || []).join('\r\n')}`;
 }
 // Responde por Gmail en el mismo hilo (si encuentra el correo original en Gmail) y queda en «Enviados». Desde la dirección de la bandeja si es un alias «Enviar como»; si no, desde la cuenta conectada con Reply-To a la bandeja.
@@ -101,7 +101,8 @@ export async function enviarGmail(env, bandeja, para, texto, { asunto, ref } = {
   let threadId = null;
   if (ref) { try { const id = String(ref).replace(/^<|>$/g, ''); threadId = (await gapi(env, org, `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(`rfc822msgid:${id}`)}&maxResults=1`))?.messages?.[0]?.threadId || null; } catch { /* sin hilo: sale como correo nuevo con Re: */ } }
   const subject = /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
-  const raw = b64url(armarCorreo({ de, nombre, para, responderA: String(de).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() ? null : bandeja.phone_number_id, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: ref || null, referencias: ref || null }));
+  const cc = (await agendaDe(env, org)).copia;   // copia de cada respuesta (p. ej. hola@): si responden a todos, también llega a la bandeja
+  const raw = b64url(armarCorreo({ de, nombre, para, copia: cc && cc !== String(para).toLowerCase() && cc !== String(de).toLowerCase() ? cc : null, responderA: String(de).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() ? null : bandeja.phone_number_id, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: ref || null, referencias: ref || null }));
   await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }) });
 }
 const cab = (m, n) => (m.payload?.headers || []).find((h) => h.name.toLowerCase() === n)?.value || '';
@@ -136,12 +137,13 @@ export async function sincronizarGmail(env, registrar, soloOrg = null) {
 }
 
 /* ---------- Calendar ---------- */
-export const AGENDA_BASE = { offset: -300, dias: [1, 2, 3, 4, 5], desde: '08:00', hasta: '17:00', duracion: 45, buffer: 15, adelanto_dias: 14, minimo_horas: 4, titulo: 'Asesoría Diwilo – {nombre}', calendario: 'primary' };
+export const AGENDA_BASE = { offset: -300, dias: [1, 2, 3, 4, 5], desde: '08:00', hasta: '17:00', duracion: 45, buffer: 15, adelanto_dias: 14, minimo_horas: 4, titulo: 'Asesoría Diwilo – {nombre}', calendario: 'primary', copia: '', envio: 'gmail' };
 export function normalizarAgenda(a = {}) {
   const hm = (v, d) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v)) ? String(v) : d), n = (v, d, min, max) => (Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Math.round(Number(v)))) : d);
   const o = { ...AGENDA_BASE, ...a };
   return { offset: n(o.offset, -300, -720, 840), dias: [...new Set((Array.isArray(o.dias) ? o.dias : AGENDA_BASE.dias).map(Number).filter((d) => d >= 0 && d <= 6))], desde: hm(o.desde, '08:00'), hasta: hm(o.hasta, '17:00'), duracion: n(o.duracion, 45, 10, 240), buffer: n(o.buffer, 15, 0, 120), adelanto_dias: n(o.adelanto_dias, 14, 1, 60), minimo_horas: n(o.minimo_horas, 4, 0, 168),
-    titulo: String(o.titulo || AGENDA_BASE.titulo).slice(0, 120), calendario: String(o.calendario || 'primary').slice(0, 200) };
+    titulo: String(o.titulo || AGENDA_BASE.titulo).slice(0, 120), calendario: String(o.calendario || 'primary').slice(0, 200),
+    copia: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(o.copia || '').trim()) ? String(o.copia).trim().toLowerCase() : '', envio: o.envio === 'cloudflare' ? 'cloudflare' : 'gmail' };
 }
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 export function etiquetaHora(ms, offset) {
@@ -184,7 +186,7 @@ export async function crearCita(env, org, { inicio, nombre, correo, descripcion 
   const ini = new Date(inicio), fin = new Date(ini.getTime() + agenda.duracion * 60000);
   const ev = await gapi(env, org, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(agenda.calendario)}/events?conferenceDataVersion=1&sendUpdates=all`, { method: 'POST', body: JSON.stringify({
     summary: agenda.titulo.replace(/\{nombre\}/gi, nombre || 'cliente'), description: descripcion || 'Cita agendada por el asistente de Mensajes.', start: { dateTime: ini.toISOString() }, end: { dateTime: fin.toISOString() },
-    attendees: [{ email: correo, ...(nombre ? { displayName: nombre } : {}) }], conferenceData: { createRequest: { requestId: hex(8), conferenceSolutionKey: { type: 'hangoutsMeet' } } } }) });
+    attendees: [{ email: correo, ...(nombre ? { displayName: nombre } : {}) }, ...(agenda.copia && agenda.copia !== String(correo).toLowerCase() ? [{ email: agenda.copia }] : [])], conferenceData: { createRequest: { requestId: hex(8), conferenceSolutionKey: { type: 'hangoutsMeet' } } } }) });
   cacheHuecos.delete(org);
   return { id: ev.id, inicio: ini.toISOString(), etiqueta: etiquetaHora(ini.getTime(), agenda.offset), link: ev.hangoutLink || ev.htmlLink || null };
 }

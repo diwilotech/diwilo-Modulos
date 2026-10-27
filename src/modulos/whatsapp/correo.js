@@ -6,7 +6,7 @@ import PostalMime from 'postal-mime';
 import { one, now } from '../../lib/crud.js';
 import { orgUsa } from '../../lib/contexto.js';
 import { guardarMensaje, tocarChat, responder } from './webhook.js';
-import { sincronizarGmail } from './google.js';
+import { sincronizarGmail, filaGoogle } from './google.js';
 
 const AUTOMATICO = /^(mailer-daemon|postmaster|no-?reply|do-?not-?reply|bounce|notifications?@)/i;
 const CITA = /^(>|on .{5,80} wrote:|el .{5,80} escribi[oó]:|-{2,}\s*(original message|mensaje original)|de:\s.+@|from:\s.+@)/i;
@@ -50,9 +50,10 @@ export async function recibirCorreo(message, env, ctx) {
     const p = await PostalMime.parse(raw);
     const h = (n) => String(message.headers.get(n) || '').toLowerCase();
     const de = String(p.from?.address || message.from || '').toLowerCase();
+    const yo = (await filaGoogle(env, bandeja.business_id).catch(() => null))?.email;   // copias de lo que enviamos nosotros (Cc a la bandeja): no son un cliente nuevo
     // Avisos automáticos, listas y rebotes no son conversaciones: se reenvían y no se guardan
     const auto = (h('auto-submitted') && h('auto-submitted') !== 'no') || /bulk|list|junk|auto_reply/.test(h('precedence')) || h('list-id') || h('x-auto-response-suppress') || AUTOMATICO.test(de) || AUTOMATICO.test(String(message.from || ''));
-    if (!auto) {
+    if (!auto && !(yo && de === String(yo).toLowerCase())) {
       const texto = p.text || sinHtml(p.html), adj = (p.attachments || []).length;
       await registrarCorreo(env, bandeja, { de, nombre: p.from?.name || null, asunto: p.subject, texto: adj ? `${texto}\n\n[${adj} archivo${adj === 1 ? '' : 's'} adjunto${adj === 1 ? '' : 's'}: ábrelo en el correo original]` : texto, id: p.messageId || message.headers.get('message-id'), ref: p.messageId || message.headers.get('message-id') });
     }

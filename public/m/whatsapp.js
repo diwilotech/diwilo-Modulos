@@ -300,6 +300,8 @@ DW.ready.then((me) => {
           <div class="col-6">${campo('duracion', 'Duración de la cita (min)', a.duracion, 'type="number" min="10" max="240"')}</div><div class="col-6">${campo('buffer', 'Descanso entre citas (min)', a.buffer, 'type="number" min="0" max="120"')}</div>
           <div class="col-6">${campo('adelanto_dias', 'Ofrecer hasta (días)', a.adelanto_dias, 'type="number" min="1" max="60"')}</div><div class="col-6">${campo('minimo_horas', 'Aviso mínimo (horas)', a.minimo_horas, 'type="number" min="0" max="168"')}</div></div>
         ${campo('titulo', 'Título del evento ({nombre} = nombre de la persona)', a.titulo, 'maxlength="120"')}
+        ${campo('copia', 'Enviar copia (Cc) de cada respuesta de correo e invitar a cada cita a (opcional)', a.copia || '', 'type="email" placeholder="hola@tuempresa.com"')}
+        <label class="small text-body-secondary d-grid gap-1">Enviar los correos con<select class="form-select" name="envio"><option value="gmail" ${a.envio !== 'cloudflare' ? 'selected' : ''}>Gmail (desde la cuenta conectada; Reply-To a la bandeja)</option><option value="cloudflare" ${a.envio === 'cloudflare' ? 'selected' : ''}>Cloudflare Email Sending (desde la dirección de la bandeja)</option></select></label>
         <div class="small text-body-secondary">Zona horaria: <b>Colombia (UTC-5)</b>. ${campo('calendario', 'Calendario (déjalo en «primary» para el principal)', a.calendario, 'maxlength="200"')}</div>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="gmail_activo" id="ggm" ${g.gmail_activo ? 'checked' : ''}><label class="form-check-label small" for="ggm">Leer los correos nuevos de Gmail en las bandejas de correo${g.correos ? '' : ' (aún no tienes una bandeja de correo)'}</label></div>
         ${CAN && g.credenciales ? '<button class="btn btn-primary">Guardar</button>' : '<div class="small text-body-secondary">Sube las credenciales para poder guardar.</div>'}</form></div></div>`;
@@ -326,7 +328,7 @@ DW.ready.then((me) => {
     const fa = $('[data-agenda]', el);
     if (fa) fa.onsubmit = async (e) => {
       e.preventDefault(); const btn = fa.querySelector('button.btn-primary'); if (!btn) return; btn.disabled = true;
-      const body = { dias: DIAS.map((_, i) => i).filter((i) => fa[`d${i}`].checked), desde: fa.desde.value, hasta: fa.hasta.value, duracion: +fa.duracion.value, buffer: +fa.buffer.value, adelanto_dias: +fa.adelanto_dias.value, minimo_horas: +fa.minimo_horas.value, titulo: fa.titulo.value.trim(), calendario: fa.calendario.value.trim() || 'primary', gmail_activo: fa.gmail_activo.checked };
+      const body = { dias: DIAS.map((_, i) => i).filter((i) => fa[`d${i}`].checked), desde: fa.desde.value, hasta: fa.hasta.value, duracion: +fa.duracion.value, buffer: +fa.buffer.value, adelanto_dias: +fa.adelanto_dias.value, minimo_horas: +fa.minimo_horas.value, titulo: fa.titulo.value.trim(), calendario: fa.calendario.value.trim() || 'primary', copia: fa.copia.value.trim(), envio: fa.envio.value, gmail_activo: fa.gmail_activo.checked };
       try { await api(`${B}/google/agenda`, { method: 'PUT', body }); toast('Guardado'); } catch (x) { toast(x.message, false); }
       btn.disabled = false;
     };

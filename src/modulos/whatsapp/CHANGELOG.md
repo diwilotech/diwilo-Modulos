@@ -1,5 +1,9 @@
 # WhatsApp — cambios
 
+## 3.2.0 · 2026-10-27
+- **Copia a otra dirección** (p. ej. hola@): se agrega como Cc a cada respuesta de correo por Gmail y como invitada a cada cita de Meet. Las copias que vuelven a la bandeja no crean un chat nuevo.
+- **Con qué se envían los correos:** Gmail (desde la cuenta conectada, con Reply-To a la bandeja) o Cloudflare Email Sending (desde la dirección de la bandeja, con su propia firma de dominio).
+
 ## 3.1.1 · 2026-10-27
 - Google → Probar: el paso «Calendario» usaba un permiso que no se pide; ahora comprueba que se pueden leer y crear eventos.
 
