@@ -114,7 +114,7 @@ DW.ready.then((me) => {
     async function elegirAgente(chat) {
       try { agentes = (await api(`${B}/agentes`)).rows; } catch (_) {}
       const ops = agentes.filter((a) => !(a.bandejas || []).length || a.bandejas.includes(chat.bandeja_id));
-      const { el: mo, m: mm } = modal(`${cab('Agente de este chat')}<div class="modal-body d-grid gap-2">
+      const { el: mo, m: mm } = modal(`${cab('Agente de este chat')}<div class="modal-body d-grid gap-2" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain">
         <div class="small text-body-secondary mb-1">Chat de <b>${esc(chat.nombre || chat.contacto)}</b> · ${esc(chat.bandeja)}</div>
         ${ops.map((a) => `<button class="btn ${a.id === chat.agente_id ? 'btn-primary' : 'btn-outline-secondary'} text-start" data-a="${a.id}"><i class="bi bi-robot me-2"></i>${esc(a.nombre)}${a.id === chat.agente_id ? ' <i class="bi bi-check2 float-end"></i>' : ''}</button>`).join('') || '<div class="small text-body-secondary">No hay agentes para esta bandeja. Créalos en la pestaña «Agentes de IA».</div>'}
         <button class="btn ${chat.agente_id === 0 ? 'btn-primary' : 'btn-outline-secondary'} text-start" data-a="0"><i class="bi bi-person me-2"></i>Sin agente (lo atiende una persona)</button></div>`);
@@ -176,7 +176,7 @@ DW.ready.then((me) => {
   // Datos del contacto del chat: lo que capturó el agente o lo que escribe el equipo → contacto de Marketing (sin duplicar por teléfono)
   function contacto(det, listo) {
     const c = det.chat, k = det.contact, d = c.datos || {};
-    const { el: mo, m: mm } = modal(`${cab('Contacto del chat')}<form class="modal-body d-grid gap-3">
+    const { el: mo, m: mm } = modal(`${cab('Contacto del chat')}<form class="modal-body d-grid gap-3" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain">
       ${k ? `<div class="alert alert-success small mb-0"><i class="bi bi-check-circle me-1"></i>Enlazado con el contacto <b>${esc(k.name)}</b> de Marketing${k.stage ? ` (${esc(k.stage)})` : ''}.</div>` : ''}
       ${!det.marketing ? '<div class="alert alert-warning small mb-0">Marketing no está activo en tu negocio: pídele a Diwilo que lo active para guardar contactos.</div>' : ''}
       ${campo('nombre', 'Nombre', k?.name || d.nombre || c.nombre || '', 'maxlength="120"')}
@@ -209,7 +209,7 @@ DW.ready.then((me) => {
   async function plantillaChat(det, listo) {
     let rows; try { rows = (await api(`${B}/plantillas?bandeja=${det.chat.bandeja_id}`)).rows; } catch (x) { return toast(x.message, false); }
     if (!rows.length) return toast('Esta cuenta no tiene plantillas aprobadas. Créalas en WhatsApp Manager.', false);
-    const { el: mo, m: mm } = modal(`${cab('Enviar plantilla')}<form class="modal-body d-grid gap-3">${formPlantilla(rows, Math.max(0, rows.findIndex((r) => r.soportada)))}<button class="btn btn-success">Enviar a este chat</button></form>`);
+    const { el: mo, m: mm } = modal(`${cab('Enviar plantilla')}<form class="modal-body d-grid gap-3" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain">${formPlantilla(rows, Math.max(0, rows.findIndex((r) => r.soportada)))}<button class="btn btn-success">Enviar a este chat</button></form>`);
     const f = mo.querySelector('form'); let p = varsPlantilla(f, rows); f.plantilla.onchange = () => { p = varsPlantilla(f, rows); };
     f.onsubmit = async (e) => {
       e.preventDefault(); const btn = f.querySelector('button.btn-success'); btn.disabled = true;
@@ -289,7 +289,7 @@ DW.ready.then((me) => {
         : `<div class="col-12">${empty('bi-chat-dots', 'Aún no tienes bandejas. Conecta tu primer canal.', CAN ? '<button class="btn btn-primary" data-new>Crear mi primera bandeja</button>' : '')}</div>`}</div>`;
     const form = (b) => {
       const canal0 = b?.canal || 'whatsapp';
-      const { el: mo, m: mm } = modal(`${cab(b ? 'Ajustes de la bandeja' : 'Nueva bandeja')}<form class="modal-body d-grid gap-3" autocomplete="off">
+      const { el: mo, m: mm } = modal(`${cab(b ? 'Ajustes de la bandeja' : 'Nueva bandeja')}<form class="modal-body d-grid gap-3" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain" autocomplete="off">
         ${b ? '' : `<label class="small text-body-secondary d-grid gap-1">Canal<select class="form-select" name="canal">${Object.entries(CAN_).map(([k, v]) => `<option value="${k}">${v.n}</option>`).join('')}</select></label>`}
         <div class="small text-body-secondary" data-ayuda>${AYUDA[canal0]}</div>
         ${campo('nombre', 'Nombre de la bandeja de entrada', b?.nombre, 'required maxlength="80" placeholder="Ventas"')}
@@ -318,7 +318,7 @@ DW.ready.then((me) => {
     // Verificador: revisa la clave y los IDs contra Meta y, en WhatsApp, si pones un número manda un mensaje de prueba
     const probar = (b) => {
       const wa = b.canal === 'whatsapp';
-      const { el: mo } = modal(`${cab('Probar conexión')}<form class="modal-body d-grid gap-3">
+      const { el: mo } = modal(`${cab('Probar conexión')}<form class="modal-body d-grid gap-3" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain">
         <p class="small text-body-secondary mb-0">Revisa la clave API y los IDs con Meta${wa ? '. Si escribes un número, también le enviamos un mensaje de prueba (un texto si escribió en las últimas 24 h; si no, una plantilla aprobada).' : '.'}</p>
         ${wa ? campo('para', 'Número que recibe el mensaje de prueba (opcional)', '+57', 'placeholder="+57 300 123 4567" inputmode="tel"') : ''}
         <button class="btn btn-success">Probar</button><div data-res></div></form>`);
@@ -368,7 +368,7 @@ DW.ready.then((me) => {
         : `<div class="col-12">${empty('bi-robot', bands.length ? 'Aún no tienes agentes de IA.' : 'Crea primero una bandeja para poder ponerle un agente.')}</div>`}</div>`;
     const form = (a) => {
       const cd = a ? camposDe(a) : BASE;
-      const { el: mo, m: mm } = modal(`${cab(a ? 'Editar agente' : 'Nuevo agente')}<form class="modal-body d-grid gap-3">
+      const { el: mo, m: mm } = modal(`${cab(a ? 'Editar agente' : 'Nuevo agente')}<form class="modal-body d-grid gap-3" style="max-height:calc(100dvh - 130px);overflow-y:auto;align-content:start;overscroll-behavior:contain">
         ${campo('nombre', 'Nombre del agente', a?.nombre, 'required maxlength="80" placeholder="Asesor de ventas"')}
         <fieldset class="border rounded-3 p-3"><legend class="small fw-semibold float-none w-auto px-2 mb-0">¿En qué bandejas puede servir?</legend>
           <div class="small text-body-secondary mb-2">Marca una o varias (WhatsApp, Instagram, Messenger, web…). Si no marcas ninguna, sirve en todas.</div>

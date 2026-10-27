@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 2.3.2 · 2026-10-27
+- Los formularios de Mensajes (agente, bandeja, contacto, plantillas) ahora hacen scroll cuando no caben en la pantalla.
+
 ## 2.3.1 · 2026-10-27
 - Instagram y Messenger: el nombre de quien escribe («Nombre (@usuario)») se pide a Meta con el token de la página, al llegar el mensaje y al abrir un chat que no lo tenga. Si Meta no lo entrega, se reintenta cada 10 minutos.
 
