@@ -1,5 +1,10 @@
 # WhatsApp — cambios
 
+## 2.4.0 · 2026-10-27
+- **Aviso en rojo:** si el agente no supo responder o el cliente pide un asesor, el chat se marca en rojo en la lista («No supo responder» / «Pidió asesor») y con un aviso en la cabecera, con el botón «Ya lo atendí». Se quita solo cuando una persona responde. Cada agente puede apagar este aviso. El agente avisa con una marca interna que no se le muestra al cliente; además se detectan frases como «quiero hablar con un asesor».
+- **Chat de la web con agente:** nuevo RPC `mensajesResponder(app, negocio, datos)`: un chat web (el sitio de Diwilo) le pasa el mensaje al agente de su bandeja y recibe la respuesta, con un `contexto` opcional que se suma a las instrucciones.
+- Migración `0028_atencion_asesor.sql`.
+
 ## 2.3.2 · 2026-10-27
 - Los formularios de Mensajes (agente, bandeja, contacto, plantillas) ahora hacen scroll cuando no caben en la pantalla.
 

@@ -87,6 +87,24 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: true } });
   check('Mensajes: el interruptor de IA exige true o false', (await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: 'si' } })).status === 400 && (await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: {} })).status === 400);
 
+  /* ---------- aviso en rojo: no supo responder o piden un asesor ---------- */
+  await hook(url, wa('1090000000001', 'wamid.R1', '[prueba] quiero hablar con un asesor'));
+  const rojo = await esperar(async () => (await chats()).find((x) => x.id === chA.id && x.atencion));
+  check('Mensajes: si el cliente pide un asesor, el chat queda marcado (pide_asesor) y se ve en la lista', rojo?.atencion === 'pide_asesor', JSON.stringify(rojo));
+  check('Mensajes: «Ya lo atendí» limpia la marca', (await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { atencion: false } })).status === 200 && (await det()).chat.atencion === null);
+  await hook(url, wa('1090000000001', 'wamid.R2', '[prueba] no sé [[ASESOR:no_sabe]]'));
+  const r2 = await esperar(async () => (await chats()).find((x) => x.id === chA.id && x.atencion === 'no_sabe'));
+  const dR = await det();
+  check('Mensajes: si el agente no supo responder (marca ASESOR) el chat queda en rojo y la marca no se le muestra al cliente', r2 && !dR.mensajes.some((m) => m.rol === 'assistant' && /ASESOR/.test(m.contenido)), JSON.stringify(r2));
+  await A.app(`${X}/chats/${chA.id}/enviar`, { method: 'POST', body: { texto: 'Soy una persona, te ayudo' } });
+  check('Mensajes: cuando una persona responde, la marca roja se quita', (await det()).chat.atencion === null);
+  await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: true } });
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { alerta_asesor: false } });
+  await hook(url, wa('1090000000001', 'wamid.R3', '[prueba] pásame con un asesor humano'));
+  await new Promise((r) => setTimeout(r, 700));
+  check('Mensajes: con el aviso apagado en el agente no marca el chat', (await det()).chat.atencion === null && (await ags()).find((a) => a.id === g1.data.id).alerta_asesor === 0);
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { alerta_asesor: true } });
+
   /* ---------- contactos en Marketing ---------- */
   await hook(url, wa('1090000000001', 'wamid.A5', '[prueba] soy Ana [[DATOS {"nombre":"Ana Pérez","correo":"ana@ejemplo.co","empresa":"Acme SAS","tipo":"negocio","interes":"cursos","extras":{"Cargo":"Gerente"}}]]', '573001112233'));
   const cto = await esperar(async () => (await A.app('/api/marketing/contacts?q=Ana')).data.rows.find((c) => c.name === 'Ana Pérez'));

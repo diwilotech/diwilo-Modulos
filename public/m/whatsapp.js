@@ -26,7 +26,7 @@ DW.ready.then((me) => {
 .wa-list{display:flex;flex-direction:column;border-right:1px solid var(--bs-border-color);min-height:0}.wa-search{padding:10px}.wa-fil{display:flex;gap:6px;padding:0 10px 8px;flex-wrap:wrap}
 .wa-items{overflow-y:auto;flex:1}.wa-it{display:flex;gap:10px;padding:10px 12px;border:0;border-bottom:1px solid var(--bs-border-color-translucent);background:none;width:100%;text-align:left;color:inherit}
 .wa-it:hover{background:rgba(var(--bs-emphasis-color-rgb),.04)}.wa-it.on{background:rgba(var(--bs-primary-rgb),.12)}.wa-av{flex:none;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:600;background:rgba(var(--bs-emphasis-color-rgb),.1);position:relative}
-.wa-av i{position:absolute;right:-3px;bottom:-3px;font-size:14px;background:var(--bs-body-bg);border-radius:50%;line-height:1}.wa-it .t{min-width:0;flex:1}.wa-lug{font-size:.72rem;color:var(--bs-secondary-color);white-space:nowrap;font-weight:400}.wa-r{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;max-width:110px}.wa-r small{color:var(--bs-secondary-color)}.wa-ag{display:inline-flex;gap:4px;align-items:center;max-width:110px;padding:1px 8px;border-radius:999px;border:1px solid var(--bs-border-color);font-size:.7rem;color:var(--bs-secondary-color);cursor:pointer}.wa-ag span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wa-ag:hover{border-color:var(--bs-primary);color:var(--bs-primary)}.wa-it .l1{display:flex;gap:6px;align-items:baseline}.wa-it .l1 b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.wa-av i{position:absolute;right:-3px;bottom:-3px;font-size:14px;background:var(--bs-body-bg);border-radius:50%;line-height:1}.wa-it .t{min-width:0;flex:1}.wa-it.alerta{background:rgba(var(--bs-danger-rgb),.10);box-shadow:inset 4px 0 0 var(--bs-danger)}.wa-it.alerta.on{background:rgba(var(--bs-danger-rgb),.18)}.wa-pill-r{background:var(--bs-danger);color:#fff;border-radius:999px;font-size:.68rem;padding:1px 7px;white-space:nowrap}.wa-lug{font-size:.72rem;color:var(--bs-secondary-color);white-space:nowrap;font-weight:400}.wa-r{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;max-width:110px}.wa-r small{color:var(--bs-secondary-color)}.wa-ag{display:inline-flex;gap:4px;align-items:center;max-width:110px;padding:1px 8px;border-radius:999px;border:1px solid var(--bs-border-color);font-size:.7rem;color:var(--bs-secondary-color);cursor:pointer}.wa-ag span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wa-ag:hover{border-color:var(--bs-primary);color:var(--bs-primary)}.wa-it .l1{display:flex;gap:6px;align-items:baseline}.wa-it .l1 b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .wa-it .l2{display:flex;gap:6px;align-items:center;color:var(--bs-secondary-color);font-size:.85rem}.wa-it .l2 span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wa-n{background:var(--bs-primary);color:#fff;border-radius:999px;font-size:.7rem;padding:1px 7px}
 .wa-chat{display:flex;flex-direction:column;min-width:0;min-height:0}.wa-cab{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bs-border-color)}.wa-cab .t{flex:1;min-width:0}.wa-cab .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wa-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:6px;background:rgba(var(--bs-emphasis-color-rgb),.03)}
@@ -60,16 +60,16 @@ DW.ready.then((me) => {
 
     async function cargarLista() {
       try { items = (await api(`${B}/chats?${filtro ? `canal=${filtro}&` : ''}${filtroB ? `bandeja=${filtroB}&` : ''}${q ? `q=${encodeURIComponent(q)}` : ''}`)).rows; } catch (x) { lista.innerHTML = `<p class="text-danger p-3 small">${esc(x.message)}</p>`; return; }
-      lista.innerHTML = items.length ? items.map((c) => `<button class="wa-it ${c.id === sel ? 'on' : ''}" data-id="${c.id}"><span class="wa-av">${esc((c.nombre || c.contacto).trim()[0]?.toUpperCase() || '?')}${ico(c.canal)}</span>
+      lista.innerHTML = items.length ? items.map((c) => `<button class="wa-it ${c.id === sel ? 'on' : ''}${c.atencion ? ' alerta' : ''}" data-id="${c.id}"><span class="wa-av">${esc((c.nombre || c.contacto).trim()[0]?.toUpperCase() || '?')}${ico(c.canal)}</span>
         <span class="t"><span class="l1"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b>${lugar(c)}</span>
-        <span class="l2"><span>${c.ultimo_rol === 'assistant' ? 'IA: ' : c.ultimo_rol === 'humano' ? 'Tú: ' : ''}${esc(c.ultimo_texto || '')}</span>${c.ia_activa ? '' : '<i class="bi bi-person-fill" title="Atiende una persona (IA apagada)"></i>'}${c.no_leidos ? `<b class="wa-n">${c.no_leidos}</b>` : ''}</span></span>
+        <span class="l2">${c.atencion ? `<b class="wa-pill-r" title="Una persona debe responder este chat">${c.atencion === 'no_sabe' ? 'No supo responder' : 'Pidió asesor'}</b>` : ''}<span>${c.ultimo_rol === 'assistant' ? 'IA: ' : c.ultimo_rol === 'humano' ? 'Tú: ' : ''}${esc(c.ultimo_texto || '')}</span>${c.ia_activa ? '' : '<i class="bi bi-person-fill" title="Atiende una persona (IA apagada)"></i>'}${c.no_leidos ? `<b class="wa-n">${c.no_leidos}</b>` : ''}</span></span>
         <span class="wa-r"><small>${esc(hora(c.ultimo_ts))}</small>${RO ? '' : `<span class="wa-ag" data-ag="${c.id}" title="Cambiar el agente de este chat" role="button"><i class="bi bi-robot"></i><span>${esc(c.agente || 'Sin agente')}</span></span>`}</span></button>`).join('')
         : `<div class="wa-vacio">${q ? 'Sin resultados.' : 'Aún no hay chats. Cuando alguien escriba a una bandeja conectada aparecerá aquí.'}</div>`;
     }
     async function cargarChat(forzar) {
       if (!sel) return;
       let d; try { d = await api(`${B}/chats/${sel}`); } catch (x) { toast(x.message, false); return; }
-      const f = `${sel}|${d.mensajes.length}|${d.mensajes.at(-1)?.id}|${d.chat.ia_activa}|${d.chat.agente_id}|${d.contact?.id}|${d.mensajes.at(-1)?.estado}`;
+      const f = `${sel}|${d.mensajes.length}|${d.mensajes.at(-1)?.id}|${d.chat.ia_activa}|${d.chat.agente_id}|${d.chat.atencion}|${d.chat.nombre}|${d.contact?.id}|${d.mensajes.at(-1)?.estado}`;
       if (!forzar && f === firma && det) { det = d; return; }
       const nuevoChat = !det || det.chat.id !== d.chat.id || forzar === 'estructura'; firma = f; det = d;
       if (nuevoChat) armarChat();
@@ -100,8 +100,9 @@ DW.ready.then((me) => {
         ${c.canal === 'whatsapp' && !RO ? '<button class="btn btn-sm btn-outline-success" data-tpl><i class="bi bi-file-earmark-text me-1"></i>Plantilla</button>' : ''}
         ${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del aria-label="Borrar chat"><i class="bi bi-trash"></i></button>' : ''}`;
       const av = $('[data-aviso]', cont);
-      av.innerHTML = !det.ventana_abierta ? `<div class="alert alert-warning small m-2 py-2">Pasaron más de 24 h desde el último mensaje de esta persona. ${c.canal === 'whatsapp' ? 'Solo puedes escribirle con una <b>plantilla</b>.' : 'Meta ya no deja escribirle en este canal hasta que ella escriba.'}</div>`
-        : (c.ia_activa && !det.agente ? '<div class="alert alert-light border small m-2 py-2">Esta bandeja no tiene un agente de IA activo: nadie responde solo. Actívalo en la pestaña «Agentes de IA».</div>' : '');
+      const rojo = c.atencion ? `<div class="alert alert-danger small m-2 py-2 d-flex flex-wrap gap-2 align-items-center"><span><i class="bi bi-exclamation-triangle-fill me-1"></i><b>${c.atencion === 'no_sabe' ? 'El agente no supo responder.' : 'El cliente pidió hablar con un asesor.'}</b> Una persona debe atender este chat.</span>${RO ? '' : '<button class="btn btn-sm btn-outline-danger ms-auto" data-ok>Ya lo atendí</button>'}</div>` : '';
+      av.innerHTML = rojo + (!det.ventana_abierta ? `<div class="alert alert-warning small m-2 py-2">Pasaron más de 24 h desde el último mensaje de esta persona. ${c.canal === 'whatsapp' ? 'Solo puedes escribirle con una <b>plantilla</b>.' : 'Meta ya no deja escribirle en este canal hasta que ella escriba.'}</div>`
+        : (c.ia_activa && !det.agente ? '<div class="alert alert-light border small m-2 py-2">Este chat no tiene agente: nadie responde solo. Elígelo con el botón del agente.</div>' : ''));
     }
     function pintarMensajes(baja) {
       const log = $('[data-log]', cont), abajo = baja || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
@@ -133,6 +134,7 @@ DW.ready.then((me) => {
     $('[data-fil]', el).onclick = (e) => { const b = e.target.closest('[data-f]'); if (!b) return; filtro = b.dataset.f; el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('active', x === b)); cargarLista(); };
     cont.onclick = async (e) => {
       if (e.target.closest('[data-back]')) { box.classList.remove('abierto'); return; }
+      if (e.target.closest('[data-ok]')) { try { await api(`${B}/chats/${sel}`, { method: 'PATCH', body: { atencion: false } }); toast('Marcado como atendido'); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); } return; }
       if (e.target.closest('[data-agbtn]')) return elegirAgente({ ...det.chat, agente_id: det.chat.agente_id });
       if (e.target.closest('[data-cto]')) return contacto(det, async () => { await cargarChat(true); cargarLista(); });
       if (e.target.closest('[data-tpl]')) return plantillaChat(det, async () => { await cargarChat(true); cargarLista(); });
@@ -379,11 +381,12 @@ DW.ready.then((me) => {
           <div class="d-grid gap-1">${Object.entries(DATOS).map(([k, l]) => `<div class="form-check"><input class="form-check-input" type="checkbox" name="c_${k}" id="wc-${k}" ${cd.campos.includes(k) ? 'checked' : ''}><label class="form-check-label small" for="wc-${k}">${esc(l)}</label></div>`).join('')}</div>
           <label class="small text-body-secondary d-grid gap-1 mt-2">Preguntas propias (una por línea, máximo 5)<textarea class="form-control" name="extras" rows="2" placeholder="Cargo&#10;Cuántas personas tiene su equipo">${esc(cd.extras.join('\n'))}</textarea></label></fieldset>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="usar_marca" id="wam" ${!a || a.usar_marca ? 'checked' : ''}><label class="form-check-label small" for="wam">Usar el tono de la marca</label></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="alerta_asesor" id="waas" ${!a || a.alerta_asesor ? 'checked' : ''}><label class="form-check-label small" for="waas">Avisar en <b class="text-danger">rojo</b> cuando no sepa responder o pidan un asesor</label></div>
         <button class="btn btn-primary">${a ? 'Guardar' : 'Crear agente'}</button></form>`);
       mo.querySelector('form').onsubmit = async (e) => {
         e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
         const campos = JSON.stringify({ campos: Object.keys(DATOS).filter((k) => f[`c_${k}`].checked), extras: f.extras.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 5) });
-        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, campos };
+        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, alerta_asesor: f.alerta_asesor.checked, campos };
         try { if (a) await api(`${B}/agentes/${a.id}`, { method: 'PATCH', body }); else await api(`${B}/agentes`, { method: 'POST', body }); mm.hide(); toast('Agente guardado'); render(); }
         catch (x) { toast(x.message, false); btn.disabled = false; }
       };

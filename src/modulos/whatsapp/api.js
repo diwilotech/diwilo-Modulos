@@ -84,7 +84,7 @@ export const ENTITIES = {
   agentes: {
     table: 'wa_agentes', label: 'el agente', title: 'nombre', search: ['nombre'], order: 'created_at',
     // bandejas = JSON [ids de bandeja donde puede servir]; vacío = todas. `campos` = JSON { campos, extras } con los datos de contacto que pide.
-    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', campos: 'long' },
+    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', alerta_asesor: 'bool+', campos: 'long' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row) {
       textoLargo(row); await fijarBandejas(c, row, true);
@@ -126,7 +126,7 @@ export const chats = async (c, { bandeja, canal, q, limite = 200 } = {}) => {
   if (bandeja) { donde.push('c.bandeja_id = ?'); args.push(Number(bandeja)); }
   if (canal) { donde.push('b.canal = ?'); args.push(String(canal)); }
   if (q) { donde.push('(c.nombre LIKE ? OR c.contacto LIKE ? OR c.ultimo_texto LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
-  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
+  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
     FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args)).map(conLugar);
 };
 export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
@@ -190,6 +190,7 @@ export function routes(r) {
       set.push('ia_activa = ?'); args.push(body.ia_activa ? 1 : 0);
       await audit(c, `${body.ia_activa ? 'Activó' : 'Desactivó'} la IA en el chat de ${quien}`, { modulo: MOD });
     }
+    if (body.atencion === false) { set.push('atencion = NULL', 'atencion_ts = NULL'); await audit(c, `Marcó como atendido el chat de ${quien}`, { modulo: MOD }); }
     if (body.agente_id !== undefined) {
       const id = Number(body.agente_id);
       if (!Number.isInteger(id) || id < 0) throw new HttpError(400, 'agente_id no válido');
@@ -197,7 +198,7 @@ export function routes(r) {
       set.push('agente_id = ?'); args.push(id);
       await audit(c, `Cambió el agente del chat de ${quien}`, { modulo: MOD });
     }
-    if (!set.length) throw new HttpError(400, 'Envía ia_activa o agente_id');
+    if (!set.length) throw new HttpError(400, 'Envía ia_activa, agente_id o atencion: false');
     await c.env.DB.prepare(`UPDATE wa_conversaciones SET ${set.join(', ')} WHERE id = ? AND business_id = ?`).bind(...args, ch.id, c.businessId).run();
     return json({ ok: true });
   });
@@ -210,7 +211,7 @@ export function routes(r) {
     await guardarMensaje(c.env, { org: c.businessId, bandeja: b.id, contacto: ch.contacto, rol: 'humano', contenido: t, estado });
     // Cuando una persona responde, la IA se apaga en ese chat (se vuelve a encender con el interruptor)
     await tocarChat(c.env, { org: c.businessId, bandeja: b, contacto: ch.contacto, rol: 'humano', contenido: t });
-    await c.env.DB.prepare('UPDATE wa_conversaciones SET ia_activa = 0 WHERE id = ?').bind(ch.id).run();
+    await c.env.DB.prepare('UPDATE wa_conversaciones SET ia_activa = 0, atencion = NULL, atencion_ts = NULL WHERE id = ?').bind(ch.id).run();
     if (estado === 'sin_destino') throw new HttpError(400, 'Esta bandeja web no tiene URL de salida: tu respuesta quedó guardada en el chat, pero no se envía a tu sistema. Agrégala en Ajustes de la bandeja.');
     if (estado !== 'enviado') throw new HttpError(estado === 'sin_clave' ? 400 : 502, estado === 'sin_clave' ? 'La bandeja no tiene clave API: agrégala para poder enviar' : `No se envió: ${error || 'Meta no aceptó el mensaje'}${b.canal === 'whatsapp' ? '. Pasadas 24 h desde el último mensaje de la persona hay que usar una plantilla.' : '. Solo se puede responder dentro de las 24 h siguientes al último mensaje.'}`);
     return json({ ok: true, estado, ia_activa: false });
