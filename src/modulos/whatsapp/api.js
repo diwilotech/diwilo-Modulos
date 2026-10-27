@@ -51,7 +51,7 @@ export async function probarBandeja(env, bandeja, para) {
     if (meta && mio && meta !== mio) paso('Teléfono', false, `El teléfono de la bandeja (${bandeja.telefono}) no coincide con el que Meta reporta para ese ID (${d.display_phone_number}).`);
     else paso('Teléfono', true, 'El teléfono coincide con el de Meta.');
     const w = await llamar(`${GRAPH}/${bandeja.waba_id}/phone_numbers?fields=id&limit=50`);
-    if (!w.ok) paso('Cuenta de WhatsApp Business', false, `No se pudo leer la cuenta ${bandeja.waba_id}: ${await errMeta(w)}. Ese ID no es una cuenta de WhatsApp Business (en Meta se llama «Identificador de la cuenta de WhatsApp Business» o «Messaging Account ID»): revísalo en Ajustes.`);
+    if (!w.ok) paso('Cuenta de WhatsApp Business', false, `No se pudo leer la cuenta ${bandeja.waba_id}: ${await errMeta(w)}. Puede ser que ese ID no sea el de la cuenta de WhatsApp Business («Messaging Account ID») o, si ya es el correcto, que el usuario del sistema del token no tenga acceso a esa cuenta (Configuración del negocio → Usuarios del sistema → Agregar activos → Cuentas de WhatsApp → control total) y haya que generar el token de nuevo.`);
     else paso('Cuenta de WhatsApp Business', (await w.json()).data?.some((n) => String(n.id) === bandeja.phone_number_id) ?? false, 'El ID de la cuenta debe ser el dueño de ese número (revisa que no hayas puesto el ID de la app).');
     if (para) {
       const to = soloDigitos(para);
