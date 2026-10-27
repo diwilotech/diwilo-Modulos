@@ -83,13 +83,14 @@ export async function enviarPlantilla(env, bandeja, para, nombre, idioma, variab
   } catch (e) { return e.message === 'sin_clave' ? { estado: 'sin_clave' } : { estado: 'error', error: e.name === 'AbortError' ? 'Meta tardó más de 8 segundos' : e.message }; }
 }
 
-// Nombre de perfil de quien escribe por Instagram / Messenger (si Meta lo permite; si no, queda vacío)
+// Nombre de quien escribe por Instagram / Messenger («Nombre (@usuario)»), pedido a Meta con el token de la página. Si Meta no lo da, null.
 export async function perfil(env, bandeja, id) {
   try {
-    const r = await graph(env, bandeja, `${GRAPH}/${encodeURIComponent(id)}?fields=${bandeja.canal === 'instagram' ? 'name,username' : 'name'}`, {}, 3500);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d.name || d.username || null;
+    const via = await paginaDe(env, bandeja);
+    const r = await graph(env, bandeja, `${GRAPH}/${encodeURIComponent(id)}?fields=${bandeja.canal === 'instagram' ? 'name,username' : 'name'}`, {}, 3500, via?.token);
+    if (!r.ok) { console.warn(`perfil ${bandeja.canal}: ${r.status} ${(await r.text()).slice(0, 160)}`); return null; }
+    const d = await r.json(), nombre = String(d.name || '').trim(), usuario = String(d.username || '').trim();
+    return nombre && usuario ? `${nombre} (@${usuario})` : nombre || (usuario ? `@${usuario}` : null);
   } catch { return null; }
 }
 

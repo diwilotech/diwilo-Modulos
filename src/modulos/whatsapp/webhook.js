@@ -216,7 +216,9 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
       if (unicas.length === 1) { bandeja = unicas[0]; console.warn(`mensajes: ${ev.canal} llegó con el id ${ev.cuenta} y la bandeja tiene ${bandeja.phone_number_id}; se enrutó a la única bandeja del canal`); }
     }
     if (!bandeja) { console.warn(`mensajes: evento de ${ev.canal} sin bandeja (id ${ev.cuenta}) en ${org}`); continue; }
-    const nombre = ev.nombre || (ev.canal !== 'whatsapp' && !(await one(env, 'SELECT 1 FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto)) ? await perfil(env, bandeja, ev.contacto) : null);
+    // En Instagram y Messenger el nombre no viene en el mensaje: se pide a Meta mientras el chat no lo tenga
+    const previo = await one(env, 'SELECT nombre FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto);
+    const nombre = ev.nombre || (ev.canal !== 'whatsapp' && !previo?.nombre ? await perfil(env, bandeja, ev.contacto) : null);
     const nuevo = await guardarMensaje(env, { org, bandeja: bandeja.id, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, wamid: ev.id, ts: ev.ts });
     if (!nuevo) continue;
     const primera = !(await one(env, 'SELECT 1 FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto));

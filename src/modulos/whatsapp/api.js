@@ -16,7 +16,7 @@ import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { cifrarClave } from '../../lib/ia.js';
-import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValido, soloDigitos, CANALES } from './canales.js';
+import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValido, perfil, soloDigitos, CANALES } from './canales.js';
 import { guardarMensaje, tocarChat, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
@@ -130,8 +130,16 @@ export const chats = async (c, { bandeja, canal, q, limite = 200 } = {}) => {
     FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args)).map(conLugar);
 };
 export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
+const intentosPerfil = new Map();
 export async function chatCompleto(c, id) {
-  const chat = await chatDe(c, id), marketing = await marketingActivo(c.env, c.businessId);
+  const chat = await chatDe(c, id);
+  // Chats de Instagram / Messenger sin nombre (anteriores, o que Meta no dio al inicio): se intenta ponérselo al abrirlos
+  if (!chat.nombre && (chat.canal === 'instagram' || chat.canal === 'messenger') && Date.now() - (intentosPerfil.get(chat.id) || 0) > 600000) {   // si Meta no lo da, se reintenta cada 10 min, no en cada refresco
+    intentosPerfil.set(chat.id, Date.now());
+    const b = await one(c.env, 'SELECT * FROM wa_bandejas WHERE id = ? AND business_id = ?', chat.bandeja_id, c.businessId), n = b?.clave_cifrada ? await perfil(c.env, b, chat.contacto) : null;
+    if (n) { await c.env.DB.prepare('UPDATE wa_conversaciones SET nombre = ? WHERE id = ? AND business_id = ? AND nombre IS NULL').bind(n, chat.id, c.businessId).run(); chat.nombre = n; }
+  }
+  const marketing = await marketingActivo(c.env, c.businessId);
   const ultimoEntrante = (await one(c.env, "SELECT MAX(ts) t FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol = 'user'", c.businessId, chat.bandeja_id, chat.contacto))?.t || 0;
   let datos = null; try { datos = chat.datos ? JSON.parse(chat.datos) : null; } catch { /* sin datos */ }
   const agentes = await all(c.env, `SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND ${AGENTE_EN} ORDER BY id`, c.businessId, chat.bandeja_id);

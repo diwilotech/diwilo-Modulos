@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 2.3.1 · 2026-10-27
+- Instagram y Messenger: el nombre de quien escribe («Nombre (@usuario)») se pide a Meta con el token de la página, al llegar el mensaje y al abrir un chat que no lo tenga. Si Meta no lo entrega, se reintenta cada 10 minutos.
+
 ## 2.3.0 · 2026-10-27
 - **Un agente puede servir en varias bandejas:** al crear o editar un agente se marcan las bandejas (WhatsApp, Instagram, Messenger, web…) donde puede usarse; sin marcar ninguna, sirve en todas. Los chats solo ofrecen los agentes de su bandeja.
 - Migración `0027_agente_varias_bandejas.sql` (los agentes existentes conservan su bandeja). La herramienta de IA `crear_agente` recibe `bandejas` (lista de ids) en vez de `bandeja_id`.
