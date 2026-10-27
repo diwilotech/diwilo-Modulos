@@ -2,6 +2,7 @@
 //   CRUD  /api/whatsapp/bandejas                 bandejas de entrada (nombre, teléfono +57…, id del número, id de la cuenta, clave API)
 //   POST  /api/whatsapp/bandejas/:id/credenciales { api_key?, app_secret? }   guarda la clave API / el secreto (cifrados; nunca se devuelven)
 //   POST  /api/whatsapp/bandejas/:id/token       genera otro token de verificación del webhook
+//   POST  /api/whatsapp/bandejas/:id/probar      { para? } verifica clave, ID del número y cuenta contra Meta; con `para` manda un mensaje de prueba
 //   POST  /api/whatsapp/bandejas/:id/enviar      { para, texto } una persona del equipo responde desde la bandeja
 //   CRUD  /api/whatsapp/agentes                  agentes de IA por bandeja (activar/desactivar con PATCH { activo })
 //   GET   /api/whatsapp/conversaciones?bandeja=  contactos con su último mensaje · GET /:bandeja/:contacto mensajes · DELETE
@@ -30,6 +31,39 @@ export async function enviarTexto(env, bandeja, para, texto) {
     if (!r.ok) console.error('whatsapp envío', r.status, (await r.text()).slice(0, 200));
     return { estado: r.ok ? 'enviado' : 'error' };
   } catch (e) { console.error('whatsapp envío', e.message); return { estado: 'error' }; } finally { clearTimeout(t); }
+}
+// Verificador de la bandeja (como el de Chatwoot): comprueba la clave API y el ID del número contra Meta y, si se da un destino, manda un mensaje de prueba.
+const errMeta = async (r) => { try { const d = await r.json(); return `${d.error?.message || 'Error'}${d.error?.code ? ` (código ${d.error.code})` : ''}`.slice(0, 300); } catch { return `Meta respondió ${r.status}`; } };
+export async function probarBandeja(env, bandeja, para) {
+  const pasos = [], paso = (nombre, ok, detalle) => { pasos.push({ nombre, ok, detalle }); return ok; };
+  if (!bandeja.clave_cifrada) { paso('Clave API', false, 'La bandeja no tiene clave API: guárdala en Ajustes.'); return { ok: false, pasos }; }
+  let clave;
+  try { clave = await descifrarClave(env, bandeja.clave_cifrada); } catch { paso('Clave API', false, 'No se pudo leer la clave guardada: vuelve a guardarla en Ajustes.'); return { ok: false, pasos }; }
+  const llamar = async (url, init = {}) => {
+    const ac = new AbortController(), t = setTimeout(() => ac.abort(), 8000);
+    try { return await fetch(url, { ...init, signal: ac.signal, headers: { authorization: `Bearer ${clave}`, 'content-type': 'application/json' } }); } finally { clearTimeout(t); }
+  };
+  try {
+    const r = await llamar(`${GRAPH}/${bandeja.phone_number_id}?fields=display_phone_number,verified_name,code_verification_status`);
+    if (!r.ok) { paso('Clave API e ID del número', false, `Meta no aceptó la clave o el ID del número: ${await errMeta(r)}`); return { ok: false, pasos }; }
+    const d = await r.json(), meta = soloDigitos(d.display_phone_number), mio = soloDigitos(bandeja.telefono);
+    paso('Clave API e ID del número', true, `Conectado al número ${d.display_phone_number || '—'}${d.verified_name ? ` · nombre verificado «${d.verified_name}»` : ''}.`);
+    if (meta && mio && meta !== mio) paso('Teléfono', false, `El teléfono de la bandeja (${bandeja.telefono}) no coincide con el que Meta reporta para ese ID (${d.display_phone_number}).`);
+    else paso('Teléfono', true, 'El teléfono coincide con el de Meta.');
+    const w = await llamar(`${GRAPH}/${bandeja.waba_id}/phone_numbers?fields=id&limit=50`);
+    if (!w.ok) paso('Cuenta de WhatsApp Business', false, `No se pudo leer la cuenta ${bandeja.waba_id}: ${await errMeta(w)}`);
+    else paso('Cuenta de WhatsApp Business', (await w.json()).data?.some((n) => String(n.id) === bandeja.phone_number_id) ?? false, 'El ID de la cuenta debe ser el dueño de ese número (revisa que no hayas puesto el ID de la app).');
+    if (para) {
+      const to = soloDigitos(para);
+      if (to.length < 8 || to.length > 15) paso('Mensaje de prueba', false, 'El número de destino no es válido (con indicativo, por ejemplo +57 300 123 4567).');
+      else {
+        // La plantilla hello_world existe en toda cuenta nueva y se puede enviar sin que la persona haya escrito antes
+        const e = await llamar(`${GRAPH}/${bandeja.phone_number_id}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } }) });
+        paso('Mensaje de prueba', e.ok, e.ok ? `Enviado a +${to}. Debe llegarle en unos segundos.` : `Meta no lo envió: ${await errMeta(e)}`);
+      }
+    }
+  } catch (e) { paso('Conexión con Meta', false, e.name === 'AbortError' ? 'Meta tardó más de 8 segundos en responder.' : 'No se pudo conectar con Meta.'); }
+  return { ok: pasos.every((p) => p.ok), pasos };
 }
 export async function guardarMensaje(env, { org, bandeja, contacto, nombre = null, rol, contenido, wamid = null, estado = null, ts = now() }) {
   const r = await env.DB.prepare('INSERT OR IGNORE INTO wa_mensajes (business_id, bandeja_id, contacto, nombre, ts, rol, contenido, wamid, estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -131,6 +165,12 @@ export function routes(r) {
     await c.env.DB.prepare('UPDATE wa_bandejas SET verify_token = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(token, now(), b.id, c.businessId).run();
     await audit(c, `Generó otro token de verificación para «${b.nombre}»`, { modulo: MOD });
     return json({ verify_token: token });
+  });
+  r.post(`${B}/bandejas/:id/probar`, `manager:${MOD}`, async (c) => {
+    const b = await bandejaDe(c, c.params.id), body = await readJson(c.req);
+    const r = await probarBandeja(c.env, b, body.para ? String(body.para).slice(0, 30) : null);
+    await audit(c, `Probó la conexión de la bandeja «${b.nombre}»${r.ok ? '' : ' (con fallas)'}`, { modulo: MOD });
+    return json(r);
   });
   r.post(`${B}/bandejas/:id/enviar`, `tenant:${MOD}`, async (c) => {
     const b = await bandejaDe(c, c.params.id), body = await readJson(c.req);

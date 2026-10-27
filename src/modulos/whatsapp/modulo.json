@@ -1,7 +1,7 @@
 {
   "id": "whatsapp",
   "nombre": "WhatsApp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "descripcion": "Conecta WhatsApp Business (Cloud API de Meta) al negocio con bandejas de entrada tipo Chatwoot: cada una con su nombre, teléfono, id del número, id de la cuenta y clave API, su URL de webhook y su token de verificación. Cada bandeja puede tener agentes de IA que contestan solos y se activan o desactivan con un interruptor; el equipo ve las conversaciones y puede responder a mano.",
   "icono": "bi-whatsapp",
   "menu": {

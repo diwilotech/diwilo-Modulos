@@ -15,6 +15,9 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('WhatsApp: teléfono sin indicativo e ids no numéricos se rechazan', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', telefono: '3001112233', phone_number_id: '12345', waba_id: '12345' } })).status === 400 && (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', telefono: '+573001112233', phone_number_id: 'abc', waba_id: '12345' } })).status === 400);
   check('WhatsApp: no repite el id de número en el mismo negocio', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Otra', telefono: '+573001112233', phone_number_id: '1090000000001', waba_id: '2090000000001' } })).status === 409);
   check('WhatsApp: B no ve ni toca las bandejas de A', (await B.app(`${X}/bandejas`)).data.rows.length === 0 && (await B.app(`${X}/bandejas/${ba.id}`, { method: 'PATCH', body: { nombre: 'x' } })).status === 404 && (await B.app(`${X}/bandejas/${ba.id}/token`, { method: 'POST' })).status === 404);
+  const pr = await A.app(`${X}/bandejas/${ba.id}/probar`, { method: 'POST', body: {} });
+  check('WhatsApp: el verificador avisa que falta la clave API (sin llamar a Meta)', pr.status === 200 && pr.data.ok === false && pr.data.pasos[0].nombre === 'Clave API', JSON.stringify(pr.data));
+  check('WhatsApp: B no prueba la bandeja de A', (await B.app(`${X}/bandejas/${ba.id}/probar`, { method: 'POST', body: {} })).status === 404);
   const tk = await A.app(`${X}/bandejas/${ba.id}/token`, { method: 'POST' });
   check('WhatsApp: genera otro token de verificación', tk.status === 200 && tk.data.verify_token.length === 32 && tk.data.verify_token !== ba.verify_token);
   const token = tk.data.verify_token;

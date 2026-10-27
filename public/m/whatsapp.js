@@ -37,6 +37,7 @@ DW.ready.then((me) => {
           <div class="font-monospace small text-break p-2 rounded-3" style="background:rgba(var(--bs-body-color-rgb),.06)">${esc(b.verify_token)}</div>` : ''}</div>
         ${CAN ? `<div class="d-flex flex-wrap gap-1 mt-3"><button class="btn btn-sm btn-primary" data-edit><i class="bi bi-gear me-1"></i>Ajustes</button>
           <button class="btn btn-sm btn-outline-secondary" data-act>${b.activo ? 'Pausar' : 'Activar'}</button>
+          <button class="btn btn-sm btn-outline-success" data-probar><i class="bi bi-patch-check me-1"></i>Probar conexión</button>
           <button class="btn btn-sm btn-outline-secondary" data-tok>Nuevo token</button><button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button></div>` : ''}</div></div>`).join('')
         : `<div class="col-12">${empty('bi-whatsapp', 'Aún no tienes bandejas. Conecta tu primer número de WhatsApp.', CAN ? '<button class="btn btn-primary" data-new>Crear mi primera bandeja</button>' : '')}</div>`}</div>`;
     const form = (b) => {
@@ -61,6 +62,24 @@ DW.ready.then((me) => {
         } catch (x) { toast(x.message, false); btn.disabled = false; }
       };
     };
+    // Verificador: revisa la clave y los IDs contra Meta y, si pones un número, manda un mensaje de prueba
+    const probar = (b) => {
+      const { el: mo } = modal(`${cab('Probar conexión')}<form class="modal-body d-grid gap-3">
+        <p class="small text-body-secondary mb-0">Revisa la clave API, el ID del número y la cuenta con Meta. Si escribes un número, también le enviamos un mensaje de prueba (la plantilla «hello_world»).</p>
+        ${campo('para', 'Número que recibe el mensaje de prueba (opcional)', '+57', 'placeholder="+57 300 123 4567" inputmode="tel"')}
+        <button class="btn btn-success">Probar</button><div data-res></div></form>`);
+      mo.querySelector('form').onsubmit = async (ev) => {
+        ev.preventDefault(); const f = ev.target, btn = f.querySelector('button'), res = f.querySelector('[data-res]'), p = f.para.value.trim();
+        btn.disabled = true; res.innerHTML = '<div class="small text-body-secondary">Probando…</div>';
+        try {
+          const r = await api(`${B}/bandejas/${b.id}/probar`, { method: 'POST', body: p.replace(/\D/g, '').length > 3 ? { para: p } : {} });
+          res.innerHTML = `<div class="alert ${r.ok ? 'alert-success' : 'alert-danger'} small mb-2">${r.ok ? 'Todo bien: la bandeja está conectada.' : 'Hay algo por corregir.'}</div>`
+            + r.pasos.map((x) => `<div class="small d-flex gap-2 mb-1"><i class="bi ${x.ok ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i><div><b>${esc(x.nombre)}</b><div class="text-body-secondary">${esc(x.detalle)}</div></div></div>`).join('')
+            + '<div class="small text-body-secondary mt-2">El webhook se verifica desde Meta (botón «Verificar y guardar»); los mensajes que lleguen aparecerán en Conversaciones.</div>';
+        } catch (x) { res.innerHTML = `<div class="text-danger small">${esc(x.message)}</div>`; }
+        btn.disabled = false;
+      };
+    };
     el.onclick = async (e) => {
       const cp = e.target.closest('[data-cp]'); if (cp) return copiar(cp.dataset.cp);
       if (e.target.closest('[data-new]')) return form(null);
@@ -69,6 +88,7 @@ DW.ready.then((me) => {
       try {
         if (e.target.closest('[data-edit]')) form(b);
         else if (e.target.closest('[data-act]')) { await api(`${B}/bandejas/${id}`, { method: 'PATCH', body: { activo: !b.activo } }); toast(b.activo ? 'Bandeja en pausa' : 'Bandeja activada'); render(); }
+        else if (e.target.closest('[data-probar]')) probar(b);
         else if (e.target.closest('[data-tok]')) { if (!(await confirm({ title: '¿Generar otro token?', text: 'Tendrás que ponerlo también en Meta o la verificación del webhook fallará.', ok: 'Generar' }))) return; await api(`${B}/bandejas/${id}/token`, { method: 'POST' }); toast('Token nuevo'); render(); }
         else if (e.target.closest('[data-del]')) { if (!(await confirm({ title: `¿Borrar «${b.nombre}»?`, text: 'Se borran también sus agentes y conversaciones. No se puede deshacer.', ok: 'Borrar' }))) return; await api(`${B}/bandejas/${id}`, { method: 'DELETE' }); toast('Bandeja borrada'); render(); }
       } catch (x) { toast(x.message, false); }
