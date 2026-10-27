@@ -1,6 +1,7 @@
 # WhatsApp — cambios
 
 ## 1.1.0 · 2026-10-27
+- El verificador explica cómo corregir el ID de la cuenta equivocado y la falta de acceso del usuario del sistema.
 - **Probar conexión** (como el verificador de Chatwoot): comprueba la clave API, el ID del número, que el teléfono coincida y que la cuenta sea dueña del número; con un número de destino manda un mensaje de prueba (plantilla hello_world) y muestra el error exacto de Meta si falla.
 
 ## 1.0.0 · 2026-10-27

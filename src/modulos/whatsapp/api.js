@@ -51,7 +51,7 @@ export async function probarBandeja(env, bandeja, para) {
     if (meta && mio && meta !== mio) paso('Teléfono', false, `El teléfono de la bandeja (${bandeja.telefono}) no coincide con el que Meta reporta para ese ID (${d.display_phone_number}).`);
     else paso('Teléfono', true, 'El teléfono coincide con el de Meta.');
     const w = await llamar(`${GRAPH}/${bandeja.waba_id}/phone_numbers?fields=id&limit=50`);
-    if (!w.ok) paso('Cuenta de WhatsApp Business', false, `No se pudo leer la cuenta ${bandeja.waba_id}: ${await errMeta(w)}`);
+    if (!w.ok) paso('Cuenta de WhatsApp Business', false, `No se pudo leer la cuenta ${bandeja.waba_id}: ${await errMeta(w)}. Ese ID no es una cuenta de WhatsApp Business (en Meta se llama «Identificador de la cuenta de WhatsApp Business» o «Messaging Account ID»): revísalo en Ajustes.`);
     else paso('Cuenta de WhatsApp Business', (await w.json()).data?.some((n) => String(n.id) === bandeja.phone_number_id) ?? false, 'El ID de la cuenta debe ser el dueño de ese número (revisa que no hayas puesto el ID de la app).');
     if (para) {
       const to = soloDigitos(para);
@@ -59,7 +59,7 @@ export async function probarBandeja(env, bandeja, para) {
       else {
         // La plantilla hello_world existe en toda cuenta nueva y se puede enviar sin que la persona haya escrito antes
         const e = await llamar(`${GRAPH}/${bandeja.phone_number_id}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } }) });
-        paso('Mensaje de prueba', e.ok, e.ok ? `Enviado a +${to}. Debe llegarle en unos segundos.` : `Meta no lo envió: ${await errMeta(e)}`);
+        paso('Mensaje de prueba', e.ok, e.ok ? `Enviado a +${to}. Debe llegarle en unos segundos.` : `Meta no lo envió: ${await errMeta(e)}${e.status === 400 || e.status === 403 ? '. Si dice «cannot access» o «permission», el usuario del sistema dueño del token no tiene acceso a la cuenta de WhatsApp: en Meta, Configuración del negocio → Usuarios del sistema → Agregar activos → Cuentas de WhatsApp → control total; y genera el token con los permisos whatsapp_business_messaging y whatsapp_business_management.' : ''}`);
       }
     }
   } catch (e) { paso('Conexión con Meta', false, e.name === 'AbortError' ? 'Meta tardó más de 8 segundos en responder.' : 'No se pudo conectar con Meta.'); }
