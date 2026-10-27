@@ -194,6 +194,9 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
       el.querySelector('[class*="col-lg-7"]').className = 'col-12';
       el.firstElementChild.insertAdjacentHTML('afterbegin', `<div class="col-12">${avisoMensajes}</div>`);
       el.querySelector('[data-irmsg]').onclick = irAMensajes;
+      // El chat del sitio lo responde un agente de Mensajes («Asistente del sitio»): sus instrucciones se editan allá (esto queda como respaldo si Mensajes falla)
+      const ta = el.querySelector('[name=chat_prompt]');
+      if (ta) { ta.previousElementSibling?.remove(); ta.insertAdjacentHTML('beforebegin', '<div class="alert alert-light border small">Las <b>instrucciones</b> del asistente del sitio ahora se editan en <b>Mensajes → Agentes de IA → Asistente del sitio</b> (también ahí eliges qué datos pide y los avisos al equipo). Este texto solo se usa de respaldo si Mensajes no responde.</div>'); ta.hidden = true; el.querySelector('[data-reset]')?.setAttribute('hidden', ''); }
     }
     el.querySelector('[data-aj]').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { await sitio('settings', { method: 'POST', body: { chat_prompt: f.chat_prompt.value, chat_enabled: f.chat_enabled.checked ? '1' : '0' } }); toast('Ajustes guardados'); } catch (x) { toast(x.message, false); } };
     el.querySelector('[data-reset]').onclick = () => { el.querySelector('[name=chat_prompt]').value = st.default_prompt; };
