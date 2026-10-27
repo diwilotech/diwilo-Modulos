@@ -21,6 +21,7 @@ import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValid
 import { guardarMensaje, tocarChat, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
+import { sincronizarSiToca } from './correo.js';
 import { estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
@@ -183,7 +184,7 @@ export function routes(r) {
   });
 
   /* chats */
-  r.get(`${B}/chats`, `tenant:${MOD}`, async (c) => json({ rows: await chats(c, { bandeja: c.url.searchParams.get('bandeja'), canal: c.url.searchParams.get('canal'), q: (c.url.searchParams.get('q') || '').trim().slice(0, 60) }) }));
+  r.get(`${B}/chats`, `tenant:${MOD}`, async (c) => { sincronizarSiToca(c.env, c.businessId, c.waitUntil); return json({ rows: await chats(c, { bandeja: c.url.searchParams.get('bandeja'), canal: c.url.searchParams.get('canal'), q: (c.url.searchParams.get('q') || '').trim().slice(0, 60) }) }); });
   r.get(`${B}/chats/:id`, `tenant:${MOD}`, async (c) => json(await chatCompleto(c, c.params.id)));
   r.post(`${B}/chats/:id/leer`, `tenant:${MOD}`, async (c) => {
     const ch = await chatDe(c, c.params.id);

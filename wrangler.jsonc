@@ -25,5 +25,5 @@
   "send_email": [{ "name": "EMAIL" }],
   "vars": { "CORREO_RESPALDO": "diwilo.tech@gmail.com" },
   // 3:00 a. m. Colombia: gastos recurrentes y automatizaciones de todos los negocios.
-  "triggers": { "crons": ["0 8 * * *", "*/2 * * * *"] }
+  "triggers": { "crons": ["0 8 * * *"] }
 }

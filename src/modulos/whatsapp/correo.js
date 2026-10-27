@@ -60,5 +60,13 @@ export async function recibirCorreo(message, env, ctx) {
   await reenviar();
 }
 
-// Cada 2 minutos: los correos nuevos de Gmail dirigidos a cada bandeja de correo entran como chats (los que ya entraron por Email Routing no se repiten: mismo Message-ID)
-export const sincronizarCorreos = (env) => sincronizarGmail(env, (bandeja, datos) => registrarCorreo(env, bandeja, datos));
+// Los correos nuevos de Gmail dirigidos a cada bandeja de correo entran como chats (los que ya entraron por Email Routing no se repiten: mismo Message-ID).
+// Se llama al abrir Mensajes (como máximo cada 90 s por negocio) y en la tarea diaria: la cuenta gratis de Cloudflare no permite más tareas programadas.
+const ultimo = new Map();
+export const sincronizarCorreos = (env, org = null) => sincronizarGmail(env, (bandeja, datos) => registrarCorreo(env, bandeja, datos), org);
+export function sincronizarSiToca(env, org, waitUntil) {
+  if (Date.now() - (ultimo.get(org) || 0) < 90000) return;
+  ultimo.set(org, Date.now());
+  const p = sincronizarCorreos(env, org).catch((e) => console.error('correos gmail', e.message));
+  if (waitUntil) waitUntil(p);
+}

@@ -59,7 +59,7 @@ export default {
   // Correo (Mensajes): Cloudflare Email Routing entrega aquí los correos de las direcciones cuya regla apunta a este Worker
   async email(message, env, ctx) { await recibirCorreo(message, env, ctx); },
   async scheduled(event, env, ctx) {
-    if (event.cron === '*/2 * * * *') { ctx.waitUntil(sincronizarCorreos(env).catch((e) => console.error('correos gmail', e.message))); return; }   // cada 2 min: correos nuevos de Gmail
+    ctx.waitUntil(sincronizarCorreos(env).catch((e) => console.error('correos gmail', e.message)));   // correos nuevos de Gmail (también se leen al abrir Mensajes)
     for (const m of MODULOS) if (typeof m.api.daily === 'function') ctx.waitUntil(m.api.daily(env).catch((e) => console.error(`tarea diaria ${m.manifest.id}`, e.message)));
   },
 };
@@ -77,7 +77,7 @@ export class Modulos extends WorkerEntrypoint {
       const url = new URL(path + (query ? (query.startsWith('?') ? query : `?${query}`) : ''), ctx.origin || 'https://app.diwilo.com');
       const req = new Request(url, { method, headers: { 'content-type': 'application/json' }, body: method === 'GET' || method === 'HEAD' || body == null ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
       const { route, params } = router.match(method, url.pathname);
-      const c = { req, env: this.env, ctx, url, params };
+      const c = { req, env: this.env, ctx, url, params, waitUntil: (p) => this.ctx.waitUntil(p) };
       authorize(c, route.auth);
       const res = await route.handler(c);
       return { ...(await asText(res)), audit: c.auditLog || [] };

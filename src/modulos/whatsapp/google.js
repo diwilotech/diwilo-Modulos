@@ -112,9 +112,9 @@ function textoDe(p) {
   if (p.mimeType === 'text/html' && p.body?.data) return deB64url(p.body.data).replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<br\s*\/?>|<\/p>|<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
   return '';
 }
-// Lee los correos nuevos de Gmail dirigidos a cada bandeja de correo (se llama cada 2 minutos). `registrar(bandeja, datos)` los guarda como chats.
-export async function sincronizarGmail(env, registrar) {
-  const filas = await all(env, 'SELECT business_id, gmail_desde FROM wa_google WHERE refresh_cifrado IS NOT NULL AND gmail_activo = 1');
+// Lee los correos nuevos de Gmail dirigidos a cada bandeja de correo (al abrir Mensajes, cada 90 s como máximo, y en la tarea diaria). `registrar(bandeja, datos)` los guarda como chats.
+export async function sincronizarGmail(env, registrar, soloOrg = null) {
+  const filas = await all(env, `SELECT business_id, gmail_desde FROM wa_google WHERE refresh_cifrado IS NOT NULL AND gmail_activo = 1${soloOrg ? ' AND business_id = ?' : ''}`, ...(soloOrg ? [soloOrg] : []));
   for (const f of filas) {
     try {
       const bandejas = await all(env, "SELECT * FROM wa_bandejas WHERE business_id = ? AND canal = 'correo' AND activo = 1", f.business_id);
