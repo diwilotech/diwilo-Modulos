@@ -9,6 +9,7 @@ import { CANALES, soloDigitos } from './canales.js';
 export const CAMPOS = {
   correo: 'correo electrónico', telefono: 'teléfono', empresa: 'nombre del negocio o empresa (si tiene)',
   tipo: 'si escribe como persona natural o en nombre de un negocio', ciudad: 'ciudad', interes: 'qué necesita o le interesa',
+  es_cliente: 'si ya es cliente nuestro o es la primera vez que nos escribe (responde «si» o «no»)',
 };
 export const CAMPOS_BASE = { campos: ['correo', 'interes'], extras: [] };
 // Valida y deja en JSON lo que llega del formulario del agente: { campos: [...], extras: [...] }
@@ -26,7 +27,7 @@ export function camposDe(agente) {
 // Lo que dice el agente (o el equipo) de la persona: solo las claves conocidas y con largo acotado
 export function limpiarDatos(d) {
   const out = {};
-  for (const k of ['nombre', 'telefono', 'correo', 'empresa', 'tipo', 'ciudad', 'interes']) if (d?.[k]) out[k] = String(d[k]).trim().slice(0, 300);
+  for (const k of ['nombre', 'telefono', 'correo', 'empresa', 'tipo', 'ciudad', 'interes', 'es_cliente']) if (d?.[k]) out[k] = String(d[k]).trim().slice(0, 300);
   if (d?.extras && typeof d.extras === 'object') out.extras = Object.fromEntries(Object.entries(d.extras).slice(0, 5).filter(([, v]) => v).map(([k, v]) => [String(k).slice(0, 60), String(v).slice(0, 200)]));
   return out;
 }
@@ -60,17 +61,27 @@ export async function guardarContacto(env, org, { bandeja, conv, d }) {
   const notas = lineas.join('\n').slice(0, 800) || null;
   let existente = conv.contact_id ? await contactoPorId(env, org, conv.contact_id) : null;
   if (!existente && tel) existente = await contactoPorTelefono(env, org, tel);
+  const eraCliente = /^\s*(s[ií]|yes|ya soy)/i.test(String(d.es_cliente || ''));
   if (existente) {
-    // No pisa lo que ya tiene: solo completa el correo, el teléfono y las notas
-    await env.DB.prepare('UPDATE mk_contacts SET email = COALESCE(NULLIF(email, \'\'), ?), phone = COALESCE(NULLIF(phone, \'\'), ?), company = COALESCE(NULLIF(company, \'\'), ?), notes = CASE WHEN ? IS NULL THEN notes ELSE COALESCE(notes || char(10), \'\') || ? END, updated_at = ? WHERE id = ? AND business_id = ?')
-      .bind(correoOk, tel, empresa, notas, notas, now(), existente.id, org).run();
+    // Es la misma persona (mismo teléfono): lo que dice ahora completa y corrige el contacto. Si el nombre guardado era otro (p. ej. el negocio que escribió
+    // en un formulario), pasa a «empresa» si está vacía y queda anotado; el correo distinto también se anota.
+    const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/).filter((w) => w.length > 2);
+    const previo = await env.DB.prepare('SELECT name, email, company, stage FROM mk_contacts WHERE id = ? AND business_id = ?').bind(existente.id, org).first();
+    const mismoNombre = !nombre || norm(previo?.name).some((w) => norm(nombre).includes(w));
+    const extra = [];
+    let nuevoNombre = previo?.name, empresaNueva = empresa;
+    if (!mismoNombre) { nuevoNombre = nombre; extra.push(`Nombre anterior: ${previo.name}`); if (!previo.company && !empresa) empresaNueva = previo.name; }
+    if (correoOk && previo?.email && previo.email.toLowerCase() !== correoOk) extra.push(`Otro correo dado en el chat: ${correoOk}`);
+    const notasTodas = [notas, ...extra].filter(Boolean).join('\n').slice(0, 800) || null;
+    await env.DB.prepare('UPDATE mk_contacts SET name = ?, email = COALESCE(NULLIF(email, \'\'), ?), phone = COALESCE(NULLIF(phone, \'\'), ?), company = COALESCE(NULLIF(company, \'\'), ?), stage = CASE WHEN ? = 1 AND stage = \'lead\' THEN \'cliente\' ELSE stage END, notes = CASE WHEN ? IS NULL THEN notes ELSE COALESCE(notes || char(10), \'\') || ? END, updated_at = ? WHERE id = ? AND business_id = ?')
+      .bind(nuevoNombre, correoOk, tel, empresaNueva, eraCliente ? 1 : 0, notasTodas, notasTodas, now(), existente.id, org).run();
     return { id: existente.id, creado: false };
   }
   if (!nombre || !(tel || correoOk)) return null;
   const ctx = await ctxDeOrg(env, org, { role: 'staff' });
   if (!ctx) return null;
   const r = await ejecutarHerramienta(env, ctx, 'marketing.crear_contacto', {
-    nombre, ...(tel ? { telefono: tel.slice(0, 30) } : {}), ...(correoOk ? { correo: correoOk } : {}), ...(empresa ? { empresa } : {}),
+    nombre, ...(tel ? { telefono: tel.slice(0, 30) } : {}), ...(correoOk ? { correo: correoOk } : {}), ...(empresa ? { empresa } : {}), ...(eraCliente ? { etapa: 'cliente' } : {}),
     origen: `${CANALES[bandeja.canal]?.nombre || 'Chat'}: ${bandeja.nombre}`.slice(0, 80), ...(notas ? { notas } : {}),
   });
   return r.ok && r.result?.creado?.id ? { id: r.result.creado.id, creado: true } : null;

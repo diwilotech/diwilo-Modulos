@@ -1,5 +1,12 @@
 # WhatsApp — cambios
 
+## 2.5.0 · 2026-10-27
+- **Contactos que ya existían:** si el teléfono ya está en Marketing, lo que la persona dice en el chat completa y corrige el contacto en vez de dejarlo igual: el nombre que da reemplaza al guardado (el anterior pasa a «empresa» si está vacía y queda en las notas), el correo distinto se anota y, si dice que ya es cliente, pasa a «cliente». El chat muestra el nombre que dio. Antes un contacto enlazado por teléfono nunca se identificaba.
+- **Mensaje de bienvenida** por agente: se envía cuando alguien inicia el chat ({nombre} se cambia por su nombre). Si solo saluda, es la respuesta (sin gastar IA); si ya preguntó algo, va seguido de la respuesta. Una sola vez por chat.
+- **Insistir:** el agente vuelve a pedir nombre y contacto con amabilidad (hasta 2 veces) si la persona no los da; si no quiere o pide un asesor, lo respeta y avisa en rojo.
+- Nuevo dato que puede pedir: si ya es cliente o es nuevo (define la etapa en Marketing).
+- Migración `0029_bienvenida_insistir.sql`.
+
 ## 2.4.1 · 2026-10-27
 - En IA, el chat del sitio de Diwilo ya no edita sus instrucciones: las maneja el agente «Asistente del sitio» de Mensajes.
 

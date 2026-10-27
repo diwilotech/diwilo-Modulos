@@ -121,6 +121,31 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   const lc = (await A.app(`${X}/contactos?q=Ana`)).data;
   check('Mensajes: la lista de contactos para plantillas trae los de Marketing con teléfono', lc.marketing && lc.rows.some((c) => c.id === cto.id));
 
+  /* ---------- bienvenida, insistir y corregir un contacto que ya existía ---------- */
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { bienvenida: '¡Hola{nombre}! Soy el asistente. Elige: 1) Información 2) Cotizar 3) Un asesor' } });
+  const bien = '¡Hola Ana! Soy el asistente. Elige: 1) Información 2) Cotizar 3) Un asesor';
+  await hook(url, wa('1090000000001', 'wamid.B1', 'hola', '573001118888'));
+  const chB1 = await esperar(async () => (await chats()).find((x) => x.contacto === '573001118888' && x.ultimo_rol === 'assistant'));
+  const mB1 = chB1 && (await A.app(`${X}/chats/${chB1.id}`)).data.mensajes;
+  check('Mensajes: si la persona solo saluda, recibe el mensaje de bienvenida prediseñado (con su nombre) sin gastar IA', mB1?.length === 2 && mB1[1].contenido === bien, JSON.stringify(mB1));
+  await hook(url, wa('1090000000001', 'wamid.B2', '[prueba] cuánto cuesta', '573001117777'));
+  const chB2 = await esperar(async () => (await chats()).find((x) => x.contacto === '573001117777' && x.ultimo_rol === 'assistant'));
+  const mB2 = chB2 && (await A.app(`${X}/chats/${chB2.id}`)).data.mensajes;
+  check('Mensajes: si ya preguntó algo, la bienvenida va seguida de la respuesta, en un solo mensaje', mB2?.length === 2 && mB2[1].contenido === `${bien}\n\nRespuesta de prueba: cuánto cuesta`, JSON.stringify(mB2));
+  await hook(url, wa('1090000000001', 'wamid.B3', '[prueba] otra cosa', '573001118888'));
+  await new Promise((r) => setTimeout(r, 600));
+  check('Mensajes: la bienvenida se envía una sola vez por chat', (await A.app(`${X}/chats/${chB1.id}`)).data.mensajes.filter((m) => m.contenido.startsWith('¡Hola Ana')).length === 1);
+  check('Mensajes: el agente guarda si insiste en pedir los datos', (await ags()).find((a) => a.id === g1.data.id).insistir === 1 && (await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { insistir: false } })).status === 200 && (await ags()).find((a) => a.id === g1.data.id).insistir === 0);
+  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { insistir: true, bienvenida: '' } });
+  // un contacto que ya estaba en Marketing con otro nombre (p. ej. el negocio que llenó el formulario): se identifica y se corrige
+  const previo = await A.app('/api/marketing/contacts', { method: 'POST', body: { name: 'Restaurante Demo', phone: '+57 300 111 9999', email: 'luis@ejemplo.co', stage: 'lead', source: 'Sitio web' } });
+  await hook(url, wa('1090000000001', 'wamid.C1', '[prueba] soy Luis [[DATOS {"nombre":"Luis Prado","correo":"luis@ejemplo.co","es_cliente":"si","interes":"una asesoría"}]]', '573001119999'));
+  const ctoL = await esperar(async () => { const r = (await A.app('/api/marketing/contacts?q=Luis')).data.rows.find((c) => c.id === previo.data.id); return r && r.name === 'Luis Prado' ? r : null; });
+  const cts2 = (await A.app('/api/marketing/contacts?q=Restaurante')).data.rows.concat((await A.app('/api/marketing/contacts?q=Luis')).data.rows);
+  check('Mensajes: si el teléfono ya estaba en Marketing, el contacto se corrige con el nombre que dio (no se crea otro): el nombre anterior pasa a empresa y a las notas', ctoL && ctoL.company === 'Restaurante Demo' && /Nombre anterior: Restaurante Demo/.test(ctoL.notes || '') && ctoL.stage === 'cliente' && new Set(cts2.filter((c) => c.phone && c.phone.replace(/\D/g, '').endsWith('3001119999')).map((c) => c.id)).size === 1, JSON.stringify(ctoL));
+  const chC = (await chats()).find((x) => x.contacto === '573001119999');
+  check('Mensajes: el chat muestra el nombre que dio y queda enlazado al contacto de siempre', chC?.nombre === 'Luis Prado' && chC.contact_id === previo.data.id, JSON.stringify(chC));
+
   /* ---------- canal webhook (web, n8n…) ---------- */
   check('Mensajes: la URL de salida de un webhook debe ser https público', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', canal: 'webhook', url_salida: 'http://127.0.0.1/x' } })).status === 400);
   const cw = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Chat de la web', canal: 'webhook' } });
@@ -178,8 +203,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 10);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 9 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 5 && (await chats()).length === 13);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 12 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

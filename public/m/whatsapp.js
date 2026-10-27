@@ -353,7 +353,7 @@ DW.ready.then((me) => {
 
   /* ---------- agentes ---------- */
   // Datos que el agente puede pedir a quien quiere comprar (además del nombre); se guardan como contacto en Marketing
-  const DATOS = { correo: 'Correo', telefono: 'Teléfono (en WhatsApp ya se conoce)', empresa: 'Nombre del negocio', tipo: 'Persona o negocio', ciudad: 'Ciudad', interes: 'Qué necesita' };
+  const DATOS = { correo: 'Correo', telefono: 'Teléfono (en WhatsApp ya se conoce)', empresa: 'Nombre del negocio', tipo: 'Persona o negocio', ciudad: 'Ciudad', interes: 'Qué necesita', es_cliente: 'Si ya es cliente o es la primera vez' };
   const BASE = { campos: ['correo', 'interes'], extras: [] };
   const camposDe = (a) => { try { const x = JSON.parse(a.campos || 'null'); if (x && Array.isArray(x.campos)) return { campos: x.campos, extras: x.extras || [] }; } catch (_) {} return BASE; };
   async function agentesView(el) {
@@ -365,7 +365,7 @@ DW.ready.then((me) => {
       <div class="row g-3">${rows.length ? rows.map((a) => { const cd = camposDe(a); return `<div class="col-lg-6"><div class="dw-card h-100" data-id="${a.id}">
         <div class="d-flex align-items-start gap-2"><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(a.nombre)}</h2><span class="small d-flex flex-wrap gap-1 mt-1">${dondeSirve(a)}</span></div></div>
         <p class="small text-body-secondary mt-2 mb-2" style="white-space:pre-wrap">${esc((a.instrucciones || 'Sin instrucciones: responde con el tono de la marca.').slice(0, 220))}</p>
-        <div class="small"><span class="text-body-secondary">Datos que pide:</span> ${cd.campos.length || cd.extras.length ? [...cd.campos.map((k) => DATOS[k]?.split(' (')[0] || k), ...cd.extras].map((t) => `<span class="badge text-bg-light border">${esc(t)}</span>`).join(' ') : '<span class="text-body-secondary">ninguno</span>'}</div>
+        ${a.bienvenida ? `<div class="small mb-1"><span class="text-body-secondary">Bienvenida:</span> <i>${esc(a.bienvenida.slice(0, 90))}${a.bienvenida.length > 90 ? '…' : ''}</i></div>` : ''}<div class="small"><span class="text-body-secondary">Datos que pide:</span> ${cd.campos.length || cd.extras.length ? [...cd.campos.map((k) => DATOS[k]?.split(' (')[0] || k), ...cd.extras].map((t) => `<span class="badge text-bg-light border">${esc(t)}</span>`).join(' ') : '<span class="text-body-secondary">ninguno</span>'}</div>
         ${CAN ? '<div class="d-flex gap-1 mt-3"><button class="btn btn-sm btn-primary" data-edit><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button></div>' : ''}</div></div>`; }).join('')
         : `<div class="col-12">${empty('bi-robot', bands.length ? 'Aún no tienes agentes de IA.' : 'Crea primero una bandeja para poder ponerle un agente.')}</div>`}</div>`;
     const form = (a) => {
@@ -376,17 +376,19 @@ DW.ready.then((me) => {
           <div class="small text-body-secondary mb-2">Marca una o varias (WhatsApp, Instagram, Messenger, web…). Si no marcas ninguna, sirve en todas.</div>
           <div class="d-grid gap-1" data-bandejas>${bands.length ? bands.map((b) => `<div class="form-check"><input class="form-check-input" type="checkbox" name="b_${b.id}" id="wab-${b.id}" ${(a?.bandejas || []).includes(b.id) ? 'checked' : ''}><label class="form-check-label small" for="wab-${b.id}">${ico(b.canal)} ${esc(b.nombre)} <span class="text-body-secondary">· ${esc(CAN_[b.canal]?.n || b.canal)}</span></label></div>`).join('') : '<div class="small text-body-secondary">Aún no tienes bandejas.</div>'}</div></fieldset>
         <label class="small text-body-secondary d-grid gap-1">Instrucciones (qué sabe y cómo responde)<textarea class="form-control" name="instrucciones" rows="6" maxlength="4000" placeholder="Atiendes consultas sobre cursos. Horario: lunes a viernes 8-5. Si piden precio, ofrece que un asesor los contacte.">${esc(a?.instrucciones || '')}</textarea></label>
+        <label class="small text-body-secondary d-grid gap-1">Mensaje de bienvenida (opcional)<textarea class="form-control" name="bienvenida" rows="4" maxlength="1500" placeholder="¡Hola{nombre}! Soy el asistente de mi negocio. ¿En qué te ayudo?&#10;1️⃣ Información&#10;2️⃣ Cotizar&#10;3️⃣ Hablar con un asesor">${esc(a?.bienvenida || '')}</textarea><span class="text-body-tertiary">Se envía cuando alguien inicia el chat. {nombre} se cambia por su nombre. Si ya preguntó algo, la bienvenida va seguida de la respuesta.</span></label>
         <fieldset class="border rounded-3 p-3"><legend class="small fw-semibold float-none w-auto px-2 mb-0">Datos de contacto que pide</legend>
           <div class="small text-body-secondary mb-2">Cuando alguien quiere comprar o que lo contacten, el agente le pide el nombre y estos datos, y los guarda como contacto en Marketing (sin duplicar). Si no marcas ninguno, no pide datos.</div>
           <div class="d-grid gap-1">${Object.entries(DATOS).map(([k, l]) => `<div class="form-check"><input class="form-check-input" type="checkbox" name="c_${k}" id="wc-${k}" ${cd.campos.includes(k) ? 'checked' : ''}><label class="form-check-label small" for="wc-${k}">${esc(l)}</label></div>`).join('')}</div>
           <label class="small text-body-secondary d-grid gap-1 mt-2">Preguntas propias (una por línea, máximo 5)<textarea class="form-control" name="extras" rows="2" placeholder="Cargo&#10;Cuántas personas tiene su equipo">${esc(cd.extras.join('\n'))}</textarea></label></fieldset>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="usar_marca" id="wam" ${!a || a.usar_marca ? 'checked' : ''}><label class="form-check-label small" for="wam">Usar el tono de la marca</label></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="insistir" id="wains" ${!a || a.insistir ? 'checked' : ''}><label class="form-check-label small" for="wains">Insistir con amabilidad hasta tener el nombre y el contacto (hasta 2 veces)</label></div>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="alerta_asesor" id="waas" ${!a || a.alerta_asesor ? 'checked' : ''}><label class="form-check-label small" for="waas">Avisar en <b class="text-danger">rojo</b> cuando no sepa responder o pidan un asesor</label></div>
         <button class="btn btn-primary">${a ? 'Guardar' : 'Crear agente'}</button></form>`);
       mo.querySelector('form').onsubmit = async (e) => {
         e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
         const campos = JSON.stringify({ campos: Object.keys(DATOS).filter((k) => f[`c_${k}`].checked), extras: f.extras.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 5) });
-        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, alerta_asesor: f.alerta_asesor.checked, campos };
+        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, alerta_asesor: f.alerta_asesor.checked, insistir: f.insistir.checked, bienvenida: f.bienvenida.value.trim(), campos };
         try { if (a) await api(`${B}/agentes/${a.id}`, { method: 'PATCH', body }); else await api(`${B}/agentes`, { method: 'POST', body }); mm.hide(); toast('Agente guardado'); render(); }
         catch (x) { toast(x.message, false); btn.disabled = false; }
       };
