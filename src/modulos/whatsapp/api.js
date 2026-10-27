@@ -285,7 +285,8 @@ export function routes(r) {
     if (!(await conectado(c.env, c.businessId))) throw new HttpError(400, 'Google no está conectado');
     const pasos = [], paso = async (nombre, f) => { try { pasos.push({ nombre, ok: true, detalle: await f() }); } catch (e) { pasos.push({ nombre, ok: false, detalle: e.message }); } };
     await paso('Gmail', async () => `Cuenta ${(await gapi(c.env, c.businessId, 'https://gmail.googleapis.com/gmail/v1/users/me/profile')).emailAddress}`);
-    await paso('Calendario', async () => `Calendario «${(await gapi(c.env, c.businessId, 'https://www.googleapis.com/calendar/v3/calendars/primary')).summary}»`);
+    // Con los permisos pedidos (eventos y disponibilidad) se puede leer y crear eventos, no leer los datos del calendario en sí
+    await paso('Calendario', async () => { const e = await gapi(c.env, c.businessId, 'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true&orderBy=startTime&timeMin=' + encodeURIComponent(new Date().toISOString())); return `Puede leer y crear eventos${e.summary ? ` en «${e.summary}»` : ''}${e.items?.[0]?.summary ? `. Próximo evento: ${e.items[0].summary}` : ' (no tienes eventos próximos)'}`; });
     await paso('Horarios libres', async () => { const h = await huecosLibres(c.env, c.businessId, { fresco: true }); return h.slots.length ? `${h.slots.length} horarios libres, el primero: ${h.slots[0].etiqueta}` : 'No hay horarios libres en el rango (revisa los días, el horario o el calendario)'; });
     return json({ ok: pasos.every((p) => p.ok), pasos });
   });

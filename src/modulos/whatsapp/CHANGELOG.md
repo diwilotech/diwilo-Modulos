@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 3.1.1 · 2026-10-27
+- Google → Probar: el paso «Calendario» usaba un permiso que no se pide; ahora comprueba que se pueden leer y crear eventos.
+
 ## 3.1.0 · 2026-10-27
 - **Google (pestaña «Google»):** el equipo sube el JSON de credenciales del cliente OAuth de Google Cloud (el secreto se guarda cifrado y nunca se devuelve), conecta su cuenta y el módulo guarda el token permanente cifrado. Botones para probar, desconectar y ver la URL de redirección (`/admin/api/google/callback`). Por ahora solo en Diwilo.
 - **Gmail:** con Google conectado, las respuestas del canal de correo salen **por Gmail** (quedan en «Enviados» y en el mismo hilo; desde la dirección de la bandeja si es un alias «Enviar como», o desde la cuenta conectada con Reply-To a la bandeja) y los correos nuevos de Gmail dirigidos a cada bandeja entran como chats (al abrir Mensajes, sin repetir los que ya entraron por Email Routing). Sin Google, se envía por Cloudflare Email Sending.
