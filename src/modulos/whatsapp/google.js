@@ -53,7 +53,11 @@ const pedirToken = async (env, g, params) => {
   const secreto = await descifrarClave(env, g.secreto_cifrado);
   const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: g.client_id, client_secret: secreto, ...params }) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new GoogleError(d.error_description || d.error || `Google respondió ${r.status}`, 502);
+  if (!r.ok) {
+    // invalid_grant: el permiso venció (apps en modo «Prueba» de Google: a los 7 días), se revocó o cambió la contraseña
+    if (d.error === 'invalid_grant' && params.grant_type === 'refresh_token') throw new GoogleError('El permiso de esa cuenta de Google venció o fue revocado: vuelve a conectarla en Mensajes → Google. (Si tu app de Google está en modo «Prueba», publícala para que no venza cada 7 días.)', 403);
+    throw new GoogleError(d.error_description || d.error || `Google respondió ${r.status}`, 502);
+  }
   return d;
 };
 // Vuelta de Google: cambia el código por el token permanente. Devuelve { org, email }

@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 3.3.1 · 2026-10-27
+- Si el permiso de una cuenta de Google venció o se revocó (en apps de Google en modo «Prueba» pasa a los 7 días), el mensaje dice que hay que volver a conectarla en vez de un error técnico.
+
 ## 3.3.0 · 2026-10-27
 - **Varias cuentas de Google:** se pueden conectar todas las que se necesiten (con el mismo cliente OAuth) y asignar cuál envía y lee el correo y cuál agenda las citas con Meet (p. ej. diwilo.tech@gmail.com para el correo y hola@diwilo.com para las citas). Al conectar se puede indicar el correo de la cuenta; cada cuenta se puede quitar. La cuenta que ya estaba conectada pasa a la lista y sigue haciendo las dos cosas.
 - **Correo de prueba:** en Google → Probar se escribe un correo de destino y se envía por Gmail; dice desde qué dirección salió (la de la bandeja si es un alias «Enviar como» verificado).
