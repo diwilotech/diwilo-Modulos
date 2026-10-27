@@ -1,9 +1,9 @@
 {
   "id": "whatsapp",
-  "nombre": "WhatsApp",
-  "version": "1.1.1",
-  "descripcion": "Conecta WhatsApp Business (Cloud API de Meta) al negocio con bandejas de entrada tipo Chatwoot: cada una con su nombre, teléfono, id del número, id de la cuenta y clave API, su URL de webhook y su token de verificación. Cada bandeja puede tener agentes de IA que contestan solos y se activan o desactivan con un interruptor; el equipo ve las conversaciones y puede responder a mano.",
-  "icono": "bi-whatsapp",
+  "nombre": "Mensajes",
+  "version": "2.0.0",
+  "descripcion": "La bandeja de mensajes del negocio para varios canales (WhatsApp, Instagram y Messenger): chats a la izquierda y la conversación a la derecha, como WhatsApp Web. Cada bandeja tiene su conexión con Meta (clave API, IDs, URL de webhook y token) y agentes de IA que se activan o desactivan por bandeja y por chat. El agente guarda los datos de quien escribe como contacto en Marketing, y el equipo puede responder a mano o enviar plantillas de WhatsApp aprobadas a sus contactos.",
+  "icono": "bi-chat-dots",
   "menu": {
     "ruta": "/staff/whatsapp.html",
     "orden": 60
@@ -17,13 +17,15 @@
     "whatsapp.ver_bandejas",
     "whatsapp.ver_conversaciones",
     "whatsapp.leer_conversacion",
+    "whatsapp.cambiar_ia_del_chat",
     "whatsapp.activar_agente",
     "whatsapp.crear_agente"
   ],
   "tablas": [
     "wa_bandejas",
     "wa_agentes",
-    "wa_mensajes"
+    "wa_mensajes",
+    "wa_conversaciones"
   ],
   "rutas_publicas": [
     "/wa/:slug"
@@ -32,10 +34,10 @@
   "pagina": "/m/whatsapp.js",
   "central": true,
   "mcp": {
-    "guia": "WhatsApp del negocio: bandejas de entrada (números conectados por la Cloud API de Meta), sus agentes de IA y las conversaciones. Para revisar cómo se atiende lee las conversaciones (ver_conversaciones, leer_conversacion). Activar o crear un agente es una escritura. Las claves de API y los secretos nunca se muestran: se cargan desde la pantalla WhatsApp.",
+    "guia": "Mensajes del negocio: bandejas de WhatsApp, Instagram y Messenger, sus chats, y los agentes de IA. Para revisar cómo se atiende lee los chats (ver_conversaciones, leer_conversacion). Apagar la IA de un chat, activar o crear un agente son escrituras. Las claves de API y los secretos nunca se muestran: se cargan desde la pantalla Mensajes. Los contactos de los chats se guardan en Marketing.",
     "ejemplos": [
-      "Pídele: «Resume los mensajes de WhatsApp de hoy: qué preguntan los clientes.»",
-      "Pídele: «Desactiva el agente de la bandeja Ventas mientras atiendo yo.»"
+      "Pídele: «Resume los chats de hoy: qué preguntan los clientes.»",
+      "Pídele: «Apaga la IA en el chat de Ana, yo la atiendo.»"
     ],
     "flujos": [
       {

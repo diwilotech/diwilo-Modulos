@@ -1,69 +1,111 @@
-// Pruebas del módulo WhatsApp: bandejas, agentes de IA, webhook de Meta y conversaciones. Incluye aislamiento entre negocios y módulo inactivo = 403.
+// Pruebas del módulo Mensajes (id «whatsapp»): bandejas de WhatsApp, Instagram y Messenger, chats con interruptor de IA, agentes, contactos en
+// Marketing, plantillas y webhook de Meta. Incluye aislamiento entre negocios y módulo inactivo = 403.
 // Sin gastar IA ni llamar a Meta: los mensajes que empiezan por «[prueba]» responden sin modelo y las bandejas de prueba no tienen clave API.
 export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   const A = await newBusiness('WA A', { login: true });
   const B = await newBusiness('WA B', { login: true });
   const X = '/api/whatsapp';
   const hook = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const evento = (pid, wamid, texto) => ({ entry: [{ changes: [{ value: { metadata: { phone_number_id: pid }, contacts: [{ wa_id: '573001112233', profile: { name: 'Ana' } }], messages: [{ from: '573001112233', id: wamid, timestamp: '1790000000', type: 'text', text: { body: texto } }] } }] }] });
+  const esperar = async (f, n = 25) => { for (let i = 0; i < n; i++) { const r = await f(); if (r) return r; await new Promise((x) => setTimeout(x, 150)); } return null; };
+  const wa = (pid, wamid, texto, de = '573001112233') => ({ object: 'whatsapp_business_account', entry: [{ changes: [{ value: { metadata: { phone_number_id: pid }, contacts: [{ wa_id: de, profile: { name: 'Ana' } }], messages: [{ from: de, id: wamid, timestamp: '1790000000', type: 'text', text: { body: texto } }] } }] }] });
+  const social = (object, cuenta, mid, de, texto, eco = false) => ({ object, entry: [{ id: cuenta, messaging: [{ sender: { id: eco ? cuenta : de }, recipient: { id: eco ? de : cuenta }, timestamp: 1790000000000, message: { mid, text: texto, ...(eco ? { is_echo: true } : {}) } }] }] });
+  const chats = async (N = A, q = '') => (await N.app(`${X}/chats${q}`)).data.rows;
 
   /* ---------- bandejas ---------- */
   const c1 = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Ventas', telefono: '+57 300 111 2233', phone_number_id: '1090000000001', waba_id: '2090000000001' } });
-  check('WhatsApp: crea una bandeja', c1.status === 201);
+  check('Mensajes: crea una bandeja de WhatsApp', c1.status === 201);
   const ba = (await A.app(`${X}/bandejas`)).data.rows.find((x) => x.id === c1.data.id);
-  check('WhatsApp: trae su webhook /wa/<slug> y su token, sin exponer la clave', /\/wa\/[a-f0-9]{24}$/.test(ba?.webhook_url || '') && ba.verify_token?.length === 32 && ba.tiene_clave === false && !('clave_cifrada' in ba) && ba.telefono === '+573001112233', JSON.stringify(ba));
-  check('WhatsApp: teléfono sin indicativo e ids no numéricos se rechazan', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', telefono: '3001112233', phone_number_id: '12345', waba_id: '12345' } })).status === 400 && (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', telefono: '+573001112233', phone_number_id: 'abc', waba_id: '12345' } })).status === 400);
-  check('WhatsApp: no repite el id de número en el mismo negocio', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Otra', telefono: '+573001112233', phone_number_id: '1090000000001', waba_id: '2090000000001' } })).status === 409);
-  check('WhatsApp: B no ve ni toca las bandejas de A', (await B.app(`${X}/bandejas`)).data.rows.length === 0 && (await B.app(`${X}/bandejas/${ba.id}`, { method: 'PATCH', body: { nombre: 'x' } })).status === 404 && (await B.app(`${X}/bandejas/${ba.id}/token`, { method: 'POST' })).status === 404);
-  const pr = await A.app(`${X}/bandejas/${ba.id}/probar`, { method: 'POST', body: {} });
-  check('WhatsApp: el verificador avisa que falta la clave API (sin llamar a Meta)', pr.status === 200 && pr.data.ok === false && pr.data.pasos[0].nombre === 'Clave API', JSON.stringify(pr.data));
-  check('WhatsApp: B no prueba la bandeja de A', (await B.app(`${X}/bandejas/${ba.id}/probar`, { method: 'POST', body: {} })).status === 404);
+  check('Mensajes: trae canal, webhook /wa/<slug> y token, sin exponer la clave', ba.canal === 'whatsapp' && /\/wa\/[a-f0-9]{24}$/.test(ba.webhook_url) && ba.verify_token?.length === 32 && ba.tiene_clave === false && !('clave_cifrada' in ba) && ba.telefono === '+573001112233', JSON.stringify(ba));
+  check('Mensajes: WhatsApp exige teléfono con indicativo y cuenta; ids no numéricos se rechazan', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', telefono: '3001112233', phone_number_id: '12345', waba_id: '12345' } })).status === 400
+    && (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', phone_number_id: '12345' } })).status === 400 && (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', canal: 'messenger', phone_number_id: 'abc' } })).status === 400);
+  check('Mensajes: no repite el id en el mismo canal', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Otra', telefono: '+573001112233', phone_number_id: '1090000000001', waba_id: '2090000000001' } })).status === 409);
+  const cm = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Página', canal: 'messenger', phone_number_id: '5550001' } });
+  const ci = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Insta', canal: 'instagram', phone_number_id: '7770001' } });
+  check('Mensajes: crea bandejas de Messenger e Instagram (sin teléfono ni cuenta)', cm.status === 201 && ci.status === 201);
+  check('Mensajes: B no ve ni toca las bandejas de A', (await B.app(`${X}/bandejas`)).data.rows.length === 0 && (await B.app(`${X}/bandejas/${ba.id}`, { method: 'PATCH', body: { nombre: 'x' } })).status === 404 && (await B.app(`${X}/bandejas/${ba.id}/token`, { method: 'POST' })).status === 404);
   const tk = await A.app(`${X}/bandejas/${ba.id}/token`, { method: 'POST' });
-  check('WhatsApp: genera otro token de verificación', tk.status === 200 && tk.data.verify_token.length === 32 && tk.data.verify_token !== ba.verify_token);
+  check('Mensajes: genera otro token de verificación', tk.status === 200 && tk.data.verify_token.length === 32 && tk.data.verify_token !== ba.verify_token);
   const token = tk.data.verify_token;
+  const pr = await A.app(`${X}/bandejas/${ba.id}/probar`, { method: 'POST', body: {} });
+  check('Mensajes: el verificador avisa que falta la clave API (sin llamar a Meta)', pr.status === 200 && pr.data.ok === false && pr.data.pasos[0].nombre === 'Clave API', JSON.stringify(pr.data));
+  check('Mensajes: B no prueba la bandeja de A', (await B.app(`${X}/bandejas/${ba.id}/probar`, { method: 'POST', body: {} })).status === 404);
 
   /* ---------- webhook ---------- */
   const url = ba.webhook_url.replace(/^.*\/wa\//, `${APP}/wa/`);
   const v1 = await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=12345`);
-  check('WhatsApp: la verificación de Meta devuelve el challenge', v1.status === 200 && (await v1.text()) === '12345');
-  check('WhatsApp: con un token malo la verificación da 403', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=malo&hub.challenge=1`)).status === 403);
-  check('WhatsApp: un slug que no existe da 404', (await fetch(`${APP}/wa/${'0'.repeat(24)}?hub.mode=subscribe`)).status === 404);
-  check('WhatsApp: el mensaje entrante se guarda y no se duplica', (await hook(url, evento('1090000000001', 'wamid.A1', 'Hola, ¿precios?'))).status === 200 && (await hook(url, evento('1090000000001', 'wamid.A1', 'Hola, ¿precios?'))).status === 200
-    && (await A.app(`${X}/conversaciones/${ba.id}/573001112233`)).data.mensajes.length === 1);
-  check('WhatsApp: ignora eventos de otro número de teléfono', (await hook(url, evento('999999', 'wamid.A2', 'otro'))).status === 200 && (await A.app(`${X}/conversaciones/${ba.id}/573001112233`)).data.mensajes.length === 1);
+  check('Mensajes: la verificación de Meta devuelve el challenge', v1.status === 200 && (await v1.text()) === '12345');
+  check('Mensajes: con un token malo da 403 y un slug que no existe da 404', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=malo&hub.challenge=1`)).status === 403 && (await fetch(`${APP}/wa/${'0'.repeat(24)}?hub.mode=subscribe`)).status === 404);
+  await hook(url, wa('1090000000001', 'wamid.A1', 'Hola, ¿precios?')); await hook(url, wa('1090000000001', 'wamid.A1', 'Hola, ¿precios?'));
+  let ls = await chats();
+  const chA = ls.find((x) => x.canal === 'whatsapp');
+  check('Mensajes: el mensaje entrante crea el chat (con nombre, sin leer) y no se duplica', ls.length === 1 && chA.nombre === 'Ana' && chA.no_leidos === 1 && chA.ia_activa === 1 && chA.ultimo_texto === 'Hola, ¿precios?', JSON.stringify(ls));
+  check('Mensajes: ignora eventos de un número que no es de ninguna bandeja', (await hook(url, wa('999999', 'wamid.A2', 'otro'))).status === 200 && (await chats()).length === 1);
+  await A.app(`${X}/chats/${chA.id}/leer`, { method: 'POST' });
+  check('Mensajes: marcar como leído pone los no leídos en cero', (await chats()).find((x) => x.id === chA.id).no_leidos === 0);
 
-  /* ---------- agentes ---------- */
+  /* ---------- Instagram y Messenger por la misma URL ---------- */
+  await hook(url, social('page', '5550001', 'm_1', 'psid42', 'Hola desde Messenger'));
+  await hook(url, social('instagram', '7770001', 'ig_1', 'igsid42', 'Hola desde Instagram'));
+  await hook(url, social('page', '5550001', 'm_echo', 'psid42', 'eco nuestro', true));
+  ls = await chats();
+  check('Mensajes: Messenger e Instagram crean sus chats con su canal, y los ecos se ignoran', ls.length === 3 && ls.some((x) => x.canal === 'messenger' && x.contacto === 'psid42') && ls.some((x) => x.canal === 'instagram' && x.contacto === 'igsid42') && !ls.some((x) => x.ultimo_texto === 'eco nuestro'), JSON.stringify(ls));
+  check('Mensajes: se filtra la lista por canal', (await chats(A, '?canal=instagram')).length === 1 && (await chats(A, '?canal=whatsapp')).length === 1);
+  check('Mensajes: un evento de Messenger para una página sin bandeja no crea nada', (await hook(url, social('page', '123456', 'm_x', 'psid1', 'hola'))).status === 200 && (await chats()).length === 3);
+
+  /* ---------- agentes e interruptor de IA ---------- */
   const g1 = await A.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: ba.id, nombre: 'Asesor', instrucciones: 'Atiende ventas.' } });
-  check('WhatsApp: crea un agente de IA para la bandeja', g1.status === 201);
   const g2 = await A.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: ba.id, nombre: 'Soporte' } });
   const ags = () => A.app(`${X}/agentes`).then((r) => r.data.rows);
-  check('WhatsApp: solo un agente activo por bandeja', (await ags()).filter((a) => a.activo).map((a) => a.id).join() === String(g2.data.id));
+  check('Mensajes: solo un agente activo por bandeja (el último creado)', g1.status === 201 && (await ags()).filter((a) => a.activo).map((a) => a.id).join() === String(g2.data.id));
   await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { activo: true } });
-  check('WhatsApp: al activar uno se apaga el otro', (await ags()).filter((a) => a.activo).map((a) => a.id).join() === String(g1.data.id));
-  check('WhatsApp: un agente no se crea en una bandeja ajena', (await B.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: ba.id, nombre: 'Intruso' } })).status === 400 || (await B.app(`${X}/agentes`)).data.rows.length === 0);
-  await hook(url, evento('1090000000001', 'wamid.A3', '[prueba] hola'));
-  let ms = []; for (let i = 0; i < 20 && ms.length < 4; i++) { ms = (await A.app(`${X}/conversaciones/${ba.id}/573001112233`)).data.mensajes; if (ms.length < 4) await new Promise((r) => setTimeout(r, 150)); }
-  const resp = ms.find((m) => m.rol === 'assistant');
-  check('WhatsApp: el agente activo contesta (modo de prueba; sin clave API queda «sin_clave»)', resp?.contenido === 'Respuesta de prueba: hola' && resp.estado === 'sin_clave', JSON.stringify(ms));
-  await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { activo: false } });
-  await hook(url, evento('1090000000001', 'wamid.A4', '[prueba] sigues?'));
-  await new Promise((r) => setTimeout(r, 600));
-  check('WhatsApp: con el agente apagado no contesta', (await A.app(`${X}/conversaciones/${ba.id}/573001112233`)).data.mensajes.filter((m) => m.rol === 'assistant').length === 1);
+  check('Mensajes: al activar un agente se apaga el otro', (await ags()).filter((a) => a.activo).map((a) => a.id).join() === String(g1.data.id));
+  check('Mensajes: no se crea un agente en una bandeja ajena', (await B.app(`${X}/agentes`, { method: 'POST', body: { bandeja_id: ba.id, nombre: 'Intruso' } })).status === 400);
+  await hook(url, wa('1090000000001', 'wamid.A3', '[prueba] hola'));
+  const det = async () => (await A.app(`${X}/chats/${chA.id}`)).data;
+  const resp = await esperar(async () => (await det()).mensajes.find((m) => m.rol === 'assistant'));
+  check('Mensajes: el agente activo contesta (modo de prueba; sin clave API queda «sin_clave»)', resp?.contenido === 'Respuesta de prueba: hola' && resp.estado === 'sin_clave', JSON.stringify(resp));
+  const off = await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: false } });
+  await hook(url, wa('1090000000001', 'wamid.A4', '[prueba] sigues?'));
+  await new Promise((r) => setTimeout(r, 700));
+  check('Mensajes: con la IA apagada en ese chat no contesta', off.status === 200 && (await det()).mensajes.filter((m) => m.rol === 'assistant').length === 1);
+  const otro = await esperar(async () => { await hook(url, social('page', '5550001', 'm_2', 'psid42', '[prueba] yo sí')); return null; }, 1);
+  check('Mensajes: el interruptor es por chat (otros chats sin agente en su bandeja no cambian)', (await chats()).find((x) => x.contacto === 'psid42').ia_activa === 1);
+  await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: true } });
+  check('Mensajes: el interruptor de IA exige true o false', (await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: 'si' } })).status === 400 && (await B.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: false } })).status === 404);
 
-  /* ---------- conversaciones ---------- */
-  const cv = (await A.app(`${X}/conversaciones`)).data.rows;
-  check('WhatsApp: lista el contacto con su último mensaje', cv.length === 1 && cv[0].nombre === 'Ana' && cv[0].bandeja === 'Ventas' && cv[0].mensajes === 4, JSON.stringify(cv));
-  check('WhatsApp: B no ve las conversaciones de A', (await B.app(`${X}/conversaciones`)).data.rows.length === 0 && (await B.app(`${X}/conversaciones/${ba.id}/573001112233`)).status === 404);
-  check('WhatsApp: enviar sin clave API avisa con claridad', (await A.app(`${X}/bandejas/${ba.id}/enviar`, { method: 'POST', body: { para: '573001112233', texto: 'Hola' } })).status === 400);
+  /* ---------- contactos en Marketing ---------- */
+  await hook(url, wa('1090000000001', 'wamid.A5', '[prueba] soy Ana [[DATOS {"nombre":"Ana Pérez","correo":"ana@ejemplo.co","interes":"cursos"}]]', '573001112233'));
+  const cto = await esperar(async () => (await A.app('/api/marketing/contacts?q=Ana')).data.rows.find((c) => c.name === 'Ana Pérez'));
+  check('Mensajes: lo que captura el agente queda como contacto en Marketing (teléfono del chat, origen WhatsApp)', cto && cto.phone === '+573001112233' && cto.email === 'ana@ejemplo.co' && /WhatsApp: Ventas/.test(cto.source || ''), JSON.stringify(cto));
+  const d2 = await det();
+  check('Mensajes: el chat queda enlazado al contacto y no le muestra el marcador al cliente', d2.chat.contact_id === cto.id && d2.contact?.name === 'Ana Pérez' && d2.chat.datos?.interes === 'cursos' && !d2.mensajes.some((m) => m.rol === 'assistant' && /DATOS/.test(m.contenido)));
+  await hook(url, wa('1090000000001', 'wamid.A6', '[prueba] otra vez [[DATOS {"nombre":"Ana Pérez","correo":"ana@ejemplo.co"}]]'));
+  await new Promise((r) => setTimeout(r, 500));
+  check('Mensajes: no duplica el contacto', (await A.app('/api/marketing/contacts?q=Ana')).data.rows.filter((c) => c.name === 'Ana Pérez').length === 1);
+  const man = await A.app(`${X}/chats/${(await chats()).find((x) => x.contacto === 'igsid42').id}/contacto`, { method: 'POST', body: { nombre: 'Luis Gómez', telefono: '3105556677', interes: 'ofertas' } });
+  check('Mensajes: el equipo guarda el contacto de un chat de Instagram a mano', man.status === 200 && man.data.creado === true && man.data.contact.phone === '3105556677');
+  check('Mensajes: sin datos mínimos no guarda contacto', (await A.app(`${X}/chats/${(await chats()).find((x) => x.contacto === 'psid42').id}/contacto`, { method: 'POST', body: { nombre: '' } })).status === 400);
+  check('Mensajes: B no ve los contactos de A', (await B.app(`${X}/contactos`)).data.rows.length === 0 && (await B.app('/api/marketing/contacts?q=Ana')).data.rows.length === 0);
+  const lc = (await A.app(`${X}/contactos?q=Ana`)).data;
+  check('Mensajes: la lista de contactos para plantillas trae los de Marketing con teléfono', lc.marketing && lc.rows.some((c) => c.id === cto.id));
+
+  /* ---------- responder a mano y plantillas ---------- */
+  const env = await A.app(`${X}/chats/${chA.id}/enviar`, { method: 'POST', body: { texto: 'Hola, te escribo yo' } });
+  const d3 = await det();
+  check('Mensajes: enviar sin clave API avisa con claridad, deja el mensaje y apaga la IA del chat', env.status === 400 && d3.mensajes.at(-1).rol === 'humano' && d3.mensajes.at(-1).estado === 'sin_clave' && d3.chat.ia_activa === 0, JSON.stringify([env.status, d3.chat.ia_activa]));
+  check('Mensajes: las plantillas se piden por bandeja y sin clave API avisan', (await A.app(`${X}/plantillas?bandeja=${ba.id}`)).status === 400 && (await A.app(`${X}/plantillas?bandeja=${cm.data.id}`)).status === 400);
+  check('Mensajes: enviar plantilla sin destinatarios o a una bandeja que no es de WhatsApp se rechaza', (await A.app(`${X}/plantillas/enviar`, { method: 'POST', body: { bandeja_id: ba.id, plantilla: 'x', idioma: 'es', contactos: [] } })).status === 400 && (await A.app(`${X}/plantillas/enviar`, { method: 'POST', body: { bandeja_id: cm.data.id, plantilla: 'x', idioma: 'es', contactos: [cto.id] } })).status === 400);
+  check('Mensajes: B no envía con la bandeja de A', (await B.app(`${X}/plantillas/enviar`, { method: 'POST', body: { bandeja_id: ba.id, plantilla: 'x', idioma: 'es', contactos: [1] } })).status === 404);
 
   /* ---------- permisos y módulo inactivo ---------- */
   const staff = await newMember(A.id, 'staff');
-  check('WhatsApp: el personal no crea bandejas ni activa agentes (403)', (await staff.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x' } })).status === 403 && (await staff.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { activo: true } })).status === 403);
-  check('WhatsApp: el personal no ve el token de verificación', (await staff.app(`${X}/bandejas`)).data.rows?.[0]?.verify_token == null);
+  check('Mensajes: el personal no crea bandejas ni activa agentes (403)', (await staff.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x' } })).status === 403 && (await staff.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { activo: true } })).status === 403);
+  check('Mensajes: el personal no ve el token de verificación ni borra chats', (await staff.app(`${X}/bandejas`)).data.rows?.[0]?.verify_token == null && (await staff.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 403);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [{ modulo: 'whatsapp', activo: false }] });
-  check('WhatsApp: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403);
-  check('WhatsApp: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
+  check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
+  check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('WhatsApp: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 1);
-  check('WhatsApp: borrar la bandeja borra sus agentes y mensajes', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/agentes`)).data.rows.length === 0 && (await A.app(`${X}/conversaciones`)).data.rows.length === 0);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 3 && (await chats()).length === 3);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 2 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: borrar la bandeja borra sus agentes y chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/agentes`)).data.rows.length === 0);
 }
