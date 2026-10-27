@@ -5,6 +5,32 @@ import { orgUsa, ctxDeOrg } from '../../lib/contexto.js';
 import { ejecutarHerramienta } from '../../lib/registro.js';
 import { CANALES, soloDigitos } from './canales.js';
 
+// Datos que el agente puede pedir (los marca quien configura el agente). Nombre y un medio de contacto siempre se piden.
+export const CAMPOS = {
+  correo: 'correo electrónico', telefono: 'teléfono', empresa: 'nombre del negocio o empresa (si tiene)',
+  tipo: 'si escribe como persona natural o en nombre de un negocio', ciudad: 'ciudad', interes: 'qué necesita o le interesa',
+};
+export const CAMPOS_BASE = { campos: ['correo', 'interes'], extras: [] };
+// Valida y deja en JSON lo que llega del formulario del agente: { campos: [...], extras: [...] }
+export function normalizarCampos(txt) {
+  let x; try { x = typeof txt === 'string' ? JSON.parse(txt) : txt; } catch { x = null; }
+  const campos = [...new Set((Array.isArray(x?.campos) ? x.campos : []).filter((k) => k in CAMPOS))];
+  const extras = (Array.isArray(x?.extras) ? x.extras : []).map((e) => String(e || '').trim().slice(0, 60)).filter(Boolean).slice(0, 5);
+  return JSON.stringify({ campos, extras });
+}
+export function camposDe(agente) {
+  try { const x = JSON.parse(agente?.campos || 'null'); if (x && Array.isArray(x.campos)) return { campos: x.campos.filter((k) => k in CAMPOS), extras: Array.isArray(x.extras) ? x.extras : [] }; } catch { /* sin configurar */ }
+  return CAMPOS_BASE;
+}
+
+// Lo que dice el agente (o el equipo) de la persona: solo las claves conocidas y con largo acotado
+export function limpiarDatos(d) {
+  const out = {};
+  for (const k of ['nombre', 'telefono', 'correo', 'empresa', 'tipo', 'ciudad', 'interes']) if (d?.[k]) out[k] = String(d[k]).trim().slice(0, 300);
+  if (d?.extras && typeof d.extras === 'object') out.extras = Object.fromEntries(Object.entries(d.extras).slice(0, 5).filter(([, v]) => v).map(([k, v]) => [String(k).slice(0, 60), String(v).slice(0, 200)]));
+  return out;
+}
+
 export const marketingActivo = (env, org) => orgUsa(env, org, 'marketing');
 const ultimos = (tel) => soloDigitos(tel).slice(-10);
 
@@ -24,20 +50,28 @@ export async function guardarContacto(env, org, { bandeja, conv, d }) {
   const tel = bandeja.canal === 'whatsapp' ? `+${soloDigitos(conv.contacto)}` : (String(d.telefono || '').replace(/[^\d+]/g, '') || null);
   const nombre = String(d.nombre || conv.nombre || '').trim().slice(0, 120), correo = String(d.correo || '').trim().toLowerCase();
   const correoOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo) ? correo : null;
+  const empresa = String(d.empresa || '').trim().slice(0, 120) || null;
+  // Lo demás que dijo la persona va a las notas del contacto
+  const lineas = [];
+  if (d.interes) lineas.push(`Chat: ${String(d.interes).slice(0, 300)}`);
+  if (d.tipo) lineas.push(`Tipo: ${String(d.tipo).slice(0, 60)}`);
+  if (d.ciudad) lineas.push(`Ciudad: ${String(d.ciudad).slice(0, 80)}`);
+  for (const [k, v] of Object.entries(d.extras && typeof d.extras === 'object' ? d.extras : {}).slice(0, 5)) if (v) lineas.push(`${String(k).slice(0, 60)}: ${String(v).slice(0, 200)}`);
+  const notas = lineas.join('\n').slice(0, 800) || null;
   let existente = conv.contact_id ? await contactoPorId(env, org, conv.contact_id) : null;
   if (!existente && tel) existente = await contactoPorTelefono(env, org, tel);
   if (existente) {
     // No pisa lo que ya tiene: solo completa el correo, el teléfono y las notas
-    await env.DB.prepare('UPDATE mk_contacts SET email = COALESCE(NULLIF(email, \'\'), ?), phone = COALESCE(NULLIF(phone, \'\'), ?), notes = CASE WHEN ? IS NULL THEN notes ELSE COALESCE(notes || char(10), \'\') || ? END, updated_at = ? WHERE id = ? AND business_id = ?')
-      .bind(correoOk, tel, d.interes ? 1 : null, d.interes ? `Chat: ${String(d.interes).slice(0, 300)}` : null, now(), existente.id, org).run();
+    await env.DB.prepare('UPDATE mk_contacts SET email = COALESCE(NULLIF(email, \'\'), ?), phone = COALESCE(NULLIF(phone, \'\'), ?), company = COALESCE(NULLIF(company, \'\'), ?), notes = CASE WHEN ? IS NULL THEN notes ELSE COALESCE(notes || char(10), \'\') || ? END, updated_at = ? WHERE id = ? AND business_id = ?')
+      .bind(correoOk, tel, empresa, notas, notas, now(), existente.id, org).run();
     return { id: existente.id, creado: false };
   }
   if (!nombre || !(tel || correoOk)) return null;
   const ctx = await ctxDeOrg(env, org, { role: 'staff' });
   if (!ctx) return null;
   const r = await ejecutarHerramienta(env, ctx, 'marketing.crear_contacto', {
-    nombre, ...(tel ? { telefono: tel.slice(0, 30) } : {}), ...(correoOk ? { correo: correoOk } : {}), ...(d.empresa ? { empresa: String(d.empresa).slice(0, 120) } : {}),
-    origen: `${CANALES[bandeja.canal]?.nombre || 'Chat'}: ${bandeja.nombre}`.slice(0, 80), notas: String(d.interes || '').slice(0, 500),
+    nombre, ...(tel ? { telefono: tel.slice(0, 30) } : {}), ...(correoOk ? { correo: correoOk } : {}), ...(empresa ? { empresa } : {}),
+    origen: `${CANALES[bandeja.canal]?.nombre || 'Chat'}: ${bandeja.nombre}`.slice(0, 80), ...(notas ? { notas } : {}),
   });
   return r.ok && r.result?.creado?.id ? { id: r.result.creado.id, creado: true } : null;
 }

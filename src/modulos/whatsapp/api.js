@@ -4,9 +4,9 @@
 //   POST  /api/whatsapp/bandejas/:id/credenciales { api_key?, app_secret? }   guarda la clave API / el secreto (cifrados; nunca se devuelven)
 //   POST  /api/whatsapp/bandejas/:id/token       genera otro token de verificación del webhook
 //   POST  /api/whatsapp/bandejas/:id/probar      { para? } verifica clave e IDs contra Meta; en WhatsApp, con `para`, manda un mensaje de prueba
-//   CRUD  /api/whatsapp/agentes                  agentes de IA por bandeja (activar/desactivar con PATCH { activo })
+//   CRUD  /api/whatsapp/agentes                  agentes de IA (de una bandeja o de todas: bandeja_id 0) con los datos de contacto que piden (campos)
 //   GET   /api/whatsapp/chats?bandeja=&canal=&q=  lista de chats (izquierda) · GET /chats/:id chat completo (mensajes y contacto)
-//   PATCH /api/whatsapp/chats/:id { ia_activa }  enciende o apaga la IA en ese chat · POST /:id/leer · POST /:id/enviar { texto } (apaga la IA de ese chat)
+//   PATCH /api/whatsapp/chats/:id { ia_activa?, agente_id? }  enciende o apaga la IA en ese chat y elige qué agente lo atiende (0 = ninguno) · POST /:id/leer · POST /:id/enviar { texto } (apaga la IA de ese chat)
 //   POST  /api/whatsapp/chats/:id/contacto       guarda / enlaza el contacto en Marketing · DELETE /chats/:id
 //   GET   /api/whatsapp/contactos?q=             contactos de Marketing (para enviar plantillas)
 //   GET   /api/whatsapp/plantillas?bandeja=      plantillas aprobadas de WhatsApp · POST /plantillas/enviar { bandeja_id, plantilla, idioma, variables, contactos[], chats[] }
@@ -15,9 +15,9 @@ import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { cifrarClave } from '../../lib/ia.js';
-import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, soloDigitos, CANALES } from './canales.js';
+import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValido, soloDigitos, CANALES } from './canales.js';
 import { guardarMensaje, tocarChat } from './webhook.js';
-import { marketingActivo, contactoPorId, guardarContacto } from './contactos.js';
+import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
 const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -26,6 +26,8 @@ const COL = (s) => { const d = soloDigitos(s); return d.length === 10 ? `57${d}`
 /* ---------- entidades ---------- */
 function revisarBandeja(row, canal) {
   if (row.nombre && row.nombre.length > 80) throw new HttpError(400, 'El nombre de la bandeja es muy largo (máximo 80 letras)');
+  if (row.url_salida && !webhookValido(row.url_salida)) throw new HttpError(400, 'La URL de salida debe ser una dirección https pública');
+  if (canal === 'webhook') return;
   if (row.phone_number_id != null && !/^\d{5,30}$/.test(row.phone_number_id)) throw new HttpError(400, canal === 'whatsapp' ? 'El id del número de teléfono son solo dígitos (lo da Meta)' : 'El id de la página o de la cuenta de Instagram son solo dígitos (lo da Meta)');
   if (canal === 'whatsapp') {
     if (row.telefono != null && !/^\+\d{8,15}$/.test(String(row.telefono).replace(/[\s-]/g, ''))) throw new HttpError(400, 'El teléfono debe llevar el indicativo, por ejemplo +57 300 123 4567');
@@ -47,11 +49,13 @@ const textoLargo = (row) => {
 export const ENTITIES = {
   bandejas: {
     table: 'wa_bandejas', label: 'la bandeja', title: 'nombre', search: ['nombre', 'telefono'], order: 'created_at',
-    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text!', waba_id: 'text', activo: 'bool+' },
+    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', activo: 'bool+' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row, body) {
       row.canal ||= 'whatsapp';
       if (row.canal === 'whatsapp' && (!row.telefono || !row.waba_id)) throw new HttpError(400, 'WhatsApp necesita el teléfono y el id de la cuenta de WhatsApp Business');
+      if (row.canal === 'webhook') row.phone_number_id = `wh_${hex(6)}`;     // la bandeja webhook se identifica por su URL, no por un id de Meta
+      else if (!row.phone_number_id) throw new HttpError(400, 'Falta el id del número, de la página o de la cuenta de Instagram');
       revisarBandeja(row, row.canal);
       row.telefono ||= ''; row.waba_id ||= '';
       if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ?', c.businessId)).n >= MAX_BANDEJAS) throw new HttpError(400, `Ya tienes ${MAX_BANDEJAS} bandejas`);
@@ -77,20 +81,22 @@ export const ENTITIES = {
   },
   agentes: {
     table: 'wa_agentes', label: 'el agente', title: 'nombre', search: ['nombre'], order: 'created_at',
-    fields: { nombre: 'text!', bandeja_id: 'int!', instrucciones: 'long', usar_marca: 'bool+', activo: 'bool+' },
-    refs: { bandeja_id: 'wa_bandejas' },
+    // bandeja_id 0 = el agente se puede usar en todas las bandejas. `campos` = JSON { campos, extras } con los datos de contacto que pide.
+    fields: { nombre: 'text!', bandeja_id: 'int!', instrucciones: 'long', usar_marca: 'bool+', campos: 'long' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row) {
-      textoLargo(row);
-      if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_agentes WHERE business_id = ? AND bandeja_id = ?', c.businessId, row.bandeja_id)).n >= MAX_AGENTES) throw new HttpError(400, `Una bandeja admite hasta ${MAX_AGENTES} agentes`);
+      textoLargo(row); await revisarBandejaDelAgente(c, row.bandeja_id);
+      if (row.campos) row.campos = normalizarCampos(row.campos);
+      if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_agentes WHERE business_id = ?', c.businessId)).n >= MAX_AGENTES) throw new HttpError(400, `Ya tienes ${MAX_AGENTES} agentes`);
     },
-    beforeUpdate(c, row) { textoLargo(row); },
-    // Solo un agente activo por bandeja: al activar uno, los demás de esa bandeja se apagan
-    async afterCreate(c, id, row) { if (row.activo !== 0) await solitario(c, id, row.bandeja_id); },
-    async afterUpdate(c, id, row, before) { if (row.activo === 1) await solitario(c, id, before.bandeja_id); },
+    async beforeUpdate(c, row) { textoLargo(row); if (row.bandeja_id != null) await revisarBandejaDelAgente(c, row.bandeja_id); if (row.campos) row.campos = normalizarCampos(row.campos); },
+    // Si se borra un agente, los chats que lo usaban quedan sin asignar (se les pone otro al próximo mensaje)
+    async afterDelete(c, before) { await c.env.DB.prepare('UPDATE wa_conversaciones SET agente_id = NULL WHERE business_id = ? AND agente_id = ?').bind(c.businessId, before.id).run(); },
   },
 };
-const solitario = (c, id, bandeja) => c.env.DB.prepare('UPDATE wa_agentes SET activo = 0 WHERE business_id = ? AND bandeja_id = ? AND id <> ?').bind(c.businessId, bandeja, id).run();
+async function revisarBandejaDelAgente(c, id) {
+  if (id !== 0 && !(await one(c.env, 'SELECT 1 FROM wa_bandejas WHERE id = ? AND business_id = ?', id, c.businessId))) throw new HttpError(400, 'La bandeja no existe en este negocio');
+}
 export const api = crud({ get() {}, post() {}, patch() {}, delete() {} }, { base: '/ia/whatsapp', modulo: MOD, entities: ENTITIES });
 
 const bandejaDe = async (c, id) => {
@@ -110,16 +116,17 @@ export const chats = (c, { bandeja, canal, q, limite = 200 } = {}) => {
   if (bandeja) { donde.push('c.bandeja_id = ?'); args.push(Number(bandeja)); }
   if (canal) { donde.push('b.canal = ?'); args.push(String(canal)); }
   if (q) { donde.push('(c.nombre LIKE ? OR c.contacto LIKE ? OR c.ultimo_texto LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
-  return all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.contact_id, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol
-    FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args);
+  return all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol
+    FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args);
 };
 export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
 export async function chatCompleto(c, id) {
   const chat = await chatDe(c, id), marketing = await marketingActivo(c.env, c.businessId);
   const ultimoEntrante = (await one(c.env, "SELECT MAX(ts) t FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol = 'user'", c.businessId, chat.bandeja_id, chat.contacto))?.t || 0;
   let datos = null; try { datos = chat.datos ? JSON.parse(chat.datos) : null; } catch { /* sin datos */ }
-  const agente = await one(c.env, 'SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND bandeja_id = ? AND activo = 1', c.businessId, chat.bandeja_id);
-  return { chat: { ...chat, datos }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente };
+  const agentes = await all(c.env, 'SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND (bandeja_id = ? OR bandeja_id = 0) ORDER BY id', c.businessId, chat.bandeja_id);
+  const agente = agentes.find((a) => a.id === chat.agente_id) || null;
+  return { chat: { ...chat, datos }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes };
 }
 
 // Plantilla con sus {{n}} llenas, para dejar en el chat lo que se envió
@@ -159,22 +166,34 @@ export function routes(r) {
     return json({ ok: true });
   });
   r.patch(`${B}/chats/:id`, `tenant:${MOD}`, async (c) => {
-    const ch = await chatDe(c, c.params.id), body = await readJson(c.req);
-    if (typeof body.ia_activa !== 'boolean') throw new HttpError(400, 'Envía ia_activa (true o false)');
-    await c.env.DB.prepare('UPDATE wa_conversaciones SET ia_activa = ? WHERE id = ? AND business_id = ?').bind(body.ia_activa ? 1 : 0, ch.id, c.businessId).run();
-    await audit(c, `${body.ia_activa ? 'Activó' : 'Desactivó'} la IA en el chat de ${ch.nombre || ch.contacto} (${ch.bandeja})`, { modulo: MOD });
-    return json({ ok: true, ia_activa: body.ia_activa });
+    const ch = await chatDe(c, c.params.id), body = await readJson(c.req), set = [], args = [], quien = `${ch.nombre || ch.contacto} (${ch.bandeja})`;
+    if (body.ia_activa !== undefined) {
+      if (typeof body.ia_activa !== 'boolean') throw new HttpError(400, 'ia_activa debe ser true o false');
+      set.push('ia_activa = ?'); args.push(body.ia_activa ? 1 : 0);
+      await audit(c, `${body.ia_activa ? 'Activó' : 'Desactivó'} la IA en el chat de ${quien}`, { modulo: MOD });
+    }
+    if (body.agente_id !== undefined) {
+      const id = Number(body.agente_id);
+      if (!Number.isInteger(id) || id < 0) throw new HttpError(400, 'agente_id no válido');
+      if (id > 0 && !(await one(c.env, 'SELECT 1 FROM wa_agentes WHERE id = ? AND business_id = ? AND (bandeja_id = ? OR bandeja_id = 0)', id, c.businessId, ch.bandeja_id))) throw new HttpError(400, 'Ese agente no está disponible para esta bandeja');
+      set.push('agente_id = ?'); args.push(id);
+      await audit(c, `Cambió el agente del chat de ${quien}`, { modulo: MOD });
+    }
+    if (!set.length) throw new HttpError(400, 'Envía ia_activa o agente_id');
+    await c.env.DB.prepare(`UPDATE wa_conversaciones SET ${set.join(', ')} WHERE id = ? AND business_id = ?`).bind(...args, ch.id, c.businessId).run();
+    return json({ ok: true });
   });
   r.post(`${B}/chats/:id/enviar`, `tenant:${MOD}`, async (c) => {
     const ch = await chatDe(c, c.params.id), b = await bandejaDe(c, ch.bandeja_id), body = await readJson(c.req);
     const t = String(body.texto || '').trim();
     if (!t || t.length > 4000) throw new HttpError(400, 'Escribe un mensaje (máximo 4000 letras)');
     if (!b.activo) throw new HttpError(400, 'La bandeja está desactivada');
-    const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t);
+    const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t, { rol: 'humano' });
     await guardarMensaje(c.env, { org: c.businessId, bandeja: b.id, contacto: ch.contacto, rol: 'humano', contenido: t, estado });
     // Cuando una persona responde, la IA se apaga en ese chat (se vuelve a encender con el interruptor)
     await tocarChat(c.env, { org: c.businessId, bandeja: b, contacto: ch.contacto, rol: 'humano', contenido: t });
     await c.env.DB.prepare('UPDATE wa_conversaciones SET ia_activa = 0 WHERE id = ?').bind(ch.id).run();
+    if (estado === 'sin_destino') throw new HttpError(400, 'Esta bandeja web no tiene URL de salida: tu respuesta quedó guardada en el chat, pero no se envía a tu sistema. Agrégala en Ajustes de la bandeja.');
     if (estado !== 'enviado') throw new HttpError(estado === 'sin_clave' ? 400 : 502, estado === 'sin_clave' ? 'La bandeja no tiene clave API: agrégala para poder enviar' : `No se envió: ${error || 'Meta no aceptó el mensaje'}${b.canal === 'whatsapp' ? '. Pasadas 24 h desde el último mensaje de la persona hay que usar una plantilla.' : '. Solo se puede responder dentro de las 24 h siguientes al último mensaje.'}`);
     return json({ ok: true, estado, ia_activa: false });
   });
@@ -183,7 +202,7 @@ export function routes(r) {
     if (!(await marketingActivo(c.env, c.businessId))) throw new HttpError(400, 'Los contactos se guardan en Marketing: pídele a Diwilo que lo active para tu negocio');
     const res = await guardarContacto(c.env, c.businessId, { bandeja: b, conv: ch, d });
     if (!res) throw new HttpError(400, 'Faltan datos: el nombre y un teléfono o correo');
-    const limpio = Object.fromEntries(['nombre', 'telefono', 'correo', 'interes'].map((k) => [k, String(d[k] || '').slice(0, 300)]));
+    const limpio = limpiarDatos(d);
     await c.env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ?, datos = ?, nombre = COALESCE(nombre, ?) WHERE id = ? AND business_id = ?').bind(res.id, JSON.stringify(limpio), limpio.nombre || null, ch.id, c.businessId).run();
     await audit(c, `${res.creado ? 'Creó' : 'Enlazó'} el contacto de Marketing desde el chat de ${ch.nombre || ch.contacto}`, { modulo: MOD });
     return json({ ok: true, ...res, contact: await contactoPorId(c.env, c.businessId, res.id) });

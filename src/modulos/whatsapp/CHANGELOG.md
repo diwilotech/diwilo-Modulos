@@ -1,5 +1,12 @@
 # WhatsApp — cambios
 
+## 2.1.0 · 2026-10-27
+- **El agente se elige por chat:** botón con el nombre del agente en cada chat (en la lista, bajo la hora, y en la cabecera). Se quita el «agente activo» por bandeja de la pestaña Agentes; los chats nuevos empiezan con el primer agente de su bandeja y se puede elegir «Sin agente». Un agente puede servir en una bandeja o en todas (`bandeja_id` 0).
+- **Datos que pide el agente:** al crear el agente se marca qué pide además del nombre (correo, teléfono, negocio, persona o negocio, ciudad, qué necesita) y hasta 5 preguntas propias. Se guardan en Marketing (empresa y notas), sin duplicar por teléfono.
+- **Canal «Web / Webhook»:** para el chat de tu web, n8n u otro sistema. Se crean las bandejas que se necesiten, cada una con su nombre, URL y token; `POST /wa/<código>?token=…` con `{ contacto, mensaje, nombre?, rol?, id?, responder? }`. Con `responder: true` el agente contesta en la misma llamada; con `rol: "assistant"` se guarda lo que contestó tu propio agente. URL de salida opcional para recibir las respuestas del equipo.
+- **Filtros en Chats:** por canal (WhatsApp, Instagram, Messenger, Web) y por bandeja con su nombre.
+- Migración `0025_agente_por_chat.sql`. La herramienta de IA `activar_agente` pasa a `asignar_agente_al_chat`.
+
 ## 2.0.0 · 2026-10-27
 - **El módulo pasa a llamarse «Mensajes»** (conserva el id `whatsapp` y las activaciones): ahora es multicanal, con bandejas de **WhatsApp, Instagram y Messenger**. Los tres usan la misma URL de webhook y token; cada evento se enruta por el ID del número / página / cuenta de Instagram.
 - **Chats como WhatsApp Web:** lista de chats a la izquierda (con canal, sin leer y filtro) y la conversación a la derecha; se actualiza sola. En celular se abre uno a la vez.

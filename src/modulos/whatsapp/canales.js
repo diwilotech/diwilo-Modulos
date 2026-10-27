@@ -4,7 +4,7 @@ import { descifrarClave } from '../../lib/ia.js';
 import { one, now } from '../../lib/crud.js';
 
 export const GRAPH = 'https://graph.facebook.com/v21.0';
-export const CANALES = { whatsapp: { nombre: 'WhatsApp', icono: 'bi-whatsapp' }, instagram: { nombre: 'Instagram', icono: 'bi-instagram' }, messenger: { nombre: 'Messenger', icono: 'bi-messenger' } };
+export const CANALES = { whatsapp: { nombre: 'WhatsApp', icono: 'bi-whatsapp' }, instagram: { nombre: 'Instagram', icono: 'bi-instagram' }, messenger: { nombre: 'Messenger', icono: 'bi-messenger' }, webhook: { nombre: 'Web / Webhook', icono: 'bi-globe2' } };
 export const soloDigitos = (s) => String(s || '').replace(/\D/g, '');
 export const errMeta = async (r) => { try { const d = await r.json(); return `${d.error?.message || 'Error'}${d.error?.code ? ` (código ${d.error.code})` : ''}`.slice(0, 300); } catch { return `Meta respondió ${r.status}`; } };
 
@@ -17,8 +17,26 @@ async function graph(env, bandeja, url, init = {}, ms = 8000) {
 const post = (env, b, ruta, body) => graph(env, b, `${GRAPH}/${b.phone_number_id}/${ruta}`, { method: 'POST', body: JSON.stringify(body) });
 const resultado = async (r, ctx) => { if (!r.ok) console.error(ctx, r.status, (await r.clone().text()).slice(0, 200)); return r.ok ? { estado: 'enviado' } : { estado: 'error', error: await errMeta(r) }; };
 
+// https público (nunca direcciones internas): destino de las respuestas de una bandeja «webhook»
+export function webhookValido(u) {
+  try {
+    const x = new URL(u);
+    return x.protocol === 'https:' && !/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[)/i.test(x.hostname) && x.hostname.includes('.');
+  } catch { return false; }
+}
+// Entrega una respuesta a la URL de salida de una bandeja webhook (4 s de espera). Sin URL, la respuesta solo queda en el chat.
+export async function enviarWeb(bandeja, evento, datos) {
+  if (!bandeja.url_salida || !webhookValido(bandeja.url_salida)) return { estado: 'sin_destino' };
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), 4000);
+  try {
+    const r = await fetch(bandeja.url_salida, { method: 'POST', headers: { 'content-type': 'application/json', 'x-diwilo-evento': evento, 'x-diwilo-token': bandeja.verify_token }, body: JSON.stringify({ evento, bandeja: bandeja.nombre, ts: now(), ...datos }), signal: ac.signal });
+    return r.ok ? { estado: 'enviado' } : { estado: 'error', error: `Tu URL respondió ${r.status}` };
+  } catch (e) { return { estado: 'error', error: e.name === 'AbortError' ? 'Tu URL tardó más de 4 s' : 'No se pudo conectar con tu URL' }; } finally { clearTimeout(t); }
+}
+
 // Texto libre: WhatsApp, Instagram y Messenger solo lo permiten dentro de las 24 h siguientes al último mensaje de la persona.
-export async function enviarTexto(env, bandeja, para, texto) {
+export async function enviarTexto(env, bandeja, para, texto, extra = {}) {
+  if (bandeja.canal === 'webhook') return enviarWeb(bandeja, 'mensaje', { chat: para, texto: String(texto).slice(0, 4000), ...extra });
   try {
     const t = String(texto).slice(0, bandeja.canal === 'whatsapp' ? 4000 : 1900);
     if (!bandeja.canal || bandeja.canal === 'whatsapp') return await resultado(await post(env, bandeja, 'messages', { messaging_product: 'whatsapp', to: soloDigitos(para), type: 'text', text: { body: t } }), 'whatsapp envío');
@@ -67,6 +85,12 @@ async function probarSocial(env, bandeja, pasos, paso) {
 // Verificador de la bandeja (como el de Chatwoot): comprueba la clave API y el ID del número contra Meta y, si se da un destino, manda un mensaje de prueba.
 export async function probarBandeja(env, bandeja, para) {
   const pasos = [], paso = (nombre, ok, detalle) => { pasos.push({ nombre, ok, detalle }); return ok; };
+  if (bandeja.canal === 'webhook') {
+    paso('Webhook de entrada', true, 'Tu sistema envía los mensajes a la URL de la bandeja con su token (ver el ejemplo en la tarjeta).');
+    if (!bandeja.url_salida) paso('URL de salida', true, 'Sin URL de salida: las respuestas del equipo se guardan en el chat pero no se envían a tu sistema (si quieres recibirlas, agrégala en Ajustes).');
+    else { const r = await enviarWeb(bandeja, 'prueba', { texto: 'Prueba de conexión de Diwilo' }); paso('URL de salida', r.estado === 'enviado', r.estado === 'enviado' ? 'Tu URL recibió el evento de prueba.' : `No respondió bien: ${r.error || 'revisa la dirección'}.`); }
+    return { ok: pasos.every((p) => p.ok), pasos };
+  }
   if (!bandeja.clave_cifrada) { paso('Clave API', false, 'La bandeja no tiene clave API: guárdala en Ajustes.'); return { ok: false, pasos }; }
   if (bandeja.canal && bandeja.canal !== 'whatsapp') return probarSocial(env, bandeja, pasos, paso);
   let clave;

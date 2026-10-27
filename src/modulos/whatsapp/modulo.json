@@ -1,8 +1,8 @@
 {
   "id": "whatsapp",
   "nombre": "Mensajes",
-  "version": "2.0.0",
-  "descripcion": "La bandeja de mensajes del negocio para varios canales (WhatsApp, Instagram y Messenger): chats a la izquierda y la conversación a la derecha, como WhatsApp Web. Cada bandeja tiene su conexión con Meta (clave API, IDs, URL de webhook y token) y agentes de IA que se activan o desactivan por bandeja y por chat. El agente guarda los datos de quien escribe como contacto en Marketing, y el equipo puede responder a mano o enviar plantillas de WhatsApp aprobadas a sus contactos.",
+  "version": "2.1.0",
+  "descripcion": "La bandeja de mensajes del negocio para varios canales (WhatsApp, Instagram, Messenger y webhooks de tu web u otros sistemas): chats a la izquierda y la conversación a la derecha, como WhatsApp Web. Cada bandeja tiene su conexión con Meta (clave API, IDs, URL de webhook y token) y agentes de IA que se activan o desactivan por bandeja y por chat. El agente guarda los datos de quien escribe como contacto en Marketing, y el equipo puede responder a mano o enviar plantillas de WhatsApp aprobadas a sus contactos.",
   "icono": "bi-chat-dots",
   "menu": {
     "ruta": "/staff/whatsapp.html",
@@ -18,7 +18,7 @@
     "whatsapp.ver_conversaciones",
     "whatsapp.leer_conversacion",
     "whatsapp.cambiar_ia_del_chat",
-    "whatsapp.activar_agente",
+    "whatsapp.asignar_agente_al_chat",
     "whatsapp.crear_agente"
   ],
   "tablas": [
@@ -52,10 +52,11 @@
       {
         "id": "agente",
         "nombre": "Poner un agente a atender",
-        "descripcion": "Ver las bandejas y crear o activar su agente de IA.",
+        "descripcion": "Ver las bandejas, crear un agente y asignarlo a los chats.",
         "pasos": [
           "whatsapp.ver_bandejas",
-          "whatsapp.crear_agente"
+          "whatsapp.crear_agente",
+          "whatsapp.asignar_agente_al_chat"
         ]
       }
     ]
