@@ -49,9 +49,9 @@ DW.ready.then((me) => {
 .wa-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:6px;background:rgba(var(--bs-emphasis-color-rgb),.03)}
 .wa-m{max-width:78%;padding:8px 12px;border-radius:14px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;background:var(--bs-body-bg);border:1px solid var(--bs-border-color-translucent)}.wa-m small{display:block;font-size:.68rem;opacity:.65;margin-top:2px}
 .wa-m.me{align-self:flex-end;background:rgba(var(--bs-primary-rgb),.14);border-color:transparent}.wa-m.ia{align-self:flex-end;background:rgba(124,58,237,.14);border-color:transparent}
-.wa-comp{display:flex;gap:8px;padding:10px;border-top:1px solid var(--bs-border-color);align-items:flex-end}.wa-comp textarea{resize:none;max-height:110px;border-radius:12px}.wa-comp{background:var(--bs-body-bg)}.wa-it{padding:11px 12px}
+.wa-comp{display:flex;gap:8px;padding:10px;border-top:1px solid var(--bs-border-color);align-items:flex-end}.wa-comp textarea{resize:none;min-height:3.4rem;max-height:130px;border-radius:12px;line-height:1.35}.wa-comp{padding-bottom:calc(10px + env(safe-area-inset-bottom))}.wa-comp .btn{align-self:flex-end;height:2.6rem}.wa-comp{background:var(--bs-body-bg)}.wa-it{padding:11px 12px}
 .wa-vacio{margin:auto;text-align:center;color:var(--bs-secondary-color);padding:24px}.wa-back{display:none}
-@media (max-width:767px){.wa-box{grid-template-columns:1fr;height:calc(100dvh - 160px)}.wa-box .wa-chat{display:none}.wa-box.abierto .wa-list{display:none}.wa-box.abierto .wa-chat{display:flex}.wa-back{display:inline-block}.wa-m{max-width:90%}}
+@media (max-width:767px){.wa-box{grid-template-columns:1fr;height:calc(100dvh - 160px)}.wa-box.abierto{height:calc(100dvh - 76px)}.wa-box .wa-chat{display:none}.wa-box.abierto .wa-list{display:none}.wa-box.abierto .wa-chat{display:flex}.wa-back{display:inline-block}.wa-m{max-width:90%}}
 </style>`);
 
   function nav() {
@@ -59,7 +59,7 @@ DW.ready.then((me) => {
     el.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; nav(); render(); };
   }
-  function render() { timers.forEach(clearInterval); timers = []; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
+  function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
   const cada = (ms, f) => timers.push(setInterval(() => { if (!document.hidden) f(); }, ms));
 
   /* ---------- chats ---------- */
@@ -99,11 +99,15 @@ DW.ready.then((me) => {
         <div data-acc1 class="d-flex align-items-center gap-1"></div></div>
         <div class="wa-tb" data-acc></div></div>
         <div data-aviso></div><div class="wa-log" data-log></div>
-        ${RO ? '' : `<form class="wa-comp" data-form><button type="button" class="btn btn-outline-secondary" data-plt title="Mis plantillas: respuestas guardadas para insertar" aria-label="Mis plantillas"><i class="bi bi-card-text"></i></button><textarea class="form-control" name="texto" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea><button class="btn btn-primary" aria-label="Enviar"><i class="bi bi-send-fill"></i></button></form>`}`;
+        ${RO ? '' : `<form class="wa-comp" data-form><button type="button" class="btn btn-outline-secondary" data-plt title="Mis plantillas: respuestas guardadas para insertar" aria-label="Mis plantillas"><i class="bi bi-card-text"></i></button><textarea class="form-control" name="texto" rows="2" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea><button class="btn btn-primary" aria-label="Enviar"><i class="bi bi-send-fill"></i></button></form>`}`;
       const form = $('[data-form]', cont);
       if (form) {
         const ta = form.texto;
-        ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+        // En el celular, Enter hace un salto de línea (se envía con el botón); en el computador, Enter envía y Shift+Enter hace el salto
+        const tactil = matchMedia('(pointer:coarse)').matches;
+        const ajustar = () => { ta.style.height = 'auto'; ta.style.height = `${Math.min(ta.scrollHeight, 130)}px`; };
+        ta.addEventListener('input', ajustar);
+        ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !tactil) { e.preventDefault(); form.requestSubmit(); } });
         form.onsubmit = async (e) => {
           e.preventDefault(); const t = ta.value.trim(); if (!t) return; ta.value = ''; form.querySelector('button').disabled = true;
           try { await api(`${B}/chats/${sel}/enviar`, { method: 'POST', body: { texto: t } }); if (det.chat.ia_activa) toast('Respondiste tú: la IA se apagó en este chat'); } catch (x) { toast(x.message, false); }
@@ -132,7 +136,9 @@ DW.ready.then((me) => {
       log.innerHTML = det.mensajes.map((m) => `<div class="wa-m ${m.rol === 'humano' ? 'me' : m.rol === 'assistant' ? 'ia' : ''}">${esc(m.contenido)}<small>${m.rol === 'assistant' ? 'Agente IA · ' : m.rol === 'humano' ? 'Equipo · ' : ''}${esc(horaLarga(m.ts))}${m.estado && m.estado !== 'enviado' ? ` · ${m.estado === 'sin_clave' ? 'sin clave API' : 'no se envió'}` : ''}</small></div>`).join('') || '<div class="wa-vacio">Sin mensajes.</div>';
       if (abajo) log.scrollTop = log.scrollHeight;
     }
-    async function abrir(id) { sel = id; det = null; firma = ''; box.classList.add('abierto'); await cargarChat('estructura'); try { await api(`${B}/chats/${id}/leer`, { method: 'POST' }); } catch (_) {} cargarLista(); }
+    const movil = () => matchMedia('(max-width:767px)').matches;
+    const cabeza = (ocultar) => { if (!movil()) return; $('.dw-page-head') && ($('.dw-page-head').hidden = ocultar); const sg = $('[data-seg]'); if (sg) sg.hidden = ocultar; };
+    async function abrir(id) { sel = id; det = null; firma = ''; box.classList.add('abierto'); cabeza(true); await cargarChat('estructura'); try { await api(`${B}/chats/${id}/leer`, { method: 'POST' }); } catch (_) {} cargarLista(); }
 
     // Elegir qué agente atiende un chat: los de su bandeja y los de todas las bandejas
     async function elegirAgente(chat) {
@@ -172,7 +178,7 @@ DW.ready.then((me) => {
     $('[data-q]', el).oninput = (e) => { clearTimeout(el._t); el._t = setTimeout(() => { q = e.target.value.trim(); cargarLista(); }, 300); };
     $('[data-fil]', el).onclick = (e) => { const b = e.target.closest('[data-f]'); if (!b) return; filtro = b.dataset.f; el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('active', x === b)); cargarLista(); };
     cont.onclick = async (e) => {
-      if (e.target.closest('[data-back]')) { box.classList.remove('abierto'); return; }
+      if (e.target.closest('[data-back]')) { box.classList.remove('abierto'); cabeza(false); return; }
       if (e.target.closest('[data-sug]')) {
         const b = e.target.closest('[data-sug]'); b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         try { const r = await api(`${B}/chats/${sel}/sugerir`, { method: 'POST', body: {} }); const ta = $('[name=texto]', cont); if (ta) { ta.value = r.sugerencia; ta.focus(); } toast('Sugerencia lista: revísala y envíala'); } catch (x) { toast(x.message, false); }
@@ -494,7 +500,7 @@ DW.ready.then((me) => {
     el.innerHTML = `<div class="row g-3">
       <div class="col-lg-6"><div class="dw-card h-100 d-grid gap-3 align-content-start">
         <div class="d-flex align-items-center gap-2"><i class="bi bi-google fs-4"></i><h2 class="h6 mb-0">Conexión con Google</h2><span class="badge ms-auto ${g.conectado ? 'text-bg-success' : g.credenciales ? 'text-bg-warning' : 'text-bg-secondary'}">${g.conectado ? `${g.cuentas.length} cuenta${g.cuentas.length === 1 ? '' : 's'}` : g.credenciales ? 'Falta conectar' : 'Sin credenciales'}</span></div>
-        <p class="small text-body-secondary mb-0">Con Google conectado, las respuestas del canal de <b>correo</b> salen por <b>Gmail</b> (quedan en «Enviados» y en el mismo hilo), los correos nuevos de Gmail entran como chats y los agentes pueden <b>agendar citas con Google Meet</b> en tu Calendar.</p>
+        <p class="small text-body-secondary mb-0">Aquí solo <b>vinculas tus cuentas de Google</b>. Después, en <b>Bandejas</b>, eliges con qué cuenta recibe y envía cada bandeja de correo (por la API de Gmail; quedan en «Enviados» y en el mismo hilo), y tus agentes pueden <b>agendar citas con Google Meet</b> en tu Calendar.</p>
         ${g.es_plataforma ? `<div><div class="small fw-semibold mb-1">Credenciales de la app de Google <span class="badge text-bg-secondary ms-1">solo Diwilo</span></div>
           <div class="small text-body-secondary mb-2">Son <b>una sola app de Google para todos los negocios</b>: Diwilo las sube aquí y cada negocio solo vincula sus propias cuentas. En Google Cloud: APIs y servicios → Credenciales → tu «ID de cliente de OAuth» → <b>Descargar JSON</b>. El secreto se guarda cifrado y no se vuelve a mostrar.</div>
           ${g.credenciales ? `<div class="small mb-2"><i class="bi bi-check-circle text-success me-1"></i>Guardadas: <span class="font-monospace">${esc(g.client_id)}</span></div>` : ''}
@@ -519,7 +525,6 @@ DW.ready.then((me) => {
           <div class="col-6">${campo('adelanto_dias', 'Ofrecer hasta (días)', a.adelanto_dias, 'type="number" min="1" max="60"')}</div><div class="col-6">${campo('minimo_horas', 'Aviso mínimo (horas)', a.minimo_horas, 'type="number" min="0" max="168"')}</div></div>
         ${campo('titulo', 'Título del evento ({nombre} = nombre de la persona)', a.titulo, 'maxlength="120"')}
         ${campo('copia', 'Enviar copia (Cc) de cada respuesta de correo e invitar a cada cita a (opcional)', a.copia || '', 'type="email" placeholder="hola@tuempresa.com"')}
-        <label class="small text-body-secondary d-grid gap-1">Enviar los correos con<select class="form-select" name="envio"><option value="gmail" ${a.envio !== 'cloudflare' ? 'selected' : ''}>Gmail (desde la cuenta conectada; Reply-To a la bandeja)</option><option value="cloudflare" ${a.envio === 'cloudflare' ? 'selected' : ''}>Cloudflare Email Sending (desde la dirección de la bandeja)</option></select></label>
         <div class="small text-body-secondary">Zona horaria: <b>Colombia (UTC-5)</b>. ${campo('calendario', 'Calendario (déjalo en «primary» para el principal)', a.calendario, 'maxlength="200"')}</div>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="gmail_activo" id="ggm" ${g.gmail_activo ? 'checked' : ''}><label class="form-check-label small" for="ggm">Leer los correos nuevos de Gmail en las bandejas de correo${g.correos ? '' : ' (aún no tienes una bandeja de correo)'}</label></div>
         ${CAN && g.credenciales ? '<button class="btn btn-primary">Guardar</button>' : '<div class="small text-body-secondary">Sube las credenciales para poder guardar.</div>'}</form></div></div>`;
@@ -531,7 +536,7 @@ DW.ready.then((me) => {
           toast('Se abrió Google en otra pestaña: autoriza y vuelve aquí');
           for (let i = 0; i < 60 && view === 'google'; i++) { await new Promise((x) => setTimeout(x, 3000)); const s = await api(`${B}/google`); if (s.cuentas.length > g.cuentas.length || (s.cuentas.length && s.cuentas.some((c) => !g.cuentas.find((o) => o.id === c.id)))) { toast('Cuenta de Google conectada'); return render(); } }
         } else if (e.target.closest('[data-quitar]')) {
-          if (!(await confirm({ title: '¿Quitar esta cuenta de Google?', text: 'Si era la del correo o la del calendario, pasa a otra cuenta conectada (o a ninguna).', ok: 'Quitar' }))) return;
+          if (!(await confirm({ title: '¿Quitar esta cuenta de Google?', text: 'Las bandejas de correo que usaban esta cuenta tendrán que elegir otra en sus ajustes.', ok: 'Quitar' }))) return;
           await api(`${B}/google/desconectar`, { method: 'POST', body: { cuenta: +e.target.closest('[data-quitar]').dataset.quitar } }); toast('Cuenta quitada'); render();
         } else if (e.target.closest('[data-probar]')) {
           const res = $('[data-res]', el); res.innerHTML = '<div class="small text-body-secondary">Probando…</div>';
@@ -552,7 +557,7 @@ DW.ready.then((me) => {
     const fa = $('[data-agenda]', el);
     if (fa) fa.onsubmit = async (e) => {
       e.preventDefault(); const btn = fa.querySelector('button.btn-primary'); if (!btn) return; btn.disabled = true;
-      const body = { dias: DIAS.map((_, i) => i).filter((i) => fa[`d${i}`].checked), desde: fa.desde.value, hasta: fa.hasta.value, duracion: +fa.duracion.value, buffer: +fa.buffer.value, adelanto_dias: +fa.adelanto_dias.value, minimo_horas: +fa.minimo_horas.value, titulo: fa.titulo.value.trim(), calendario: fa.calendario.value.trim() || 'primary', copia: fa.copia.value.trim(), envio: fa.envio.value, gmail_activo: fa.gmail_activo.checked };
+      const body = { dias: DIAS.map((_, i) => i).filter((i) => fa[`d${i}`].checked), desde: fa.desde.value, hasta: fa.hasta.value, duracion: +fa.duracion.value, buffer: +fa.buffer.value, adelanto_dias: +fa.adelanto_dias.value, minimo_horas: +fa.minimo_horas.value, titulo: fa.titulo.value.trim(), calendario: fa.calendario.value.trim() || 'primary', copia: fa.copia.value.trim(), gmail_activo: fa.gmail_activo.checked };
       try { await api(`${B}/google/agenda`, { method: 'PUT', body }); toast('Guardado'); } catch (x) { toast(x.message, false); }
       btn.disabled = false;
     };
@@ -576,8 +581,8 @@ DW.ready.then((me) => {
         <div class="d-flex align-items-start gap-2"><span class="fs-4">${ico(b.canal)}</span><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(b.nombre)}</h2><span class="small text-body-secondary">${esc(CAN_[b.canal]?.n || b.canal)}${b.telefono ? ` · ${esc(b.telefono)}` : ''}</span></div>
           <span class="badge ${b.activo ? 'text-bg-success' : 'text-bg-secondary'}">${b.activo ? 'Activa' : 'En pausa'}</span></div>
         <div class="small mt-2 d-grid gap-1">
-          ${b.canal === 'correo' ? `<div>Dirección: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.reenviar_a ? ` · copia a <span class="font-monospace">${esc(b.reenviar_a)}</span>` : ''}</div>
-            ${b.cuenta_google && cuentasG[b.cuenta_google] ? `<div class="text-body-secondary"><i class="bi bi-google me-1"></i>Recibe y responde por <b>Gmail</b> con la cuenta <b>${esc(cuentasG[b.cuenta_google])}</b>.</div>` : `<div class="text-body-secondary">Para recibir: en <b>Cloudflare → Email Routing → Routing rules</b>, la regla de <b>${esc(b.phone_number_id)}</b> debe usar <b>Send to a Worker → diwilo-modulos</b>; o vincula una cuenta de Google que tenga esta dirección y créala de nuevo eligiéndola en la lista. Las respuestas salen por Gmail si hay Google vinculado o, si no, por Cloudflare Email Sending.</div>`}` : ''}
+          ${b.canal === 'correo' ? `<div>Dirección: <span class="font-monospace">${esc(b.phone_number_id)}</span></div>
+            ${b.cuenta_google && cuentasG[b.cuenta_google] ? `<div class="text-body-secondary"><i class="bi bi-google me-1"></i>Recibe y envía por <b>Gmail</b> con la cuenta <b>${esc(cuentasG[b.cuenta_google])}</b>. Los correos nuevos entran al abrir Mensajes.</div>` : `<div class="text-warning-emphasis"><i class="bi bi-exclamation-triangle me-1"></i>Elige la cuenta de Google de esta bandeja: abre <b>Ajustes</b> y escoge el correo que recibe y envía. Antes vincula tu cuenta en la pestaña <b>Google</b>.</div>`}` : ''}
           ${b.canal === 'webhook' ? `<div>Respuestas a tu sistema: ${b.url_salida ? `<span class="font-monospace text-break">${esc(b.url_salida)}</span>` : '<span class="text-body-secondary">sin URL de salida</span>'}</div>`
             : b.canal === 'correo' ? '' : `<div>${b.canal === 'whatsapp' ? 'ID de número' : b.canal === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.waba_id ? ` · Cuenta: <span class="font-monospace">${esc(b.waba_id)}</span>` : ''}</div>
           <div>Clave API: ${b.tiene_clave ? '<span class="text-success">guardada</span>' : '<span class="text-danger">falta</span>'}${b.tiene_secreto ? ' · firma del webhook validada' : ''}</div>`}
@@ -604,28 +609,31 @@ DW.ready.then((me) => {
         <div data-meta class="d-grid gap-3">${campo('phone_number_id', `<span data-idl>${canal0 === 'whatsapp' ? 'ID del número de teléfono' : canal0 === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}</span>`, b?.phone_number_id, 'inputmode="numeric"')}
           ${campo('api_key', 'Clave API (token de acceso de Meta)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_clave ? 'Guardada — déjalo vacío para conservarla' : 'EAAG…'}"`)}
           ${campo('app_secret', 'Secreto de la app de Meta (opcional, valida la firma del webhook)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_secreto ? 'Guardado — déjalo vacío para conservarlo' : ''}"`)}</div>
-        <div data-mail class="d-grid gap-3">${b ? campo('correo_dir', 'Dirección de correo de la bandeja', b.canal === 'correo' ? b.phone_number_id : '', 'type="email" readonly') : `<div data-dirs><label class="small text-body-secondary d-grid gap-1">Dirección de correo (de tus cuentas de Google)<select class="form-select" name="dir"><option value="">Cargando tus direcciones…</option></select></label></div>${campo('correo_dir', 'Escribe la dirección', '', 'type="email" placeholder="hola@tuempresa.com" hidden')}`}${campo('reenviar_a', 'Seguir enviando una copia de cada correo a (opcional; debe estar verificada en Cloudflare)', b?.reenviar_a || '', 'type="email" placeholder="tu-correo@gmail.com"')}</div>
+        <div data-mail class="d-grid gap-3"><div data-dirs><label class="small text-body-secondary d-grid gap-1">Correo de esta bandeja (recibe y envía por la API de Gmail)<select class="form-select" name="dir"><option value="">Cargando tus direcciones…</option></select></label></div>
+          ${campo('correo_dir', 'Escribe la dirección', b?.canal === 'correo' ? b.phone_number_id : '', 'type="email" placeholder="hola@tuempresa.com" hidden')}
+          <div class="small text-body-secondary">Las direcciones salen de las cuentas de Google que vinculaste en la pestaña <b>Google</b> (la cuenta y sus alias «Enviar como»). Sin webhook ni configuración extra.</div></div>
         <div data-web class="d-grid gap-3">${campo('url_salida', 'URL de salida (opcional): aquí enviamos las respuestas del equipo y del agente', b?.url_salida || '', 'type="url" placeholder="https://tu-sistema.com/mensajes"')}</div>
         <button class="btn btn-primary">${b ? 'Guardar' : 'Crear bandeja'}</button></form>`);
       const f = mo.querySelector('form');
       const ver = () => { const c = b ? b.canal : f.canal.value; f.querySelector('[data-auto]').hidden = !['whatsapp', 'correo'].includes(c); f.querySelector('[data-wa]').hidden = c !== 'whatsapp'; f.querySelector('[data-meta]').hidden = c === 'webhook' || c === 'correo'; f.querySelector('[data-mail]').hidden = c !== 'correo'; f.querySelector('[data-web]').hidden = c !== 'webhook'; f.querySelector('[data-ayuda]').textContent = AYUDA[c]; f.querySelector('[data-idl]').textContent = c === 'whatsapp' ? 'ID del número de teléfono' : c === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'; };
       let dirsCargadas = false;
       async function cargarDirs() {
-        if (dirsCargadas || b) return; dirsCargadas = true;
+        if (dirsCargadas) return; dirsCargadas = true;
         const sel = f.dir, manual = f.correo_dir.closest('label');
+        const actual = b?.canal === 'correo' ? `${b.cuenta_google || ''}|${b.phone_number_id}` : '';
         try {
           const r = (await api(`${B}/google/direcciones`)).cuentas;
-          const ops = r.flatMap((c) => c.direcciones.map((d) => `<option value="${c.cuenta_id}|${esc(d.email)}">${esc(d.email)}${d.alias ? ' (alias «Enviar como»)' : ' (cuenta)'} · cuenta ${esc(c.cuenta)}</option>`));
-          sel.innerHTML = ops.length ? `${ops.join('')}<option value="otra">Otra dirección (escribirla)…</option>` : '<option value="otra">Escribirla a mano (no hay cuentas de Google vinculadas)</option>';
-        } catch { sel.innerHTML = '<option value="otra">Escribirla a mano</option>'; }
+          const ops = r.flatMap((c) => c.direcciones.map((d) => { const v = `${c.cuenta_id}|${d.email}`; return `<option value="${v}" ${actual === v || (b && !b.cuenta_google && b.phone_number_id === d.email && c.cuenta_id === r[0]?.cuenta_id) ? 'selected' : ''}>${esc(d.email)}${d.alias ? ' (alias «Enviar como»)' : ' (cuenta)'} · cuenta ${esc(c.cuenta)}</option>`; }));
+          sel.innerHTML = ops.length ? `${ops.join('')}<option value="otra">Otra dirección (escribirla)…</option>` : '<option value="otra">Vincula primero una cuenta de Google (pestaña Google)</option>';
+        } catch { sel.innerHTML = '<option value="otra">No pude leer tus cuentas de Google</option>'; }
         const mostrar = () => { manual.hidden = sel.value !== 'otra'; f.correo_dir.hidden = sel.value !== 'otra'; };
         sel.onchange = mostrar; mostrar();
       }
-      if (f.canal) f.canal.onchange = () => { ver(); if (f.canal.value === 'correo') cargarDirs(); }; ver(); if (!b && f.canal?.value === 'correo') cargarDirs();
+      if (f.canal) f.canal.onchange = () => { ver(); if (f.canal.value === 'correo') cargarDirs(); }; ver(); if ((b ? b.canal : f.canal?.value) === 'correo') cargarDirs();
       f.onsubmit = async (e) => {
         e.preventDefault(); const v = (n) => f[n].value.trim(), btn = f.querySelector('button'), canal = b ? b.canal : v('canal'); btn.disabled = true;
-        const dirSel = !b && canal === 'correo' && f.dir && f.dir.value && f.dir.value !== 'otra' ? f.dir.value.split('|') : null;
-        const core = canal === 'correo' ? (dirSel ? { nombre: v('nombre'), phone_number_id: dirSel[1], cuenta_google: +dirSel[0], reenviar_a: v('reenviar_a') } : { nombre: v('nombre'), phone_number_id: v('correo_dir'), reenviar_a: v('reenviar_a') }) : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id'), cuenta_plantillas: v('cuenta_plantillas') } : {}) };
+        const dirSel = canal === 'correo' && f.dir && f.dir.value && f.dir.value !== 'otra' ? f.dir.value.split('|') : null;
+        const core = canal === 'correo' ? (dirSel ? { nombre: v('nombre'), phone_number_id: dirSel[1], cuenta_google: +dirSel[0] } : { nombre: v('nombre'), phone_number_id: v('correo_dir') }) : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id'), cuenta_plantillas: v('cuenta_plantillas') } : {}) };
         try {
           if (['whatsapp', 'correo'].includes(canal)) core.autoguardar = f.autoguardar.checked;
           if (b) {

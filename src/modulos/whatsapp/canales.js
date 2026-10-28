@@ -141,10 +141,12 @@ async function probarSocial(env, bandeja, pasos, paso) {
 export async function probarBandeja(env, bandeja, para) {
   const pasos = [], paso = (nombre, ok, detalle) => { pasos.push({ nombre, ok, detalle }); return ok; };
   if (bandeja.canal === 'correo') {
-    paso('Recepción', true, `Los correos que lleguen a ${bandeja.phone_number_id} aparecen en Chats si en Cloudflare → Email Routing la regla de esa dirección envía a un Worker → diwilo-modulos.`);
-    if (!env.EMAIL?.send && !(await conectado(env, bandeja.business_id).catch(() => false))) paso('Envío', false, 'No hay cómo enviar: conecta Google en la pestaña «Google» (respuestas por Gmail) o activa Cloudflare Email Sending.');
-    else if (!para || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) paso('Envío', true, 'El envío está configurado. Escribe un correo en «Número que recibe el mensaje de prueba» para mandarle una prueba.');
-    else { const r = await enviarCorreo(env, bandeja, para.trim(), 'Prueba de conexión de Diwilo: si lees esto, las respuestas por correo funcionan.', { asunto: 'Prueba de conexión' }); paso('Envío', r.estado === 'enviado', r.estado === 'enviado' ? `Correo de prueba enviado a ${para.trim()}.` : r.error); }
+    const cu = bandeja.cuenta_google ? await one(env, 'SELECT email FROM wa_google_cuentas WHERE id = ? AND business_id = ?', bandeja.cuenta_google, bandeja.business_id) : null;
+    if (!cu && !(await conectado(env, bandeja.business_id).catch(() => false))) { paso('Cuenta de Google', false, 'Esta bandeja no tiene una cuenta de Google. Vincúlala en la pestaña Google y elígela en los ajustes de la bandeja.'); return { ok: false, pasos }; }
+    paso('Cuenta de Google', true, cu ? `La bandeja usa la cuenta ${cu.email}: recibe y envía por la API de Gmail.` : 'La bandeja usa la cuenta de correo predeterminada de Google. Elige una en sus ajustes.');
+    paso('Recepción', true, `Los correos nuevos dirigidos a ${bandeja.phone_number_id} entran como chats cada vez que abres Mensajes (como máximo cada 90 segundos).`);
+    if (!para || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) paso('Envío', true, 'Escribe un correo en «Correo que recibe la prueba» para mandarle una prueba por Gmail.');
+    else { const r = await enviarCorreo(env, bandeja, para.trim(), 'Prueba de conexión de Diwilo: si lees esto, las respuestas por correo funcionan.', { asunto: 'Prueba de conexión', nuevo: true }); paso('Envío', r.estado === 'enviado', r.estado === 'enviado' ? `Correo de prueba enviado a ${para.trim()} desde ${bandeja.phone_number_id}.` : r.error); }
     return { ok: pasos.every((p) => p.ok), pasos };
   }
   if (bandeja.canal === 'webhook') {

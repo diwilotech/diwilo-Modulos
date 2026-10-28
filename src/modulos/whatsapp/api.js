@@ -60,6 +60,12 @@ const textoLargo = (row) => {
   if ((row.bienvenida && row.bienvenida.length > 1500) || (row.bienvenida_conocido && row.bienvenida_conocido.length > 1500)) throw new HttpError(400, 'El mensaje de bienvenida es muy largo (máximo 1500 letras)');
 };
 
+// La dirección de una bandeja de correo debe ser de la cuenta de Google elegida (la propia cuenta o un alias «Enviar como» verificado)
+async function validarDireccionGoogle(c, cuentaId, direccion) {
+  let dirs; try { dirs = (await listarDirecciones(c.env, c.businessId)).find((x) => x.cuenta_id === Number(cuentaId)); } catch (e) { throw new HttpError(502, `No pude leer las direcciones de esa cuenta de Google: ${e.message}`); }
+  if (!dirs) throw new HttpError(400, 'Esa cuenta de Google no está vinculada');
+  if (!dirs.direcciones.some((d) => d.email === String(direccion).trim().toLowerCase())) throw new HttpError(400, 'Esa dirección no está en la cuenta de Google elegida');
+}
 export const ENTITIES = {
   bandejas: {
     table: 'wa_bandejas', label: 'la bandeja', title: 'nombre', search: ['nombre', 'telefono'], order: 'created_at',
@@ -70,24 +76,27 @@ export const ENTITIES = {
       if (row.canal === 'whatsapp' && (!row.telefono || !row.waba_id)) throw new HttpError(400, 'WhatsApp necesita el teléfono y el id de la cuenta de WhatsApp Business');
       if (row.canal === 'webhook') row.phone_number_id = `wh_${hex(6)}`;
       else if (row.canal === 'correo' && !row.phone_number_id) throw new HttpError(400, 'Falta la dirección de correo de la bandeja');
-      if (row.canal === 'correo' && row.cuenta_google) {   // la dirección debe ser de esa cuenta de Google (la cuenta o un alias «Enviar como» verificado)
-        let dirs; try { dirs = (await listarDirecciones(c.env, c.businessId)).find((x) => x.cuenta_id === row.cuenta_google); } catch (e) { throw new HttpError(502, `No pude leer las direcciones de esa cuenta de Google: ${e.message}`); }
-        if (!dirs) throw new HttpError(400, 'Esa cuenta de Google no está vinculada');
-        if (!dirs.direcciones.some((d) => d.email === String(row.phone_number_id).trim().toLowerCase())) throw new HttpError(400, 'Esa dirección no está en la cuenta de Google elegida');
-      }     // la bandeja webhook se identifica por su URL, no por un id de Meta
-      else if (!row.phone_number_id) throw new HttpError(400, 'Falta el id del número, de la página o de la cuenta de Instagram');
+      else if (row.canal !== 'correo' && !row.phone_number_id) throw new HttpError(400, 'Falta el id del número, de la página o de la cuenta de Instagram');
       revisarBandeja(row, row.canal);
       row.telefono ||= ''; row.waba_id ||= '';
       if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ?', c.businessId)).n >= MAX_BANDEJAS) throw new HttpError(400, `Ya tienes ${MAX_BANDEJAS} bandejas`);
       if (await one(c.env, 'SELECT 1 FROM wa_bandejas WHERE business_id = ? AND canal = ? AND phone_number_id = ?', c.businessId, row.canal, row.phone_number_id)) throw new HttpError(409, 'Ya tienes una bandeja con ese id en ese canal');
       // Una dirección de correo llega a una sola bandeja de todo el sistema
       if (row.canal === 'correo' && await one(c.env, "SELECT 1 FROM wa_bandejas WHERE canal = 'correo' AND lower(phone_number_id) = ?", row.phone_number_id)) throw new HttpError(409, 'Esa dirección de correo ya está conectada a una bandeja');
+      if (row.canal === 'correo' && row.cuenta_google) await validarDireccionGoogle(c, row.cuenta_google, row.phone_number_id);
       row.slug = hex(12);
       row.verify_token = hex(16);
       if (body.api_key) { exigirKek(c.env); row.clave_cifrada = await cifrarClave(c.env, claveValida(body.api_key, 'La clave API')); }
       if (body.app_secret) { exigirKek(c.env); row.secreto_cifrado = await cifrarClave(c.env, claveValida(body.app_secret, 'El secreto de la app')); }
     },
-    beforeUpdate(c, row, before) { delete row.canal; revisarBandeja(row, before.canal); },
+    async beforeUpdate(c, row, before) {
+      delete row.canal; revisarBandeja(row, before.canal);
+      // Bandeja de correo: al elegir otra cuenta de Google o dirección, la dirección debe ser de esa cuenta
+      if (before.canal === 'correo' && (row.cuenta_google != null || (row.phone_number_id != null && row.phone_number_id !== before.phone_number_id))) {
+        const cuenta = row.cuenta_google ?? before.cuenta_google;
+        if (cuenta) await validarDireccionGoogle(c, cuenta, row.phone_number_id ?? before.phone_number_id);
+      }
+    },
     async afterDelete(c, before) {
       await c.env.DB.batch([
         c.env.DB.prepare('DELETE FROM wa_mensajes WHERE bandeja_id = ? AND business_id = ?').bind(before.id, c.businessId),

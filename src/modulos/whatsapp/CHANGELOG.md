@@ -1,5 +1,9 @@
 # WhatsApp — cambios
 
+## 3.7.1 · 2026-10-28
+- **Bandeja de correo = cuenta de Google:** en Ajustes (al crear o editar) se elige el correo que recibe y envía entre las direcciones de las cuentas vinculadas; la pestaña Google es solo la conexión. Se quitó lo de Cloudflare de la tarjeta, del formulario y del verificador (sin webhook). Al cambiar de cuenta o dirección se valida que la dirección sea de esa cuenta.
+- **Escribir en el celular:** el cuadro de texto del chat tiene dos líneas (y crece hasta cinco), en el celular Enter hace un salto de línea y se envía con el botón, y al abrir un chat se esconde el encabezado de la página para ganar espacio.
+
 ## 3.7.0 · 2026-10-28
 - **Credenciales de Google solo de Diwilo:** una sola app de Google para todos los negocios; solo Diwilo las sube (pestaña Google) y cada negocio únicamente vincula sus cuentas. La vuelta de Google es una URL pública central (`https://diwilo.com/google/callback`, la misma para todos: hay que agregarla al cliente OAuth). Si se cambia de cliente, todos los negocios deben volver a vincular.
 - **Bandeja de correo desde Google:** al crearla se elige la dirección entre las de las cuentas vinculadas (la cuenta y sus alias «Enviar como»); la bandeja queda asociada a esa cuenta, que envía y lee sus correos. La tarjeta dice si usa Gmail o Cloudflare.

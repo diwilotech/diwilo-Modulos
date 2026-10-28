@@ -277,7 +277,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   const er = await A.app(`${X}/chats/${chM.id}/enviar`, { method: 'POST', body: { texto: 'Te respondo por correo' } });
   check('Mensajes: responder un correo queda guardado en el chat (si el envío no está activo en Cloudflare, avisa)', [200, 502].includes(er.status) && (await A.app(`${X}/chats/${chM.id}`)).data.mensajes.at(-1).rol === 'humano', JSON.stringify([er.status, er.data]));
   const pc = await A.app(`${X}/bandejas/${bc.id}/probar`, { method: 'POST', body: {} });
-  check('Mensajes: el verificador de correo explica cómo recibir y si el envío está configurado', pc.status === 200 && pc.data.pasos.some((p) => p.nombre === 'Recepción') && pc.data.pasos.some((p) => p.nombre === 'Envío'), JSON.stringify(pc.data));
+  check('Mensajes: el verificador de correo pide vincular una cuenta de Google si la bandeja no tiene (sin hablar de Cloudflare)', pc.status === 200 && pc.data.ok === false && pc.data.pasos[0].nombre === 'Cuenta de Google' && !/Cloudflare/.test(JSON.stringify(pc.data)), JSON.stringify(pc.data));
 
   /* ---------- Google: las credenciales son de Diwilo; cada negocio vincula sus cuentas y fija su horario ---------- */
   const G0 = (await A.app(`${X}/google`)).data;
