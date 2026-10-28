@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 3.4.1 · 2026-10-27
+- **El agente sabe dónde conversa:** su instrucción ahora incluye «Dónde estás conversando»: el canal y la cuenta (WhatsApp con su número, Instagram, Messenger, el chat de la página web o un correo con su asunto), cómo hablar en cada uno (mensajes cortos en chats, formato de correo con saludo y firma), qué sabe y qué no de la persona (en WhatsApp ya tiene su número; en Instagram no), desde dónde escribe un visitante web (país, dispositivo y página), los otros canales del negocio para no inventar, la fecha y hora de Colombia y si es el primer mensaje o la conversación ya está avanzada.
+
 ## 3.4.0 · 2026-10-27
 - **La IA lee el chat cuando está apagada:** en la cabecera de cada chat, **Sugerir** (la IA lee la conversación y deja una respuesta en el cuadro de texto para que la revises y envíes; no se envía ni se guarda nada) y **Responder con IA** (responde ya al último mensaje por el mismo canal, aunque la IA del chat esté apagada o sin agente; la IA del chat sigue como estaba). Usan el agente del chat o, si no tiene, el de la bandeja.
 

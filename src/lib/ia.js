@@ -98,6 +98,7 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
     const g = /\[\[GUION\]\]([\s\S]*?)\[\[\/GUION\]\]/.exec(todo);
     await registrarUso(env, org, { fuente, proveedor: 'prueba' });
     if (g) { const salidas = g[1].trim().split(/\n---\n/); const paso = history.filter((m) => m.role === 'assistant').length; return (salidas[paso] ?? '{"accion":"fin","respuesta":"Listo."}').trim(); }
+    if (/\[\[VER_SISTEMA\]\]/.test(lastUser)) return system;   // solo pruebas: devuelve las instrucciones que recibe el agente
     return `Respuesta de prueba: ${lastUser.replace(/^\s*\[prueba\]\s*/, '')}`;
   }
   const plat = await plataformaIA(env), orden = ordenIA(env, plat);

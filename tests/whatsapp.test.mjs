@@ -283,6 +283,22 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   }
   check('Mensajes: un agente guarda si puede agendar citas', (await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { agendar: true } })).status === 200 && (await ags()).find((a) => a.id === g1.data.id).agendar === 1 && (await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { agendar: false } })).status === 200);
 
+  /* ---------- el agente sabe dónde conversa (canal, cuenta, de dónde escribe, otros canales, hora) ---------- */
+  const verSistema = async (chatId) => (await A.app(`${X}/chats/${chatId}/sugerir`, { method: 'POST', body: {} })).data.sugerencia || '';
+  await hook(url, wa('1090000000001', 'wamid.V1', '[prueba] [[VER_SISTEMA]]'));
+  const sWa = await esperar(async () => { const t = await verSistema(chA.id); return /DÓNDE ESTÁS CONVERSANDO/.test(t) ? t : null; });
+  check('Mensajes: el agente de WhatsApp sabe que está en WhatsApp, con qué número, que ya tiene su teléfono y cuáles son los otros canales', /WhatsApp, con el número \+573001112233/.test(sWa || '') && /Ya tienes su número \(\+573001112233\)/.test(sWa) && /Otros canales del negocio/.test(sWa) && /Instagram \(cuenta/.test(sWa) && /Messenger \(página/.test(sWa) && /correo soporte-a@ejemplo\.com/.test(sWa) && /hora de Colombia/.test(sWa), (sWa || '').slice(0, 900));
+  await hook(url, social('instagram', '7770001', 'ig_v', 'igsid42', '[prueba] [[VER_SISTEMA]]'));
+  const igId = (await chats()).find((x) => x.contacto === 'igsid42').id;
+  const sIg = await esperar(async () => { const t = await verSistema(igId); return /DÓNDE ESTÁS CONVERSANDO/.test(t) ? t : null; });
+  check('Mensajes: el agente de Instagram sabe que son mensajes directos, que no tiene su teléfono y que no ve archivos', /mensajes directos de Instagram/.test(sIg || '') && /No conoces su teléfono ni su correo/.test(sIg) && /fotos, videos/.test(sIg), (sIg || '').slice(0, 700));
+  await pw({ contacto: 'visitante-1', mensaje: '[prueba] [[VER_SISTEMA]]' });
+  const sWeb = await verSistema((await chats(A, '?canal=webhook')).find((x) => x.contacto === 'visitante-1').id);
+  check('Mensajes: el agente del chat web sabe que es la página web, desde dónde escribe (país, dispositivo, página) y el botón de WhatsApp', /el chat de la página web/.test(sWeb) && /país CO, desde un computador, página https:\/\/ejemplo\.co\/precios/.test(sWeb) && /Seguir por WhatsApp/.test(sWeb), sWeb.slice(0, 700));
+  await pm({ de: 'cliente@x.co', asunto: 'Cotización', mensaje: '[prueba] [[VER_SISTEMA]]', id: '<m3@x.co>' });
+  const sMail = await verSistema(chM.id);
+  check('Mensajes: el agente de correo sabe que responde un correo, con su asunto y que firma como el equipo', /correo electrónico, en el buzón soporte-a@ejemplo\.com, con el asunto «Cotización»/.test(sMail) && /firmando como el equipo/.test(sMail), sMail.slice(0, 700));
+
   /* ---------- responder a mano y plantillas ---------- */
   const env = await A.app(`${X}/chats/${chA.id}/enviar`, { method: 'POST', body: { texto: 'Hola, te escribo yo' } });
   const d3 = await det();
