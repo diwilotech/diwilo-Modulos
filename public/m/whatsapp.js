@@ -95,7 +95,7 @@ DW.ready.then((me) => {
     function armarChat() {
       const c = det.chat;
       cont.innerHTML = `<div class="wa-cab"><div class="wa-cab1"><button class="btn btn-sm btn-outline-secondary wa-back" data-back aria-label="Volver"><i class="bi bi-arrow-left"></i></button><span class="wa-av">${esc((c.nombre || c.contacto).trim()[0]?.toUpperCase() || '?')}${ico(c.canal)}</span>
-        <div class="t"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b><span class="wa-sub">${esc(CAN_[c.canal]?.n || c.canal)} · ${esc(c.bandeja)} ${lugar(c)}${c.asunto ? ` · ✉ ${esc(c.asunto)}` : ''}</span></div>
+        <div class="t"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b><span class="wa-sub">${esc(CAN_[c.canal]?.n || c.canal)} · ${esc(c.bandeja)} ${lugar(c)}${c.via_correo ? ` · vía ${esc(c.via_correo)}` : ''}${c.asunto ? ` · ✉ ${esc(c.asunto)}` : ''}</span></div>
         <div data-acc1 class="d-flex align-items-center gap-1"></div></div>
         <div class="wa-tb" data-acc></div></div>
         <div data-aviso></div><div class="wa-log" data-log></div>
@@ -581,8 +581,7 @@ DW.ready.then((me) => {
         <div class="d-flex align-items-start gap-2"><span class="fs-4">${ico(b.canal)}</span><div class="flex-grow-1" style="min-width:0"><h2 class="h6 mb-0 text-truncate">${esc(b.nombre)}</h2><span class="small text-body-secondary">${esc(CAN_[b.canal]?.n || b.canal)}${b.telefono ? ` · ${esc(b.telefono)}` : ''}</span></div>
           <span class="badge ${b.activo ? 'text-bg-success' : 'text-bg-secondary'}">${b.activo ? 'Activa' : 'En pausa'}</span></div>
         <div class="small mt-2 d-grid gap-1">
-          ${b.canal === 'correo' ? `<div>Dirección: <span class="font-monospace">${esc(b.phone_number_id)}</span></div>
-            ${b.cuenta_google && cuentasG[b.cuenta_google] ? `<div class="text-body-secondary"><i class="bi bi-google me-1"></i>Recibe y envía por <b>Gmail</b> con la cuenta <b>${esc(cuentasG[b.cuenta_google])}</b>. Los correos nuevos entran al abrir Mensajes.</div>` : `<div class="text-warning-emphasis"><i class="bi bi-exclamation-triangle me-1"></i>Elige la cuenta de Google de esta bandeja: abre <b>Ajustes</b> y escoge el correo que recibe y envía. Antes vincula tu cuenta en la pestaña <b>Google</b>.</div>`}` : ''}
+          ${b.canal === 'correo' ? `${b.cuenta_google && cuentasG[b.cuenta_google] ? `<div><i class="bi bi-google me-1"></i>Cuenta: <b class="font-monospace">${esc(cuentasG[b.cuenta_google])}</b></div><div class="text-body-secondary">Recibe todo lo que llega a la cuenta y a sus alias, y ${b.responder_desde === 'cuenta' ? 'responde siempre desde la cuenta' : 'responde desde la dirección a la que escribieron'}. Los correos nuevos entran al abrir Mensajes.</div>` : `<div class="font-monospace">${esc(b.phone_number_id)}</div><div class="text-warning-emphasis"><i class="bi bi-exclamation-triangle me-1"></i>Elige la cuenta de Google de esta bandeja: abre <b>Ajustes</b> y escógela. Antes vincula tus cuentas en la pestaña <b>Google</b>.</div>`}` : ''}
           ${b.canal === 'webhook' ? `<div>Respuestas a tu sistema: ${b.url_salida ? `<span class="font-monospace text-break">${esc(b.url_salida)}</span>` : '<span class="text-body-secondary">sin URL de salida</span>'}</div>`
             : b.canal === 'correo' ? '' : `<div>${b.canal === 'whatsapp' ? 'ID de número' : b.canal === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.waba_id ? ` · Cuenta: <span class="font-monospace">${esc(b.waba_id)}</span>` : ''}</div>
           <div>Clave API: ${b.tiene_clave ? '<span class="text-success">guardada</span>' : '<span class="text-danger">falta</span>'}${b.tiene_secreto ? ' · firma del webhook validada' : ''}</div>`}
@@ -609,31 +608,30 @@ DW.ready.then((me) => {
         <div data-meta class="d-grid gap-3">${campo('phone_number_id', `<span data-idl>${canal0 === 'whatsapp' ? 'ID del número de teléfono' : canal0 === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}</span>`, b?.phone_number_id, 'inputmode="numeric"')}
           ${campo('api_key', 'Clave API (token de acceso de Meta)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_clave ? 'Guardada — déjalo vacío para conservarla' : 'EAAG…'}"`)}
           ${campo('app_secret', 'Secreto de la app de Meta (opcional, valida la firma del webhook)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_secreto ? 'Guardado — déjalo vacío para conservarlo' : ''}"`)}</div>
-        <div data-mail class="d-grid gap-3"><div data-dirs><label class="small text-body-secondary d-grid gap-1">Correo de esta bandeja (recibe y envía por la API de Gmail)<select class="form-select" name="dir"><option value="">Cargando tus direcciones…</option></select></label></div>
-          ${campo('correo_dir', 'Escribe la dirección', b?.canal === 'correo' ? b.phone_number_id : '', 'type="email" placeholder="hola@tuempresa.com" hidden')}
-          <div class="small text-body-secondary">Las direcciones salen de las cuentas de Google que vinculaste en la pestaña <b>Google</b> (la cuenta y sus alias «Enviar como»). Sin webhook ni configuración extra.</div></div>
+        <div data-mail class="d-grid gap-3"><label class="small text-body-secondary d-grid gap-1">Cuenta de Google de esta bandeja (recibe y envía por la API de Gmail)<select class="form-select" name="cuenta"><option value="">Cargando tus cuentas…</option></select></label>
+          <div class="small text-body-secondary" data-aliases></div>
+          <label class="small text-body-secondary d-grid gap-1">Responder desde<select class="form-select" name="responder_desde"><option value="auto" ${(b?.responder_desde || 'auto') === 'auto' ? 'selected' : ''}>La dirección a la que te escribieron (recomendado)</option><option value="cuenta" ${b?.responder_desde === 'cuenta' ? 'selected' : ''}>Siempre desde la cuenta de Google</option></select></label>
+          <div class="small text-body-secondary">La bandeja recibe <b>todo lo que llega a esa cuenta</b>, también lo que llega a sus alias (por ejemplo, a <i>hola@tuempresa.com</i> si esa dirección está en Gmail como «Enviar como»). Si te escribieron a un alias, la respuesta sale desde ese alias; si Gmail no lo permite, sale desde la cuenta y la respuesta de la persona vuelve al alias.</div></div>
         <div data-web class="d-grid gap-3">${campo('url_salida', 'URL de salida (opcional): aquí enviamos las respuestas del equipo y del agente', b?.url_salida || '', 'type="url" placeholder="https://tu-sistema.com/mensajes"')}</div>
         <button class="btn btn-primary">${b ? 'Guardar' : 'Crear bandeja'}</button></form>`);
       const f = mo.querySelector('form');
       const ver = () => { const c = b ? b.canal : f.canal.value; f.querySelector('[data-auto]').hidden = !['whatsapp', 'correo'].includes(c); f.querySelector('[data-wa]').hidden = c !== 'whatsapp'; f.querySelector('[data-meta]').hidden = c === 'webhook' || c === 'correo'; f.querySelector('[data-mail]').hidden = c !== 'correo'; f.querySelector('[data-web]').hidden = c !== 'webhook'; f.querySelector('[data-ayuda]').textContent = AYUDA[c]; f.querySelector('[data-idl]').textContent = c === 'whatsapp' ? 'ID del número de teléfono' : c === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'; };
-      let dirsCargadas = false;
-      async function cargarDirs() {
-        if (dirsCargadas) return; dirsCargadas = true;
-        const sel = f.dir, manual = f.correo_dir.closest('label');
-        const actual = b?.canal === 'correo' ? `${b.cuenta_google || ''}|${b.phone_number_id}` : '';
+      let cuentasCargadas = false;
+      async function cargarCuentas() {
+        if (cuentasCargadas) return; cuentasCargadas = true;
+        const sel = f.cuenta, info = f.querySelector('[data-aliases]');
         try {
-          const r = (await api(`${B}/google/direcciones`)).cuentas;
-          const ops = r.flatMap((c) => c.direcciones.map((d) => { const v = `${c.cuenta_id}|${d.email}`; return `<option value="${v}" ${actual === v || (b && !b.cuenta_google && b.phone_number_id === d.email && c.cuenta_id === r[0]?.cuenta_id) ? 'selected' : ''}>${esc(d.email)}${d.alias ? ' (alias «Enviar como»)' : ' (cuenta)'} · cuenta ${esc(c.cuenta)}</option>`; }));
-          sel.innerHTML = ops.length ? `${ops.join('')}<option value="otra">Otra dirección (escribirla)…</option>` : '<option value="otra">Vincula primero una cuenta de Google (pestaña Google)</option>';
-        } catch { sel.innerHTML = '<option value="otra">No pude leer tus cuentas de Google</option>'; }
-        const mostrar = () => { manual.hidden = sel.value !== 'otra'; f.correo_dir.hidden = sel.value !== 'otra'; };
-        sel.onchange = mostrar; mostrar();
+          const g = await api(`${B}/google`), dirs = await api(`${B}/google/direcciones`).then((r) => r.cuentas).catch(() => []);
+          sel.innerHTML = g.cuentas.length ? g.cuentas.map((c) => `<option value="${c.id}" ${(b?.cuenta_google === c.id) ? 'selected' : ''}>${esc(c.email)} · ${esc(c.email.split('@')[1] || '')}</option>`).join('') : '<option value="">Vincula primero una cuenta de Google (pestaña Google)</option>';
+          const mostrar = () => { const d = dirs.find((x) => x.cuenta_id === +sel.value); info.innerHTML = d ? `Direcciones de esta cuenta: ${d.direcciones.map((x) => `<span class="badge text-bg-light border">${esc(x.email)}${x.alias ? ' (alias)' : ''}</span>`).join(' ')}` : ''; };
+          sel.onchange = mostrar; mostrar();
+        } catch { sel.innerHTML = '<option value="">No pude leer tus cuentas de Google</option>'; }
       }
-      if (f.canal) f.canal.onchange = () => { ver(); if (f.canal.value === 'correo') cargarDirs(); }; ver(); if ((b ? b.canal : f.canal?.value) === 'correo') cargarDirs();
+      if (f.canal) f.canal.onchange = () => { ver(); if (f.canal.value === 'correo') cargarCuentas(); }; ver(); if ((b ? b.canal : f.canal?.value) === 'correo') cargarCuentas();
       f.onsubmit = async (e) => {
         e.preventDefault(); const v = (n) => f[n].value.trim(), btn = f.querySelector('button'), canal = b ? b.canal : v('canal'); btn.disabled = true;
-        const dirSel = canal === 'correo' && f.dir && f.dir.value && f.dir.value !== 'otra' ? f.dir.value.split('|') : null;
-        const core = canal === 'correo' ? (dirSel ? { nombre: v('nombre'), phone_number_id: dirSel[1], cuenta_google: +dirSel[0] } : { nombre: v('nombre'), phone_number_id: v('correo_dir') }) : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id'), cuenta_plantillas: v('cuenta_plantillas') } : {}) };
+        if (canal === 'correo' && !f.cuenta.value) { toast('Elige una cuenta de Google (vincúlala primero en la pestaña Google)', false); btn.disabled = false; return; }
+        const core = canal === 'correo' ? { nombre: v('nombre'), cuenta_google: +f.cuenta.value, responder_desde: f.responder_desde.value } : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id'), cuenta_plantillas: v('cuenta_plantillas') } : {}) };
         try {
           if (['whatsapp', 'correo'].includes(canal)) core.autoguardar = f.autoguardar.checked;
           if (b) {

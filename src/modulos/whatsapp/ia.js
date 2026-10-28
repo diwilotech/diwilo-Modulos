@@ -60,7 +60,7 @@ export default [
       if (!ch) throw new HttpError(404, 'No encontré ese chat');
       const b = await one(c.env, 'SELECT * FROM wa_bandejas WHERE id = ? AND business_id = ?', ch.bandeja_id, c.businessId), t = String(a.texto || '').trim().slice(0, 4000);
       if (!t || !b?.activo) throw new HttpError(400, 'Falta el texto o la bandeja está desactivada');
-      const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t, { rol: 'humano', asunto: ch.asunto, ref: ch.ref_correo });
+      const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t, { rol: 'humano', asunto: ch.asunto, ref: ch.ref_correo, desde: ch.via_correo });
       await guardarMensaje(c.env, { org: c.businessId, bandeja: b.id, contacto: ch.contacto, rol: 'humano', contenido: t, estado });
       await tocarChat(c.env, { org: c.businessId, bandeja: b, contacto: ch.contacto, rol: 'humano', contenido: t });
       await c.env.DB.prepare('UPDATE wa_conversaciones SET ia_activa = 0, atencion = NULL, atencion_ts = NULL WHERE id = ?').bind(ch.id).run();

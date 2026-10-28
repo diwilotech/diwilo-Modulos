@@ -33,7 +33,9 @@ export async function registrarCorreo(env, bandeja, datos, { responderIA = true 
   const nuevo = await guardarMensaje(env, { org, bandeja: bandeja.id, contacto: de, nombre: datos.nombre || null, rol: 'user', contenido, wamid: datos.id ? `mail:${bandeja.id}:${String(datos.id).slice(0, 200)}` : null, ts });
   if (!nuevo) return { ok: true, duplicado: true };
   const conv = await tocarChat(env, { org, bandeja, contacto: de, nombre: datos.nombre ? String(datos.nombre).slice(0, 120) : null, rol: 'user', contenido, ts, leido: false, iaInicial: 0 });
-  await env.DB.prepare('UPDATE wa_conversaciones SET asunto = ?, ref_correo = COALESCE(?, ref_correo) WHERE id = ?').bind(asunto, datos.ref ? String(datos.ref).slice(0, 300) : null, conv.id).run();
+  const via = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(datos.para || '').trim()) ? String(datos.para).trim().toLowerCase() : null;
+  await env.DB.prepare('UPDATE wa_conversaciones SET asunto = ?, ref_correo = COALESCE(?, ref_correo), via_correo = COALESCE(?, via_correo) WHERE id = ?').bind(asunto, datos.ref ? String(datos.ref).slice(0, 300) : null, via, conv.id).run();
+  if (via) conv.via_correo = via;
   conv.asunto = asunto; conv.ref_correo = datos.ref || conv.ref_correo;
   // Quien escribe por correo: si ya está en Marketing (mismo correo) se enlaza; si no, con nombre y correo se guarda (se puede apagar en los ajustes de la bandeja)
   if (!conv.contact_id && (await marketingActivo(env, org).catch(() => false))) {

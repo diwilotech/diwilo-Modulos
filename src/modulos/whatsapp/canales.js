@@ -54,10 +54,10 @@ export async function enviarWeb(bandeja, evento, datos) {
 
 const escHtml = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 // Responde un correo por Cloudflare Email Sending, en el mismo hilo (Re: asunto, In-Reply-To / References)
-export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref, nuevo = false } = {}) {
+export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref, nuevo = false, desde = null } = {}) {
   // Con Google conectado, la respuesta sale por Gmail (queda en «Enviados» y en el mismo hilo); si no, por Cloudflare Email Sending
   if ((await conectado(env, bandeja.business_id).catch(() => false)) && (await agendaDe(env, bandeja.business_id).catch(() => ({}))).envio !== 'cloudflare') {
-    try { await enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo }); return { estado: 'enviado' }; }
+    try { await enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo, desde }); return { estado: 'enviado' }; }
     catch (e) { console.error('gmail envío', e.message); return { estado: 'error', error: `Gmail no lo envió: ${String(e.message).slice(0, 200)}` }; }
   }
   if (!env.EMAIL?.send) return { estado: 'error', error: 'El envío de correo no está configurado en Diwilo Modulos' };

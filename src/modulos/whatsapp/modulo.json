@@ -1,7 +1,7 @@
 {
   "id": "whatsapp",
   "nombre": "Mensajes",
-  "version": "3.7.1",
+  "version": "3.8.0",
   "descripcion": "La bandeja de mensajes del negocio para varios canales (WhatsApp, Instagram, Messenger, correo y webhooks de tu web u otros sistemas), con el país y dispositivo de quien escribe una vista con todos los mensajes y conexión con Google (Gmail y Calendar con Meet): chats a la izquierda y la conversación a la derecha, como WhatsApp Web. Cada bandeja tiene su conexión con Meta (clave API, IDs, URL de webhook y token) y agentes de IA que se activan o desactivan por bandeja y por chat. El agente guarda los datos de quien escribe como contacto en Marketing, y el equipo puede responder a mano o enviar plantillas de WhatsApp aprobadas a sus contactos.",
   "icono": "bi-chat-dots",
   "menu": {

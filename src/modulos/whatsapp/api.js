@@ -60,19 +60,20 @@ const textoLargo = (row) => {
   if ((row.bienvenida && row.bienvenida.length > 1500) || (row.bienvenida_conocido && row.bienvenida_conocido.length > 1500)) throw new HttpError(400, 'El mensaje de bienvenida es muy largo (máximo 1500 letras)');
 };
 
-// La dirección de una bandeja de correo debe ser de la cuenta de Google elegida (la propia cuenta o un alias «Enviar como» verificado)
-async function validarDireccionGoogle(c, cuentaId, direccion) {
-  let dirs; try { dirs = (await listarDirecciones(c.env, c.businessId)).find((x) => x.cuenta_id === Number(cuentaId)); } catch (e) { throw new HttpError(502, `No pude leer las direcciones de esa cuenta de Google: ${e.message}`); }
-  if (!dirs) throw new HttpError(400, 'Esa cuenta de Google no está vinculada');
-  if (!dirs.direcciones.some((d) => d.email === String(direccion).trim().toLowerCase())) throw new HttpError(400, 'Esa dirección no está en la cuenta de Google elegida');
+// Bandeja de correo = una cuenta de Google vinculada: su dirección es la de la cuenta (recibe todo lo que llega a la cuenta y a sus alias)
+async function cuentaDeGoogle(c, id) {
+  const cu = await one(c.env, 'SELECT id, email FROM wa_google_cuentas WHERE id = ? AND business_id = ?', Number(id), c.businessId);
+  if (!cu) throw new HttpError(400, 'Esa cuenta de Google no está vinculada: vincúlala en la pestaña Google');
+  return cu;
 }
 export const ENTITIES = {
   bandejas: {
     table: 'wa_bandejas', label: 'la bandeja', title: 'nombre', search: ['nombre', 'telefono'], order: 'created_at',
-    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', cuenta_plantillas: 'text', cuenta_google: 'int', autoguardar: 'bool+', activo: 'bool+' },
+    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', cuenta_plantillas: 'text', cuenta_google: 'int', responder_desde: ['auto', 'cuenta'], autoguardar: 'bool+', activo: 'bool+' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row, body) {
       row.canal ||= 'whatsapp';
+      if (row.canal === 'correo' && row.cuenta_google) row.phone_number_id = (await cuentaDeGoogle(c, row.cuenta_google)).email;
       if (row.canal === 'whatsapp' && (!row.telefono || !row.waba_id)) throw new HttpError(400, 'WhatsApp necesita el teléfono y el id de la cuenta de WhatsApp Business');
       if (row.canal === 'webhook') row.phone_number_id = `wh_${hex(6)}`;
       else if (row.canal === 'correo' && !row.phone_number_id) throw new HttpError(400, 'Falta la dirección de correo de la bandeja');
@@ -82,8 +83,7 @@ export const ENTITIES = {
       if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ?', c.businessId)).n >= MAX_BANDEJAS) throw new HttpError(400, `Ya tienes ${MAX_BANDEJAS} bandejas`);
       if (await one(c.env, 'SELECT 1 FROM wa_bandejas WHERE business_id = ? AND canal = ? AND phone_number_id = ?', c.businessId, row.canal, row.phone_number_id)) throw new HttpError(409, 'Ya tienes una bandeja con ese id en ese canal');
       // Una dirección de correo llega a una sola bandeja de todo el sistema
-      if (row.canal === 'correo' && await one(c.env, "SELECT 1 FROM wa_bandejas WHERE canal = 'correo' AND lower(phone_number_id) = ?", row.phone_number_id)) throw new HttpError(409, 'Esa dirección de correo ya está conectada a una bandeja');
-      if (row.canal === 'correo' && row.cuenta_google) await validarDireccionGoogle(c, row.cuenta_google, row.phone_number_id);
+      if (row.canal === 'correo' && await one(c.env, "SELECT 1 FROM wa_bandejas WHERE canal = 'correo' AND lower(phone_number_id) = ?", row.phone_number_id)) throw new HttpError(409, row.cuenta_google ? 'Esa cuenta de Google ya tiene una bandeja de correo' : 'Esa dirección de correo ya está conectada a una bandeja');
       row.slug = hex(12);
       row.verify_token = hex(16);
       if (body.api_key) { exigirKek(c.env); row.clave_cifrada = await cifrarClave(c.env, claveValida(body.api_key, 'La clave API')); }
@@ -91,10 +91,10 @@ export const ENTITIES = {
     },
     async beforeUpdate(c, row, before) {
       delete row.canal; revisarBandeja(row, before.canal);
-      // Bandeja de correo: al elegir otra cuenta de Google o dirección, la dirección debe ser de esa cuenta
-      if (before.canal === 'correo' && (row.cuenta_google != null || (row.phone_number_id != null && row.phone_number_id !== before.phone_number_id))) {
-        const cuenta = row.cuenta_google ?? before.cuenta_google;
-        if (cuenta) await validarDireccionGoogle(c, cuenta, row.phone_number_id ?? before.phone_number_id);
+      // Bandeja de correo: al elegir otra cuenta de Google, la dirección pasa a ser la de esa cuenta
+      if (before.canal === 'correo' && row.cuenta_google) {
+        row.phone_number_id = (await cuentaDeGoogle(c, row.cuenta_google)).email;
+        if (await one(c.env, "SELECT 1 FROM wa_bandejas WHERE canal = 'correo' AND lower(phone_number_id) = ? AND id <> ?", row.phone_number_id, before.id)) throw new HttpError(409, 'Esa cuenta de Google ya tiene una bandeja de correo');
       }
     },
     async afterDelete(c, before) {
@@ -186,7 +186,7 @@ export const chats = async (c, { bandeja, canal, q, limite = 200 } = {}) => {
   if (bandeja) { donde.push('c.bandeja_id = ?'); args.push(Number(bandeja)); }
   if (canal) { donde.push('b.canal = ?'); args.push(String(canal)); }
   if (q) { donde.push('(c.nombre LIKE ? OR c.contacto LIKE ? OR c.ultimo_texto LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
-  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.asunto, c.admin, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
+  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.asunto, c.via_correo, c.admin, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
     FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args)).map(conLugar);
 };
 export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
@@ -269,7 +269,7 @@ export function routes(r) {
     const t = String(body.texto || '').trim();
     if (!t || t.length > 4000) throw new HttpError(400, 'Escribe un mensaje (máximo 4000 letras)');
     if (!b.activo) throw new HttpError(400, 'La bandeja está desactivada');
-    const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t, { rol: 'humano', asunto: ch.asunto, ref: ch.ref_correo });
+    const { estado, error } = await enviarTexto(c.env, b, ch.contacto, t, { rol: 'humano', asunto: ch.asunto, ref: ch.ref_correo, desde: ch.via_correo });
     await guardarMensaje(c.env, { org: c.businessId, bandeja: b.id, contacto: ch.contacto, rol: 'humano', contenido: t, estado });
     // Cuando una persona responde, la IA se apaga en ese chat (se vuelve a encender con el interruptor)
     await tocarChat(c.env, { org: c.businessId, bandeja: b, contacto: ch.contacto, rol: 'humano', contenido: t });

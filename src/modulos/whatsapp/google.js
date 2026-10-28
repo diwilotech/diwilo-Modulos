@@ -137,20 +137,22 @@ export function armarCorreo({ de, nombre, para, copia, responderA, asunto, texto
   return `${cab.join('\r\n')}\r\n\r\n${(utf8b64(texto).match(/.{1,76}/g) || []).join('\r\n')}`;
 }
 // Responde por Gmail en el mismo hilo (si encuentra el correo original en Gmail) y queda en «Enviados». Desde la dirección de la bandeja si es un alias «Enviar como»; si no, desde la cuenta conectada con Reply-To a la bandeja.
-export async function enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo = false } = {}) {
+export async function enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo = false, desde = null } = {}) {
   const org = bandeja.business_id, cu = bandeja.cuenta_google ? await one(env, 'SELECT * FROM wa_google_cuentas WHERE id = ? AND business_id = ?', bandeja.cuenta_google, org) : await cuentaPara(env, org, 'gmail');
   if (!cu) throw new GoogleError('La cuenta de Google de esta bandeja ya no está vinculada: vuelve a vincularla o elige otra');
   const uso = cu.id;
   let de = cu?.email, nombre = bandeja.nombre;
-  try { const alias = (await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs', {}, uso))?.sendAs?.find((a) => String(a.sendAsEmail).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() && (!a.verificationStatus || a.verificationStatus === 'accepted')); if (alias) { de = alias.sendAsEmail; nombre = alias.displayName || nombre; } } catch { /* sin permiso de alias: se envía desde la cuenta */ }
+  // Se responde desde la dirección a la que escribieron (si «Enviar como» la tiene verificada); si no se puede, desde la cuenta con Reply-To a esa dirección
+  const deseada = String((bandeja.responder_desde === 'cuenta' ? null : desde) || (bandeja.cuenta_google ? null : bandeja.phone_number_id) || '').toLowerCase() || null;
+  if (deseada && deseada !== String(cu.email).toLowerCase()) { try { const alias = (await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs', {}, uso))?.sendAs?.find((a) => String(a.sendAsEmail).toLowerCase() === deseada && (!a.verificationStatus || a.verificationStatus === 'accepted')); if (alias) { de = alias.sendAsEmail; nombre = alias.displayName || nombre; } } catch { /* sin permiso de alias: se envía desde la cuenta */ } }
   if (!de) throw new GoogleError('No sé desde qué cuenta enviar: vuelve a conectar Google');
   let threadId = null;
   if (ref && !nuevo) { try { const id = String(ref).replace(/^<|>$/g, ''); threadId = (await gapi(env, org, `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(`rfc822msgid:${id}`)}&maxResults=1`, {}, uso))?.messages?.[0]?.threadId || null; } catch { /* sin hilo: sale como correo nuevo con Re: */ } }
   const subject = nuevo ? (asunto || 'Mensaje') : /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
   const cc = (await agendaDe(env, org)).copia;   // copia de cada respuesta (p. ej. hola@): si responden a todos, también llega a la bandeja
-  const raw = b64url(armarCorreo({ de, nombre, para, copia: cc && cc !== String(para).toLowerCase() && cc !== String(de).toLowerCase() ? cc : null, responderA: String(de).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() ? null : bandeja.phone_number_id, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: nuevo ? null : ref || null, referencias: nuevo ? null : ref || null }));
+  const raw = b64url(armarCorreo({ de, nombre, para, copia: cc && cc !== String(para).toLowerCase() && cc !== String(de).toLowerCase() ? cc : null, responderA: deseada && String(de).toLowerCase() !== deseada ? deseada : null, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: nuevo ? null : ref || null, referencias: nuevo ? null : ref || null }));
   await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }) }, uso);
-  return { de, cuenta: cu.email, alias: String(de).toLowerCase() !== String(cu.email).toLowerCase() };
+  return { de, cuenta: cu.email, alias: String(de).toLowerCase() !== String(cu.email).toLowerCase(), deseada };
 }
 const cab = (m, n) => (m.payload?.headers || []).find((h) => h.name.toLowerCase() === n)?.value || '';
 function textoDe(p) {
@@ -169,14 +171,18 @@ export async function sincronizarGmail(env, registrar, soloOrg = null) {
       if (!bandejas.length) continue;
       const desde = f.gmail_desde || Math.floor(now() / 1000) - 600, ahora = Math.floor(now() / 1000);
       for (const b of bandejas) {
-        const uso = b.cuenta_google || 'gmail';
-        const lista = await gapi(env, f.business_id, `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=${encodeURIComponent(`to:${b.phone_number_id} -from:me after:${desde}`)}`, {}, uso);
+        const uso = b.cuenta_google || 'gmail', cu = b.cuenta_google ? await one(env, 'SELECT * FROM wa_google_cuentas WHERE id = ? AND business_id = ?', b.cuenta_google, f.business_id) : null;
+        const direcciones = cu ? await direccionesDeCuenta(env, f.business_id, cu) : [String(b.phone_number_id).toLowerCase()];
+        // Bandeja por cuenta de Google: entra todo lo que llega a la cuenta y a sus alias (sin pestañas de promociones ni redes); bandeja antigua por dirección: solo lo dirigido a esa dirección
+        const q = cu ? `in:inbox -from:me -category:promotions -category:social -category:forums -category:updates after:${desde}` : `to:${b.phone_number_id} -from:me after:${desde}`;
+        const lista = await gapi(env, f.business_id, `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=${encodeURIComponent(q)}`, {}, uso);
         for (const x of lista?.messages || []) {
           const m = await gapi(env, f.business_id, `https://gmail.googleapis.com/gmail/v1/users/me/messages/${x.id}?format=full`, {}, uso);
           const de = cab(m, 'from'), dir = (de.match(/<([^>]+)>/)?.[1] || de).trim().toLowerCase(), nombre = (de.match(/^"?([^"<]+?)"?\s*</)?.[1] || '').trim() || null;
           const auto = (cab(m, 'auto-submitted') && cab(m, 'auto-submitted').toLowerCase() !== 'no') || /bulk|list|junk|auto_reply/i.test(cab(m, 'precedence')) || cab(m, 'list-id') || /^(mailer-daemon|postmaster|no-?reply|do-?not-?reply|bounce|notifications?@)/i.test(dir);
-          if (auto) continue;
-          await registrar(b, { de: dir, nombre, asunto: cab(m, 'subject'), texto: textoDe(m.payload), id: cab(m, 'message-id') || x.id, ref: cab(m, 'message-id') || null, ts: Number(m.internalDate) || now() });
+          if (auto || direcciones.includes(dir)) continue;   // avisos automáticos y copias de lo que enviamos nosotros
+          const para = direccionDestino([cab(m, 'delivered-to'), cab(m, 'x-original-to'), cab(m, 'to'), cab(m, 'cc')], direcciones);
+          await registrar(b, { de: dir, nombre, asunto: cab(m, 'subject'), texto: textoDe(m.payload), id: cab(m, 'message-id') || x.id, ref: cab(m, 'message-id') || null, ts: Number(m.internalDate) || now(), para });
         }
       }
       await env.DB.prepare('UPDATE wa_google SET gmail_desde = ? WHERE business_id = ?').bind(ahora - 120, f.business_id).run();
@@ -266,4 +272,16 @@ export async function listarDirecciones(env, org) {
     out.push({ cuenta_id: cu.id, cuenta: cu.email, direcciones: dir });
   }
   return out;
+}
+
+// Direcciones de una cuenta de Google: la cuenta y sus alias «Enviar como» verificados
+export async function direccionesDeCuenta(env, org, cuenta) {
+  const out = [String(cuenta.email).toLowerCase()];
+  try { for (const a of (await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs', {}, cuenta.id))?.sendAs || []) if ((!a.verificationStatus || a.verificationStatus === 'accepted') && !out.includes(String(a.sendAsEmail).toLowerCase())) out.push(String(a.sendAsEmail).toLowerCase()); } catch { /* solo la cuenta */ }
+  return out;
+}
+// De las direcciones de la cuenta, a cuál llegó el correo (Delivered-To, X-Original-To, To o Cc); si no se nota, la de la cuenta
+export function direccionDestino(cabeceras, direcciones) {
+  const juntas = cabeceras.join(' ').toLowerCase();
+  return direcciones.find((d) => juntas.includes(d)) || direcciones[0];
 }

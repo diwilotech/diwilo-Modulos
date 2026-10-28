@@ -214,7 +214,7 @@ ${sugerir ? '\nESTÁS REDACTANDO UNA RESPUESTA SUGERIDA: una persona del equipo 
   if (bienvenida && !soloSaludo) reply = `${bienvenida}\n\n${reply.trim()}`;
   reply = reply.slice(0, 2500).trim();
   if (!reply) return null;
-  const estado = entregar ? (await enviarTexto(env, bandeja, conv.contacto, reply, { rol: 'assistant', asunto: conv.asunto, ref: conv.ref_correo })).estado : 'enviado';
+  const estado = entregar ? (await enviarTexto(env, bandeja, conv.contacto, reply, { rol: 'assistant', asunto: conv.asunto, ref: conv.ref_correo, desde: conv.via_correo })).estado : 'enviado';
   await guardarMensaje(env, { org, bandeja: bandeja.id, contacto: conv.contacto, rol: 'assistant', contenido: reply, estado });
   await tocarChat(env, { org, bandeja, contacto: conv.contacto, rol: 'assistant', contenido: reply });
   return reply;
@@ -283,7 +283,7 @@ async function manejarCorreoWeb(env, { raiz, method, query, body }) {
   if (method !== 'POST') return jsonRes(405, { error: 'Método no permitido' });
   const mensaje = String(b.mensaje ?? b.texto ?? '').trim();
   if (!mensaje) return jsonRes(400, { error: 'mensaje: obligatorio' });
-  const r = await registrarCorreo(env, raiz, { de: b.de ?? b.contacto, nombre: b.nombre, asunto: b.asunto, texto: mensaje, id: b.id, ref: b.ref ?? b.id });
+  const r = await registrarCorreo(env, raiz, { de: b.de ?? b.contacto, nombre: b.nombre, asunto: b.asunto, texto: mensaje, id: b.id, ref: b.ref ?? b.id, para: b.para });
   return r.ok ? jsonRes(200, r) : jsonRes(400, { error: 'de: la dirección de correo de quien escribe' });
 }
 

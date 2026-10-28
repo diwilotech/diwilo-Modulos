@@ -1,5 +1,10 @@
 # WhatsApp — cambios
 
+## 3.8.0 · 2026-10-28
+- **La bandeja de correo es una cuenta de Google:** en Ajustes se elige la cuenta (la de diwilo.com o la de gmail.com, las que vinculaste). Recibe **todo lo que llega a esa cuenta y a sus alias** (p. ej. lo que llega a hola@ y se ve en diwilo.tech@gmail.com), sin pestañas de promociones ni redes, avisos automáticos ni copias de lo que enviamos.
+- **Responde desde la dirección a la que escribieron:** cada chat recuerda a qué dirección (la cuenta o un alias) escribió la persona y se le responde desde ahí; si Gmail no tiene ese alias verificado como «Enviar como», sale desde la cuenta con Reply-To a esa dirección. Opción «Siempre desde la cuenta». El chat muestra «vía hola@…».
+- Migración `0037_correo_por_cuenta.sql`.
+
 ## 3.7.1 · 2026-10-28
 - **Bandeja de correo = cuenta de Google:** en Ajustes (al crear o editar) se elige el correo que recibe y envía entre las direcciones de las cuentas vinculadas; la pestaña Google es solo la conexión. Se quitó lo de Cloudflare de la tarjeta, del formulario y del verificador (sin webhook). Al cambiar de cuenta o dirección se valida que la dirección sea de esa cuenta.
 - **Escribir en el celular:** el cuadro de texto del chat tiene dos líneas (y crece hasta cinco), en el celular Enter hace un salto de línea y se envía con el botón, y al abrir un chat se esconde el encabezado de la página para ganar espacio.
