@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 3.4.0 · 2026-10-27
+- **La IA lee el chat cuando está apagada:** en la cabecera de cada chat, **Sugerir** (la IA lee la conversación y deja una respuesta en el cuadro de texto para que la revises y envíes; no se envía ni se guarda nada) y **Responder con IA** (responde ya al último mensaje por el mismo canal, aunque la IA del chat esté apagada o sin agente; la IA del chat sigue como estaba). Usan el agente del chat o, si no tiene, el de la bandeja.
+
 ## 3.3.2 · 2026-10-27
 - **Corrección:** volver a subir las credenciales de Google borraba todas las cuentas conectadas. Ahora, si el cliente (client_id) es el mismo, las cuentas se conservan; solo si es otro cliente hay que reconectarlas, y el panel avisa antes de reemplazar.
 

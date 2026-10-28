@@ -107,7 +107,7 @@ DW.ready.then((me) => {
     }
     function pintarCabecera() {
       const c = det.chat, acc = $('[data-acc]', cont), conv = det.contact;
-      acc.innerHTML = `${RO ? '' : `<button class="btn btn-sm btn-outline-secondary" data-agbtn title="Elegir qué agente atiende este chat"><i class="bi bi-robot me-1"></i>${esc(det.agente?.nombre || 'Sin agente')}</button><div class="form-check form-switch m-0" title="Cuando está encendida, el agente de la bandeja responde en este chat"><input class="form-check-input" type="checkbox" role="switch" id="wa-ia" data-ia ${c.ia_activa ? 'checked' : ''}><label class="form-check-label small" for="wa-ia">IA</label></div>`}
+      acc.innerHTML = `${RO ? '' : `<button class="btn btn-sm btn-outline-primary" data-sug title="La IA lee la conversación y te propone una respuesta para que la revises (no se envía)"><i class="bi bi-stars me-1"></i>Sugerir</button><button class="btn btn-sm btn-outline-warning" data-iaya title="La IA responde ya al último mensaje, aunque la IA de este chat esté apagada"><i class="bi bi-lightning-charge me-1"></i>Responder con IA</button><button class="btn btn-sm btn-outline-secondary" data-agbtn title="Elegir qué agente atiende este chat"><i class="bi bi-robot me-1"></i>${esc(det.agente?.nombre || 'Sin agente')}</button><div class="form-check form-switch m-0" title="Cuando está encendida, el agente de la bandeja responde en este chat"><input class="form-check-input" type="checkbox" role="switch" id="wa-ia" data-ia ${c.ia_activa ? 'checked' : ''}><label class="form-check-label small" for="wa-ia">IA</label></div>`}
         <button class="btn btn-sm btn-outline-primary" data-cto><i class="bi bi-person-lines-fill me-1"></i>${conv ? esc(conv.name) : 'Contacto'}</button>
         ${c.canal === 'whatsapp' && !RO ? '<button class="btn btn-sm btn-outline-success" data-tpl><i class="bi bi-file-earmark-text me-1"></i>Plantilla</button>' : ''}
         ${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del aria-label="Borrar chat"><i class="bi bi-trash"></i></button>' : ''}`;
@@ -146,6 +146,17 @@ DW.ready.then((me) => {
     $('[data-fil]', el).onclick = (e) => { const b = e.target.closest('[data-f]'); if (!b) return; filtro = b.dataset.f; el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('active', x === b)); cargarLista(); };
     cont.onclick = async (e) => {
       if (e.target.closest('[data-back]')) { box.classList.remove('abierto'); return; }
+      if (e.target.closest('[data-sug]')) {
+        const b = e.target.closest('[data-sug]'); b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        try { const r = await api(`${B}/chats/${sel}/sugerir`, { method: 'POST', body: {} }); const ta = $('[name=texto]', cont); if (ta) { ta.value = r.sugerencia; ta.focus(); } toast('Sugerencia lista: revísala y envíala'); } catch (x) { toast(x.message, false); }
+        b.disabled = false; b.innerHTML = '<i class="bi bi-stars me-1"></i>Sugerir'; return;
+      }
+      if (e.target.closest('[data-iaya]')) {
+        if (!(await confirm({ title: '¿Responder con IA ahora?', text: 'La IA leerá la conversación y le responderá a esta persona por el mismo canal. La IA de este chat sigue como está (si estaba apagada, se queda apagada).', ok: 'Responder' }))) return;
+        const b = e.target.closest('[data-iaya]'); b.disabled = true;
+        try { const r = await api(`${B}/chats/${sel}/responder-ia`, { method: 'POST', body: {} }); toast(r.enviado ? 'La IA respondió' : 'La IA redactó la respuesta pero no se pudo enviar (revisa la bandeja)', !!r.enviado); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); }
+        b.disabled = false; return;
+      }
       if (e.target.closest('[data-ok]')) { try { await api(`${B}/chats/${sel}`, { method: 'PATCH', body: { atencion: false } }); toast('Marcado como atendido'); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); } return; }
       if (e.target.closest('[data-agbtn]')) return elegirAgente({ ...det.chat, agente_id: det.chat.agente_id });
       if (e.target.closest('[data-cto]')) return contacto(det, async () => { await cargarChat(true); cargarLista(); });

@@ -7,6 +7,8 @@
 //   CRUD  /api/whatsapp/agentes                  agentes de IA (de una bandeja o de todas: bandeja_id 0) con los datos de contacto que piden (campos)
 //   GET   /api/whatsapp/chats?bandeja=&canal=&q=  lista de chats (izquierda) · GET /chats/:id chat completo (mensajes y contacto)
 //   PATCH /api/whatsapp/chats/:id { ia_activa?, agente_id? }  enciende o apaga la IA en ese chat y elige qué agente lo atiende (0 = ninguno) · POST /:id/leer · POST /:id/enviar { texto } (apaga la IA de ese chat)
+//   POST  /api/whatsapp/chats/:id/sugerir        la IA lee la conversación y redacta una respuesta para revisar (no se envía)
+//   POST  /api/whatsapp/chats/:id/responder-ia   la IA responde ya al último mensaje, aunque la IA del chat esté apagada
 //   POST  /api/whatsapp/chats/:id/contacto       guarda / enlaza el contacto en Marketing · DELETE /chats/:id
 //   GET   /api/whatsapp/google · POST /google/credenciales · /google/conectar · /google/desconectar · /google/probar · PUT /google/agenda  conexión con Google (Gmail y Calendar)
 //   GET   /api/whatsapp/mensajes?q=&canal=&bandeja=  todos los mensajes de todos los canales (los 200 más recientes)
@@ -18,7 +20,7 @@ import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { cifrarClave } from '../../lib/ia.js';
 import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValido, perfil, soloDigitos, CANALES } from './canales.js';
-import { guardarMensaje, tocarChat, AGENTE_EN } from './webhook.js';
+import { guardarMensaje, tocarChat, responder, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
 import { sincronizarSiToca } from './correo.js';
@@ -223,6 +225,21 @@ export function routes(r) {
     if (estado === 'sin_destino') throw new HttpError(400, 'Esta bandeja web no tiene URL de salida: tu respuesta quedó guardada en el chat, pero no se envía a tu sistema. Agrégala en Ajustes de la bandeja.');
     if (estado !== 'enviado') throw new HttpError(estado === 'sin_clave' ? 400 : 502, estado === 'sin_clave' ? 'La bandeja no tiene clave API: agrégala para poder enviar' : `No se envió: ${error || 'Meta no aceptó el mensaje'}${b.canal === 'whatsapp' ? '. Pasadas 24 h desde el último mensaje de la persona hay que usar una plantilla.' : b.canal === 'correo' ? '' : '. Solo se puede responder dentro de las 24 h siguientes al último mensaje.'}`);
     return json({ ok: true, estado, ia_activa: false });
+  });
+  // La IA lee la conversación: «sugerir» redacta una respuesta para revisar (no se envía) y «responder-ia» responde ya, aunque la IA del chat esté apagada
+  const iaDelChat = async (c, modo) => {
+    const ch = await chatDe(c, c.params.id), b = await bandejaDe(c, ch.bandeja_id);
+    if (modo === 'forzar' && !b.activo) throw new HttpError(400, 'La bandeja está desactivada');
+    const texto = await responder(c.env, { bandeja: b, conv: ch, entregar: modo === 'forzar', modo });
+    if (!texto) throw new HttpError(400, 'No pude redactar la respuesta: este chat no tiene un agente de IA disponible (elígelo con el botón del agente), se llegó al tope diario de IA o la suscripción está vencida');
+    return { texto, ch, b };
+  };
+  r.post(`${B}/chats/:id/sugerir`, `tenant:${MOD}`, async (c) => json({ sugerencia: (await iaDelChat(c, 'sugerir')).texto }));
+  r.post(`${B}/chats/:id/responder-ia`, `tenant:${MOD}`, async (c) => {
+    const { texto, ch } = await iaDelChat(c, 'forzar');
+    const estado = (await one(c.env, "SELECT estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol = 'assistant' ORDER BY ts DESC, id DESC LIMIT 1", c.businessId, ch.bandeja_id, ch.contacto))?.estado;
+    await audit(c, `Pidió una respuesta de la IA en el chat de ${ch.nombre || ch.contacto} (${ch.bandeja})`, { modulo: MOD });
+    return json({ ok: true, respuesta: texto, estado, enviado: estado === 'enviado' });
   });
   r.post(`${B}/chats/:id/contacto`, `tenant:${MOD}`, async (c) => {
     const ch = await chatDe(c, c.params.id), b = await bandejaDe(c, ch.bandeja_id), d = await readJson(c.req);

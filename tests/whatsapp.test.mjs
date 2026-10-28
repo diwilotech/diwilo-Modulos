@@ -105,6 +105,20 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: con el aviso apagado en el agente no marca el chat', (await det()).chat.atencion === null && (await ags()).find((a) => a.id === g1.data.id).alerta_asesor === 0);
   await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { alerta_asesor: true } });
 
+  /* ---------- la IA lee el chat: sugerir una respuesta o responder ya con la IA apagada ---------- */
+  await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: false } });
+  await hook(url, wa('1090000000001', 'wamid.S1', '[prueba] ¿tienen horarios?'));
+  await new Promise((r) => setTimeout(r, 600));
+  const antes = (await det()).mensajes.length;
+  const sug = await A.app(`${X}/chats/${chA.id}/sugerir`, { method: 'POST', body: {} });
+  const desp = await det();
+  check('Mensajes: «Sugerir» devuelve una respuesta redactada por la IA con la IA del chat apagada y no envía ni guarda nada', sug.status === 200 && sug.data.sugerencia === 'Respuesta de prueba: ¿tienen horarios?' && desp.mensajes.length === antes && desp.chat.ia_activa === 0, JSON.stringify([sug.status, sug.data, antes, desp.mensajes.length]));
+  const ya = await A.app(`${X}/chats/${chA.id}/responder-ia`, { method: 'POST', body: {} });
+  const desp2 = await det();
+  check('Mensajes: «Responder con IA» responde ya aunque la IA esté apagada (queda guardado y la IA sigue apagada)', ya.status === 200 && desp2.mensajes.at(-1).rol === 'assistant' && desp2.mensajes.at(-1).contenido === 'Respuesta de prueba: ¿tienen horarios?' && desp2.chat.ia_activa === 0, JSON.stringify([ya.status, ya.data]));
+  check('Mensajes: B no usa la IA de los chats de A', (await B.app(`${X}/chats/${chA.id}/sugerir`, { method: 'POST', body: {} })).status === 404 && (await B.app(`${X}/chats/${chA.id}/responder-ia`, { method: 'POST', body: {} })).status === 404);
+  await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: true } });
+
   /* ---------- contactos en Marketing ---------- */
   await hook(url, wa('1090000000001', 'wamid.A5', '[prueba] soy Ana [[DATOS {"nombre":"Ana Pérez","correo":"ana@ejemplo.co","empresa":"Acme SAS","tipo":"negocio","interes":"cursos","extras":{"Cargo":"Gerente"}}]]', '573001112233'));
   const cto = await esperar(async () => (await A.app('/api/marketing/contacts?q=Ana')).data.rows.find((c) => c.name === 'Ana Pérez'));
