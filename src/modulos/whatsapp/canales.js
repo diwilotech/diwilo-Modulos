@@ -54,15 +54,15 @@ export async function enviarWeb(bandeja, evento, datos) {
 
 const escHtml = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 // Responde un correo por Cloudflare Email Sending, en el mismo hilo (Re: asunto, In-Reply-To / References)
-export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref } = {}) {
+export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref, nuevo = false } = {}) {
   // Con Google conectado, la respuesta sale por Gmail (queda en «Enviados» y en el mismo hilo); si no, por Cloudflare Email Sending
   if ((await conectado(env, bandeja.business_id).catch(() => false)) && (await agendaDe(env, bandeja.business_id).catch(() => ({}))).envio !== 'cloudflare') {
-    try { await enviarGmail(env, bandeja, para, texto, { asunto, ref }); return { estado: 'enviado' }; }
+    try { await enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo }); return { estado: 'enviado' }; }
     catch (e) { console.error('gmail envío', e.message); return { estado: 'error', error: `Gmail no lo envió: ${String(e.message).slice(0, 200)}` }; }
   }
   if (!env.EMAIL?.send) return { estado: 'error', error: 'El envío de correo no está configurado en Diwilo Modulos' };
   try {
-    const t = String(texto).slice(0, 20000), subject = /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
+    const t = String(texto).slice(0, 20000), subject = nuevo ? (asunto || 'Mensaje') : /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
     await env.EMAIL.send({ to: para, from: { email: bandeja.phone_number_id, name: bandeja.nombre }, subject: subject.slice(0, 200), text: t, html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap">${escHtml(t)}</div>`,
       ...(ref ? { headers: { 'In-Reply-To': ref, References: ref } } : {}) });
     return { estado: 'enviado' };
@@ -84,15 +84,19 @@ export async function enviarTexto(env, bandeja, para, texto, extra = {}) {
   } catch (e) { return e.message === 'sin_clave' ? { estado: 'sin_clave' } : { estado: 'error', error: e.name === 'AbortError' ? 'Meta tardó más de 8 segundos' : e.message }; }
 }
 
-// Plantillas aprobadas de la cuenta de WhatsApp. Solo se ofrecen las que se pueden llenar con variables del cuerpo (sin encabezado con archivo ni botones con variables).
+// Plantillas de la cuenta (con su estado de revisión). Pertenecen a la cuenta de mensajería (cuenta_plantillas); si no se puso, se prueba con la cuenta de WhatsApp.
+// Solo las APROBADAS se pueden enviar, y solo las que se llenan con variables del cuerpo (sin encabezado con archivo ni botones con variables).
 export async function plantillasDe(env, bandeja) {
-  const r = await graph(env, bandeja, `${GRAPH}/${bandeja.waba_id}/message_templates?status=APPROVED&limit=100&fields=name,language,category,components`);
+  const cuenta = bandeja.cuenta_plantillas || bandeja.waba_id;
+  const r = await graph(env, bandeja, `${GRAPH}/${cuenta}/message_templates?limit=100&fields=name,language,category,status,rejected_reason,quality_score,components`);
   if (!r.ok) throw new Error(await errMeta(r));
   return ((await r.json()).data || []).map((p) => {
     const cuerpo = (p.components || []).find((c) => c.type === 'BODY')?.text || '', cab = (p.components || []).find((c) => c.type === 'HEADER');
     const variables = [...new Set([...cuerpo.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1])))].length;
     const raras = (cab && (cab.format !== 'TEXT' || /\{\{/.test(cab.text || ''))) || (p.components || []).some((c) => c.type === 'BUTTONS' && /\{\{/.test(JSON.stringify(c.buttons || [])));
-    return { nombre: p.name, idioma: p.language, categoria: p.category, cuerpo, variables, soportada: !raras };
+    const ejemplo = p.name === 'hello_world';   // plantilla de muestra de Meta: solo se puede enviar desde los números de prueba públicos
+    const enviable = p.status === 'APPROVED' && !raras && !ejemplo;
+    return { nombre: p.name, idioma: p.language, categoria: p.category, estado: p.status, calidad: p.quality_score?.score || null, motivo: p.rejected_reason && p.rejected_reason !== 'NONE' ? p.rejected_reason : null, cuerpo, variables, soportada: enviable, aviso: ejemplo ? 'Plantilla de ejemplo de Meta: solo se puede enviar desde los números de prueba, no desde tu número real.' : p.status !== 'APPROVED' ? (p.status === 'PENDING' ? 'Pendiente de aprobación de Meta.' : p.status === 'REJECTED' ? 'Meta la rechazó.' : `Estado: ${p.status}.`) : raras ? 'Tiene archivo en el encabezado o botones con variables: envíala desde Meta.' : null };
   });
 }
 export async function enviarPlantilla(env, bandeja, para, nombre, idioma, variables = []) {
@@ -183,7 +187,7 @@ export async function probarBandeja(env, bandeja, para) {
           return { ok: pasos.every((x) => x.ok), pasos };
         }
         // Fuera de la ventana de 24 h solo se puede mandar una plantilla APROBADA de la cuenta, sin variables («hello_world» solo sirve en los números de prueba de Meta)
-        const pl = await llamar(`${GRAPH}/${bandeja.waba_id}/message_templates?status=APPROVED&limit=50&fields=name,language,components`);
+        const pl = await llamar(`${GRAPH}/${bandeja.cuenta_plantillas || bandeja.waba_id}/message_templates?status=APPROVED&limit=50&fields=name,language,components`);
         const tpl = pl.ok ? ((await pl.json()).data || []).find((x) => !/\{\{/.test(JSON.stringify(x.components || [])) && x.name !== 'hello_world') : null;
         if (!tpl) paso('Mensaje de prueba', false, `${pl.ok ? 'La cuenta no tiene plantillas aprobadas sin variables.' : `No se pudieron leer las plantillas: ${await errMeta(pl)}.`} Escríbele al número desde otro WhatsApp (esa persona abre la ventana de 24 h) y prueba de nuevo con ese número: así se envía un texto normal.`);
         else {

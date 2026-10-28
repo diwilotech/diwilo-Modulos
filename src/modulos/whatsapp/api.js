@@ -12,14 +12,15 @@
 //   POST  /api/whatsapp/chats/:id/contacto       guarda / enlaza el contacto en Marketing · DELETE /chats/:id
 //   GET   /api/whatsapp/google · POST /google/credenciales · /google/conectar · /google/desconectar · /google/probar · PUT /google/agenda  conexión con Google (Gmail y Calendar)
 //   GET   /api/whatsapp/mensajes?q=&canal=&bandeja=  todos los mensajes de todos los canales (los 200 más recientes)
-//   GET   /api/whatsapp/contactos?q=             contactos de Marketing (para enviar plantillas)
+//   POST  /api/whatsapp/correo/enviar            { bandeja_id, asunto, mensaje, contactos[] } correo nuevo a contactos de Marketing · CRUD /api/whatsapp/respuestas = mis plantillas
+//   GET   /api/whatsapp/contactos?q=&con=email|phone             contactos de Marketing (para enviar plantillas)
 //   GET   /api/whatsapp/plantillas?bandeja=      plantillas aprobadas de WhatsApp · POST /plantillas/enviar { bandeja_id, plantilla, idioma, variables, contactos[], chats[] }
 // Público (en el dominio de cada app): GET|POST /wa/<slug> = el webhook (webhook.js).
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { cifrarClave } from '../../lib/ia.js';
-import { enviarTexto, enviarPlantilla, plantillasDe, probarBandeja, webhookValido, perfil, soloDigitos, CANALES } from './canales.js';
+import { enviarTexto, enviarPlantilla, enviarCorreo, plantillasDe, probarBandeja, webhookValido, perfil, soloDigitos, CANALES } from './canales.js';
 import { guardarMensaje, tocarChat, responder, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
@@ -40,6 +41,7 @@ function revisarBandeja(row, canal) {
   if (canal === 'whatsapp') {
     if (row.telefono != null && !/^\+\d{8,15}$/.test(String(row.telefono).replace(/[\s-]/g, ''))) throw new HttpError(400, 'El teléfono debe llevar el indicativo, por ejemplo +57 300 123 4567');
     if (row.waba_id != null && !/^\d{5,30}$/.test(row.waba_id)) throw new HttpError(400, 'El id de la cuenta de negocio son solo dígitos (lo da Meta)');
+    if (row.cuenta_plantillas && !/^\d{5,30}$/.test(row.cuenta_plantillas)) throw new HttpError(400, 'El id de la cuenta de mensajería (plantillas) son solo dígitos (lo da Meta)');
     if (row.telefono) row.telefono = String(row.telefono).replace(/[\s-]/g, '');
   }
 }
@@ -58,7 +60,7 @@ const textoLargo = (row) => {
 export const ENTITIES = {
   bandejas: {
     table: 'wa_bandejas', label: 'la bandeja', title: 'nombre', search: ['nombre', 'telefono'], order: 'created_at',
-    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', activo: 'bool+' },
+    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', cuenta_plantillas: 'text', activo: 'bool+' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row, body) {
       row.canal ||= 'whatsapp';
@@ -106,6 +108,20 @@ export const ENTITIES = {
     async afterDelete(c, before) { await c.env.DB.prepare('UPDATE wa_conversaciones SET agente_id = NULL WHERE business_id = ? AND agente_id = ?').bind(c.businessId, before.id).run(); },
     decorate: (c, rows) => rows.map((r) => ({ ...r, bandejas: listaBandejas(r.bandejas) })),
   },
+};
+
+// Mis plantillas: respuestas reutilizables para cualquier canal (WhatsApp dentro de las 24 h, Instagram, Messenger, correo, web). Admiten {nombre} y {empresa}.
+const canalesDe = (t) => { try { const x = JSON.parse(t || '[]'); return Array.isArray(x) ? x.filter((k) => k in CANALES) : []; } catch { return []; } };
+ENTITIES.respuestas = {
+  table: 'wa_respuestas', label: 'la plantilla', title: 'nombre', search: ['nombre', 'cuerpo'], order: 'nombre',
+  fields: { nombre: 'text!', canales: 'long', asunto: 'text', cuerpo: 'long!' },
+  leer: 'tenant', crear: 'tenant', borrar: 'manager',
+  async beforeCreate(c, row) {
+    if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_respuestas WHERE business_id = ?', c.businessId)).n >= 100) throw new HttpError(400, 'Ya tienes 100 plantillas');
+    row.canales = JSON.stringify(canalesDe(row.canales)); if (row.cuerpo && row.cuerpo.length > 4000) throw new HttpError(400, 'La plantilla es muy larga (máximo 4000 letras)');
+  },
+  beforeUpdate(c, row) { if (row.canales != null) row.canales = JSON.stringify(canalesDe(row.canales)); if (row.cuerpo && row.cuerpo.length > 4000) throw new HttpError(400, 'La plantilla es muy larga (máximo 4000 letras)'); },
+  decorate: (c, rows) => rows.map((r) => ({ ...r, canales: canalesDe(r.canales) })),
 };
 const listaBandejas = (t) => { try { const x = JSON.parse(t || '[]'); return Array.isArray(x) ? x.filter((n) => Number.isInteger(n) && n > 0) : []; } catch { return []; } };
 // Valida las bandejas elegidas (todas deben ser del negocio) y deja bandeja_id (la primera, o 0 = todas) por compatibilidad
@@ -339,9 +355,35 @@ export function routes(r) {
   /* contactos de Marketing y plantillas */
   r.get(`${B}/contactos`, `tenant:${MOD}`, async (c) => {
     if (!(await marketingActivo(c.env, c.businessId))) return json({ marketing: false, rows: [] });
-    const q = (c.url.searchParams.get('q') || '').trim().slice(0, 60);
-    const rows = await all(c.env, `SELECT id, name, phone, email, stage FROM mk_contacts WHERE business_id = ? AND phone IS NOT NULL AND phone <> '' ${q ? 'AND (name LIKE ? OR phone LIKE ? OR email LIKE ?)' : ''} ORDER BY updated_at DESC LIMIT 100`, ...(q ? [c.businessId, `%${q}%`, `%${q}%`, `%${q}%`] : [c.businessId]));
+    const q = (c.url.searchParams.get('q') || '').trim().slice(0, 60), con = c.url.searchParams.get('con') === 'email' ? 'email' : 'phone';   // con teléfono (WhatsApp) o con correo
+    const rows = await all(c.env, `SELECT id, name, phone, email, company, stage FROM mk_contacts WHERE business_id = ? AND ${con} IS NOT NULL AND ${con} <> '' ${q ? 'AND (name LIKE ? OR phone LIKE ? OR email LIKE ? OR company LIKE ?)' : ''} ORDER BY updated_at DESC LIMIT 100`, ...(q ? [c.businessId, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [c.businessId]));
     return json({ marketing: true, rows });
+  });
+  // Correo nuevo a contactos de Marketing (no es respuesta a un hilo): asunto y mensaje con {nombre} y {empresa}; cada persona queda como chat de la bandeja de correo
+  r.post(`${B}/correo/enviar`, `tenant:${MOD}`, async (c) => {
+    const body = await readJson(c.req), b = await bandejaDe(c, body.bandeja_id);
+    if (b.canal !== 'correo' || !b.activo) throw new HttpError(400, 'Elige una bandeja de correo activa');
+    const asunto = String(body.asunto || '').trim().slice(0, 200), mensaje = String(body.mensaje || '').trim();
+    if (!asunto || !mensaje || mensaje.length > 8000) throw new HttpError(400, 'Escribe el asunto y el mensaje (máximo 8000 letras)');
+    const ids = [...new Set((Array.isArray(body.contactos) ? body.contactos : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, MAX_ENVIO);
+    if (!ids.length) throw new HttpError(400, 'Elige al menos un contacto con correo');
+    const enviados = [], fallidos = [];
+    for (const id of ids) {
+      const k = await contactoPorId(c.env, c.businessId, id);
+      if (!k?.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(k.email)) { fallidos.push({ nombre: k?.name || `#${id}`, error: 'No tiene un correo válido' }); continue; }
+      const para = k.email.toLowerCase(), primero = String(k.name || '').split(/\s+/)[0];
+      const yo = (t) => String(t).replace(/\s*\{nombre\}/gi, primero ? ` ${primero}` : '').replace(/\{empresa\}/gi, k.company || '').trim();
+      const texto = yo(mensaje), tema = yo(asunto);
+      const { estado, error } = await enviarCorreo(c.env, b, para, texto, { asunto: tema, nuevo: true });
+      if (estado !== 'enviado') { fallidos.push({ nombre: k.name, error: error || 'No se pudo enviar' }); continue; }
+      const contenido = `Asunto: ${tema}\n\n${texto}`;
+      await guardarMensaje(c.env, { org: c.businessId, bandeja: b.id, contacto: para, nombre: k.name, rol: 'humano', contenido, estado });
+      const conv = await tocarChat(c.env, { org: c.businessId, bandeja: b, contacto: para, nombre: k.name, rol: 'humano', contenido, iaInicial: 0 });
+      await c.env.DB.prepare('UPDATE wa_conversaciones SET asunto = ?, contact_id = COALESCE(contact_id, ?) WHERE id = ?').bind(tema, k.id, conv.id).run();
+      enviados.push(para);
+    }
+    await audit(c, `Envió un correo a ${enviados.length} contacto${enviados.length === 1 ? '' : 's'} de Marketing${fallidos.length ? ` (${fallidos.length} con error)` : ''}`, { modulo: MOD });
+    return json({ enviados: enviados.length, fallidos });
   });
   r.get(`${B}/plantillas`, `tenant:${MOD}`, async (c) => {
     const b = await bandejaDe(c, c.url.searchParams.get('bandeja'));
@@ -366,7 +408,7 @@ export function routes(r) {
     if (dest.size > MAX_ENVIO) throw new HttpError(400, `Máximo ${MAX_ENVIO} destinatarios por envío`);
     let tpl;
     try { tpl = (await plantillasDe(c.env, b)).find((p) => p.nombre === body.plantilla && p.idioma === body.idioma); } catch (e) { throw new HttpError(502, `No se pudieron leer las plantillas: ${e.message}`); }
-    if (!tpl || !tpl.soportada) throw new HttpError(400, 'Esa plantilla no existe, no está aprobada o tiene encabezado con archivo / botones con variables (envíala desde Meta)');
+    if (!tpl || !tpl.soportada) throw new HttpError(400, tpl?.aviso || 'Esa plantilla no existe o no se puede enviar desde aquí (debe estar aprobada por Meta)');
     if (vars.length < tpl.variables) throw new HttpError(400, `La plantilla necesita ${tpl.variables} variable${tpl.variables === 1 ? '' : 's'}`);
     const enviados = [], fallidos = [];
     for (const [para, k] of dest) {

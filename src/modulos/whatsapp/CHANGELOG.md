@@ -1,5 +1,12 @@
 # WhatsApp — cambios
 
+## 3.5.0 · 2026-10-27
+- **Pantalla más clara:** la cabecera del chat va en dos filas (nombre y datos arriba; botones abajo), con textos que no se parten y botones solo con ícono cuando el espacio es poco.
+- **Pestaña Plantillas:** (1) las plantillas de Meta con su estado (aprobada, pendiente, rechazada) y motivo, que se actualizan solas cada minuto y con «Recargar»; (2) «Mis plantillas», respuestas propias para cualquier canal (WhatsApp, Instagram, Messenger, correo, web) con {nombre} y {empresa}, que se insertan desde el botón junto al cuadro de texto del chat.
+- Las plantillas de Meta se leen de la **cuenta de mensajería** (nuevo campo en la bandeja de WhatsApp); `hello_world` se marca como plantilla de ejemplo de Meta que solo se puede enviar desde números de prueba.
+- **Enviar mensajes** (antes «Enviar plantillas»): a contactos de Marketing por **WhatsApp** (plantilla de Meta) o por **correo** (asunto y mensaje nuevos, con tus plantillas y {nombre}/{empresa}; sale por Gmail o Cloudflare y cada persona queda como chat). Instagram y Messenger no permiten iniciar conversaciones.
+- Migración `0034_respuestas_plantillas.sql`.
+
 ## 3.4.1 · 2026-10-27
 - **El agente sabe dónde conversa:** su instrucción ahora incluye «Dónde estás conversando»: el canal y la cuenta (WhatsApp con su número, Instagram, Messenger, el chat de la página web o un correo con su asunto), cómo hablar en cada uno (mensajes cortos en chats, formato de correo con saludo y firma), qué sabe y qué no de la persona (en WhatsApp ya tiene su número; en Instagram no), desde dónde escribe un visitante web (país, dispositivo y página), los otros canales del negocio para no inventar, la fecha y hora de Colombia y si es el primer mensaje o la conversación ya está avanzada.
 

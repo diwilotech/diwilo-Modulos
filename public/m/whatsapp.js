@@ -7,7 +7,7 @@ DW.ready.then((me) => {
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
-  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['plantillas', 'Enviar plantillas'], ['google', 'Google']];
+  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['enviar', 'Enviar mensajes'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['google', 'Google']];
   let view = (location.hash || '#chats').slice(1), timers = [], abrirId = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'chats';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
@@ -40,11 +40,16 @@ DW.ready.then((me) => {
 .wa-it:hover{background:rgba(var(--bs-emphasis-color-rgb),.04)}.wa-it.on{background:rgba(var(--bs-primary-rgb),.12)}.wa-av{flex:none;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:600;background:rgba(var(--bs-emphasis-color-rgb),.1);position:relative}
 .wa-av i{position:absolute;right:-3px;bottom:-3px;font-size:14px;background:var(--bs-body-bg);border-radius:50%;line-height:1}.wa-it .t{min-width:0;flex:1}.wa-it.alerta{background:rgba(var(--bs-danger-rgb),.10);box-shadow:inset 4px 0 0 var(--bs-danger)}.wa-it.alerta.on{background:rgba(var(--bs-danger-rgb),.18)}.wa-pill-r{background:var(--bs-danger);color:#fff;border-radius:999px;font-size:.68rem;padding:1px 7px;white-space:nowrap}.wa-lug{font-size:.72rem;color:var(--bs-secondary-color);white-space:nowrap;font-weight:400}.wa-r{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;max-width:110px}.wa-r small{color:var(--bs-secondary-color)}.wa-ag{display:inline-flex;gap:4px;align-items:center;max-width:110px;padding:1px 8px;border-radius:999px;border:1px solid var(--bs-border-color);font-size:.7rem;color:var(--bs-secondary-color);cursor:pointer}.wa-ag span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wa-ag:hover{border-color:var(--bs-primary);color:var(--bs-primary)}.wa-it .l1{display:flex;gap:6px;align-items:baseline}.wa-it .l1 b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .wa-it .l2{display:flex;gap:6px;align-items:center;color:var(--bs-secondary-color);font-size:.85rem}.wa-it .l2 span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wa-n{background:var(--bs-primary);color:#fff;border-radius:999px;font-size:.7rem;padding:1px 7px}
-.wa-chat{display:flex;flex-direction:column;min-width:0;min-height:0}.wa-cab{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bs-border-color)}.wa-cab .t{flex:1;min-width:0}.wa-cab .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wa-chat{display:flex;flex-direction:column;min-width:0;min-height:0}.wa-chat{container-type:inline-size}.wa-cab{display:flex;flex-direction:column;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bs-border-color);background:var(--bs-body-bg)}
+.wa-cab1{display:flex;gap:10px;align-items:center;min-width:0}.wa-cab1 .t{flex:1;min-width:0}.wa-cab1 .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:1.02rem;line-height:1.2}
+.wa-sub{display:block;font-size:.78rem;color:var(--bs-secondary-color);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wa-tb{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.wa-tb .btn{--bs-btn-padding-y:.22rem;--bs-btn-padding-x:.55rem;--bs-btn-font-size:.8rem;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.wa-tb .wa-sp{flex:1}.wa-tb .wa-agb{max-width:180px}.wa-tb .wa-agb span{overflow:hidden;text-overflow:ellipsis}.wa-tb .form-check{margin:0;display:flex;align-items:center;gap:6px;padding-left:2.4em}
+@container (max-width:640px){.wa-bt{display:none}}
 .wa-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:6px;background:rgba(var(--bs-emphasis-color-rgb),.03)}
-.wa-m{max-width:78%;padding:7px 11px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;background:var(--bs-body-bg);border:1px solid var(--bs-border-color-translucent)}.wa-m small{display:block;font-size:.68rem;opacity:.65;margin-top:2px}
+.wa-m{max-width:78%;padding:8px 12px;border-radius:14px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;background:var(--bs-body-bg);border:1px solid var(--bs-border-color-translucent)}.wa-m small{display:block;font-size:.68rem;opacity:.65;margin-top:2px}
 .wa-m.me{align-self:flex-end;background:rgba(var(--bs-primary-rgb),.14);border-color:transparent}.wa-m.ia{align-self:flex-end;background:rgba(124,58,237,.14);border-color:transparent}
-.wa-comp{display:flex;gap:8px;padding:10px;border-top:1px solid var(--bs-border-color);align-items:flex-end}.wa-comp textarea{resize:none;max-height:110px}
+.wa-comp{display:flex;gap:8px;padding:10px;border-top:1px solid var(--bs-border-color);align-items:flex-end}.wa-comp textarea{resize:none;max-height:110px;border-radius:12px}.wa-comp{background:var(--bs-body-bg)}.wa-it{padding:11px 12px}
 .wa-vacio{margin:auto;text-align:center;color:var(--bs-secondary-color);padding:24px}.wa-back{display:none}
 @media (max-width:767px){.wa-box{grid-template-columns:1fr;height:calc(100dvh - 160px)}.wa-box .wa-chat{display:none}.wa-box.abierto .wa-list{display:none}.wa-box.abierto .wa-chat{display:flex}.wa-back{display:inline-block}.wa-m{max-width:90%}}
 </style>`);
@@ -54,7 +59,7 @@ DW.ready.then((me) => {
     el.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; nav(); render(); };
   }
-  function render() { timers.forEach(clearInterval); timers = []; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
+  function render() { timers.forEach(clearInterval); timers = []; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
   const cada = (ms, f) => timers.push(setInterval(() => { if (!document.hidden) f(); }, ms));
 
   /* ---------- chats ---------- */
@@ -62,8 +67,8 @@ DW.ready.then((me) => {
     el.innerHTML = `<div class="wa-box"><aside class="wa-list"><div class="wa-search"><input class="form-control form-control-sm" data-q placeholder="Buscar chats…" aria-label="Buscar chats"></div><div class="wa-fil" data-fil></div><div class="wa-items" data-items></div></aside><section class="wa-chat" data-chat></section></div>`;
     const box = $('.wa-box', el), cont = $('[data-chat]', el), lista = $('[data-items]', el);
     let items = [], sel = null, filtro = '', filtroB = '', q = '', det = null, firma = '';
-    let bands = [], agentes = [];
-    try { [bands, agentes] = await Promise.all([api(`${B}/bandejas`).then((r) => r.rows), api(`${B}/agentes`).then((r) => r.rows)]); } catch (_) {}
+    let bands = [], agentes = [], respuestas = [];
+    try { [bands, agentes, respuestas] = await Promise.all([api(`${B}/bandejas`).then((r) => r.rows), api(`${B}/agentes`).then((r) => r.rows), api(`${B}/respuestas`).then((r) => r.rows).catch(() => [])]); } catch (_) {}
     const canales = [...new Set(bands.map((b) => b.canal))];
     // Filtros: por canal (WhatsApp, Instagram, Messenger, Web) y por bandeja (cada webhook o número con su nombre)
     $('[data-fil]', el).innerHTML = bands.length ? `${bands.length ? [['', 'Todos'], ...canales.map((c) => [c, CAN_[c]?.n || c])].map(([k, l]) => `<button class="btn btn-sm btn-outline-secondary ${k === filtro ? 'active' : ''}" data-f="${k}">${k ? ico(k) + ' ' : ''}${esc(l)}</button>`).join('') : ''}
@@ -89,11 +94,12 @@ DW.ready.then((me) => {
     }
     function armarChat() {
       const c = det.chat;
-      cont.innerHTML = `<div class="wa-cab"><button class="btn btn-sm btn-outline-secondary wa-back" data-back aria-label="Volver"><i class="bi bi-arrow-left"></i></button><span class="wa-av">${esc((c.nombre || c.contacto).trim()[0]?.toUpperCase() || '?')}${ico(c.canal)}</span>
-        <div class="t"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b><small class="text-body-secondary">${esc(CAN_[c.canal]?.n || c.canal)} · ${esc(c.bandeja)} ${lugar(c)}${c.asunto ? ` · ${esc(c.asunto)}` : ''}</small></div>
-        <div data-acc class="d-flex align-items-center gap-2 flex-wrap justify-content-end"></div></div>
+      cont.innerHTML = `<div class="wa-cab"><div class="wa-cab1"><button class="btn btn-sm btn-outline-secondary wa-back" data-back aria-label="Volver"><i class="bi bi-arrow-left"></i></button><span class="wa-av">${esc((c.nombre || c.contacto).trim()[0]?.toUpperCase() || '?')}${ico(c.canal)}</span>
+        <div class="t"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b><span class="wa-sub">${esc(CAN_[c.canal]?.n || c.canal)} · ${esc(c.bandeja)} ${lugar(c)}${c.asunto ? ` · ✉ ${esc(c.asunto)}` : ''}</span></div>
+        <div data-acc1 class="d-flex align-items-center gap-1"></div></div>
+        <div class="wa-tb" data-acc></div></div>
         <div data-aviso></div><div class="wa-log" data-log></div>
-        ${RO ? '' : `<form class="wa-comp" data-form><textarea class="form-control" name="texto" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea><button class="btn btn-primary" aria-label="Enviar"><i class="bi bi-send-fill"></i></button></form>`}`;
+        ${RO ? '' : `<form class="wa-comp" data-form><button type="button" class="btn btn-outline-secondary" data-plt title="Mis plantillas: respuestas guardadas para insertar" aria-label="Mis plantillas"><i class="bi bi-card-text"></i></button><textarea class="form-control" name="texto" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" aria-label="Mensaje"></textarea><button class="btn btn-primary" aria-label="Enviar"><i class="bi bi-send-fill"></i></button></form>`}`;
       const form = $('[data-form]', cont);
       if (form) {
         const ta = form.texto;
@@ -107,10 +113,14 @@ DW.ready.then((me) => {
     }
     function pintarCabecera() {
       const c = det.chat, acc = $('[data-acc]', cont), conv = det.contact;
-      acc.innerHTML = `${RO ? '' : `<button class="btn btn-sm btn-outline-primary" data-sug title="La IA lee la conversación y te propone una respuesta para que la revises (no se envía)"><i class="bi bi-stars me-1"></i>Sugerir</button><button class="btn btn-sm btn-outline-warning" data-iaya title="La IA responde ya al último mensaje, aunque la IA de este chat esté apagada"><i class="bi bi-lightning-charge me-1"></i>Responder con IA</button><button class="btn btn-sm btn-outline-secondary" data-agbtn title="Elegir qué agente atiende este chat"><i class="bi bi-robot me-1"></i>${esc(det.agente?.nombre || 'Sin agente')}</button><div class="form-check form-switch m-0" title="Cuando está encendida, el agente de la bandeja responde en este chat"><input class="form-check-input" type="checkbox" role="switch" id="wa-ia" data-ia ${c.ia_activa ? 'checked' : ''}><label class="form-check-label small" for="wa-ia">IA</label></div>`}
-        <button class="btn btn-sm btn-outline-primary" data-cto><i class="bi bi-person-lines-fill me-1"></i>${conv ? esc(conv.name) : 'Contacto'}</button>
-        ${c.canal === 'whatsapp' && !RO ? '<button class="btn btn-sm btn-outline-success" data-tpl><i class="bi bi-file-earmark-text me-1"></i>Plantilla</button>' : ''}
-        ${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del aria-label="Borrar chat"><i class="bi bi-trash"></i></button>' : ''}`;
+      const acc1 = $('[data-acc1]', cont);
+      acc1.innerHTML = `<button class="btn btn-sm btn-outline-primary" data-cto title="Datos del contacto (Marketing)"><i class="bi bi-person-lines-fill"></i><span class="wa-bt ms-1 d-inline-block text-truncate align-bottom" style="max-width:130px">${conv ? esc(conv.name) : 'Contacto'}</span></button>
+        ${c.canal === 'whatsapp' && !RO ? '<button class="btn btn-sm btn-outline-success" data-tpl title="Enviar una plantilla de Meta"><i class="bi bi-file-earmark-text"></i><span class="wa-bt ms-1">Plantilla</span></button>' : ''}
+        ${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del aria-label="Borrar chat" title="Borrar chat"><i class="bi bi-trash"></i></button>' : ''}`;
+      acc.innerHTML = RO ? '' : `<button class="btn btn-outline-primary" data-sug title="La IA lee la conversación y te propone una respuesta para que la revises (no se envía)"><i class="bi bi-stars"></i><span class="wa-bt">Sugerir</span></button>
+        <button class="btn btn-outline-warning" data-iaya title="La IA responde ya al último mensaje, aunque la IA de este chat esté apagada"><i class="bi bi-lightning-charge"></i><span class="wa-bt">Responder con IA</span></button>
+        <button class="btn btn-outline-secondary wa-agb" data-agbtn title="Elegir qué agente atiende este chat"><i class="bi bi-robot"></i><span>${esc(det.agente?.nombre || 'Sin agente')}</span></button><span class="wa-sp"></span>
+        <div class="form-check form-switch" title="Cuando está encendida, el agente responde solo en este chat"><input class="form-check-input" type="checkbox" role="switch" id="wa-ia" data-ia ${c.ia_activa ? 'checked' : ''}><label class="form-check-label small" for="wa-ia">IA</label></div>`;
       const av = $('[data-aviso]', cont);
       const rojo = c.atencion ? `<div class="alert alert-danger small m-2 py-2 d-flex flex-wrap gap-2 align-items-center"><span><i class="bi bi-exclamation-triangle-fill me-1"></i><b>${c.atencion === 'no_sabe' ? 'El agente no supo responder.' : 'El cliente pidió hablar con un asesor.'}</b> Una persona debe atender este chat.</span>${RO ? '' : '<button class="btn btn-sm btn-outline-danger ms-auto" data-ok>Ya lo atendí</button>'}</div>` : '';
       av.innerHTML = rojo + (!det.ventana_abierta ? `<div class="alert alert-warning small m-2 py-2">Pasaron más de 24 h desde el último mensaje de esta persona. ${c.canal === 'whatsapp' ? 'Solo puedes escribirle con una <b>plantilla</b>.' : 'Meta ya no deja escribirle en este canal hasta que ella escriba.'}</div>`
@@ -136,6 +146,17 @@ DW.ready.then((me) => {
         try { await api(`${B}/chats/${chat.id}`, { method: 'PATCH', body: { agente_id: +b.dataset.a } }); mm.hide(); toast('Agente cambiado'); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); }
       };
     }
+    // Mis plantillas: se elige una y queda en el cuadro de texto (con {nombre} y {empresa} llenos) para revisarla y enviarla
+    async function insertarPlantilla() {
+      try { respuestas = (await api(`${B}/respuestas`)).rows; } catch (_) {}
+      const canal = det.chat.canal, rs = respuestas.filter((r) => !(r.canales || []).length || r.canales.includes(canal)), k = det.contact;
+      const primero = String(k?.name || det.chat.nombre || '').split(/[\s(]/)[0];
+      const llenar = (t) => String(t).replace(/\s*\{nombre\}/gi, primero ? ` ${primero}` : '').replace(/\{empresa\}/gi, k?.company || '').trim();
+      const { el: mo, m: mm } = modal(`${cab('Mis plantillas')}<div class="modal-body d-grid gap-2" ${SCROLL}>
+        ${rs.length ? rs.map((r) => `<button type="button" class="btn btn-outline-secondary text-start" data-r="${r.id}"><b>${esc(r.nombre)}</b><div class="small text-body-secondary text-truncate">${esc(r.cuerpo)}</div></button>`).join('') : `<div class="small text-body-secondary">No tienes plantillas para ${esc(CAN_[canal]?.n || canal)}. Créalas en la pestaña <b>Plantillas</b>.</div>`}
+        ${canal === 'whatsapp' && !det.ventana_abierta ? '<div class="alert alert-warning small mb-0">Pasaron más de 24 h desde su último mensaje: WhatsApp solo deja enviarle plantillas de Meta (botón «Plantilla»).</div>' : ''}</div>`);
+      mo.onclick = (e) => { const b = e.target.closest('[data-r]'); if (!b) return; const r = rs.find((x) => x.id === +b.dataset.r), ta = $('[name=texto]', cont); if (ta) { ta.value = llenar(r.cuerpo); ta.focus(); } mm.hide(); };
+    }
     lista.onclick = (e) => {
       const ag = e.target.closest('[data-ag]');
       if (ag) { e.stopPropagation(); const c = items.find((x) => x.id === +ag.dataset.ag); if (c) elegirAgente(c); return; }
@@ -157,6 +178,7 @@ DW.ready.then((me) => {
         try { const r = await api(`${B}/chats/${sel}/responder-ia`, { method: 'POST', body: {} }); toast(r.enviado ? 'La IA respondió' : 'La IA redactó la respuesta pero no se pudo enviar (revisa la bandeja)', !!r.enviado); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); }
         b.disabled = false; return;
       }
+      if (e.target.closest('[data-plt]')) return insertarPlantilla();
       if (e.target.closest('[data-ok]')) { try { await api(`${B}/chats/${sel}`, { method: 'PATCH', body: { atencion: false } }); toast('Marcado como atendido'); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); } return; }
       if (e.target.closest('[data-agbtn]')) return elegirAgente({ ...det.chat, agente_id: det.chat.agente_id });
       if (e.target.closest('[data-cto]')) return contacto(det, async () => { await cargarChat(true); cargarLista(); });
@@ -245,7 +267,7 @@ DW.ready.then((me) => {
       try { const r = await api(`${B}/plantillas/enviar`, { method: 'POST', body: { bandeja_id: det.chat.bandeja_id, plantilla: p.nombre, idioma: p.idioma, variables: valores(f, p), chats: [det.chat.id] } }); if (r.fallidos?.length) throw new Error(r.fallidos[0].error); mm.hide(); toast('Plantilla enviada'); listo?.(); } catch (x) { toast(x.message, false); btn.disabled = false; }
     };
   }
-  async function plantillasView(el) {
+  async function enviarWA(el) {
     let bands; try { bands = (await api(`${B}/bandejas`)).rows.filter((b) => b.canal === 'whatsapp' && b.activo); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
     if (!bands.length) { el.innerHTML = empty('bi-file-earmark-text', 'Necesitas una bandeja de WhatsApp activa para enviar plantillas.'); return; }
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Elige contactos de <b>Marketing</b> con teléfono y una plantilla aprobada por Meta. Envía solo a personas que aceptaron recibir tus mensajes (política de WhatsApp y Ley 1581). Máximo 50 por envío.</div>
@@ -283,6 +305,108 @@ DW.ready.then((me) => {
       btn.disabled = !elegidos.size;
     };
     await Promise.all([plantillas(), contactos()]);
+  }
+
+  /* ---------- Plantillas: las de Meta (se ven solas) y las mías (para cualquier canal) ---------- */
+  async function plantillasView(el) {
+    el.innerHTML = '<div class="d-grid gap-4"><section data-meta></section><section data-mias></section></div>';
+    metaPlantillas($('[data-meta]', el)); misPlantillas($('[data-mias]', el));
+  }
+  async function metaPlantillas(el) {
+    let bands = []; try { bands = (await api(`${B}/bandejas`)).rows.filter((b) => b.canal === 'whatsapp' && b.activo); } catch (_) {}
+    el.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-1"><h2 class="h6 mb-0"><i class="bi bi-whatsapp text-success me-1"></i>Plantillas de WhatsApp (Meta)</h2>
+      ${bands.length > 1 ? `<select class="form-select form-select-sm" style="max-width:220px" data-b>${bands.map((b) => `<option value="${b.id}">${esc(b.nombre)}</option>`).join('')}</select>` : ''}
+      <button class="btn btn-sm btn-outline-secondary ms-auto" data-rec><i class="bi bi-arrow-clockwise me-1"></i>Recargar</button></div>
+      <div class="small text-body-secondary mb-2">Se crean y editan en WhatsApp Manager y aparecen aquí; Meta tarda unos minutos en aprobarlas. La lista se actualiza sola cada minuto y con «Recargar». Solo las <b>aprobadas</b> se pueden enviar (desde el botón «Plantilla» de un chat o desde «Enviar mensajes»).</div>
+      <div class="row g-2" data-lista>${bands.length ? '<div class="col-12 small text-body-secondary">Cargando…</div>' : `<div class="col-12">${empty('bi-whatsapp', 'Necesitas una bandeja de WhatsApp activa para ver tus plantillas de Meta.')}</div>`}</div>`;
+    if (!bands.length) return;
+    const ESTADO = { APPROVED: ['text-bg-success', 'Aprobada'], PENDING: ['text-bg-warning', 'Pendiente'], REJECTED: ['text-bg-danger', 'Rechazada'], PAUSED: ['text-bg-secondary', 'Pausada'], IN_APPEAL: ['text-bg-info', 'En apelación'] };
+    async function cargar() {
+      const id = ($('[data-b]', el)?.value) || bands[0].id, lista = $('[data-lista]', el);
+      try {
+        const rows = (await api(`${B}/plantillas?bandeja=${id}`)).rows.sort((a, b) => (a.estado === 'APPROVED' ? 0 : 1) - (b.estado === 'APPROVED' ? 0 : 1) || a.nombre.localeCompare(b.nombre));
+        lista.innerHTML = rows.length ? rows.map((p) => { const [cl, tx] = ESTADO[p.estado] || ['text-bg-secondary', p.estado]; return `<div class="col-lg-6"><div class="dw-card h-100 ${p.soportada ? '' : 'opacity-75'}"><div class="d-flex gap-2 align-items-start"><div class="flex-grow-1" style="min-width:0"><div class="font-monospace fw-semibold text-break">${esc(p.nombre)}</div><div class="small text-body-secondary">${esc(p.idioma)} · ${esc(p.categoria || '')}${p.calidad ? ` · calidad ${esc(p.calidad)}` : ''}</div></div><span class="badge ${cl}">${esc(tx)}</span></div>
+          <div class="small mt-2" style="white-space:pre-wrap">${esc(p.cuerpo.slice(0, 200))}${p.cuerpo.length > 200 ? '…' : ''}</div>
+          <div class="small mt-2">${p.variables ? `<span class="text-body-secondary">${p.variables} variable${p.variables === 1 ? '' : 's'}</span> · ` : ''}${p.soportada ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Lista para enviar</span>' : `<span class="text-body-secondary"><i class="bi bi-info-circle me-1"></i>${esc(p.aviso || '')}${p.motivo ? ` (${esc(p.motivo)})` : ''}</span>`}</div></div></div>`; }).join('') : '<div class="col-12 small text-body-secondary">Esta cuenta aún no tiene plantillas. Créalas en WhatsApp Manager.</div>';
+      } catch (x) { lista.innerHTML = `<div class="col-12"><div class="alert alert-danger small mb-0">${esc(x.message)}<br>Si dice que el ID no existe o no tiene permisos, pon el <b>ID de la cuenta de mensajería</b> en Bandejas → Ajustes (es la cuenta donde Meta guarda tus plantillas).</div></div>`; }
+    }
+    $('[data-rec]', el).onclick = async (e) => { const b = e.currentTarget; b.disabled = true; await cargar(); b.disabled = false; toast('Plantillas actualizadas'); };
+    const sb = $('[data-b]', el); if (sb) sb.onchange = cargar;
+    await cargar(); cada(60000, cargar);
+  }
+  async function misPlantillas(el) {
+    let rows = []; try { rows = (await api(`${B}/respuestas`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    el.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-1"><h2 class="h6 mb-0"><i class="bi bi-card-text me-1"></i>Mis plantillas</h2>${RO ? '' : '<button class="btn btn-sm btn-primary ms-auto" data-new><i class="bi bi-plus-lg me-1"></i>Nueva plantilla</button>'}</div>
+      <div class="small text-body-secondary mb-2">Respuestas que escribes una vez y usas en cualquier canal: WhatsApp (dentro de las 24 h), Instagram, Messenger, correo y web. En un chat, el botón <i class="bi bi-card-text"></i> junto al cuadro de texto las inserta; en «Enviar mensajes» sirven para correos a contactos. Usa <b>{nombre}</b> y <b>{empresa}</b> para personalizar.</div>
+      <div class="row g-2">${rows.length ? rows.map((r) => `<div class="col-lg-6"><div class="dw-card h-100" data-id="${r.id}"><div class="d-flex gap-2 align-items-start"><b class="flex-grow-1">${esc(r.nombre)}</b><span class="d-flex gap-1">${(r.canales.length ? r.canales : Object.keys(CAN_)).map((k) => `<span title="${esc(CAN_[k]?.n || k)}">${ico(k)}</span>`).join('')}</span></div>
+        ${r.asunto ? `<div class="small mt-1"><span class="text-body-secondary">Asunto:</span> ${esc(r.asunto)}</div>` : ''}<div class="small text-body-secondary mt-1" style="white-space:pre-wrap">${esc(r.cuerpo.slice(0, 220))}${r.cuerpo.length > 220 ? '…' : ''}</div>
+        ${RO ? '' : `<div class="d-flex gap-1 mt-2"><button class="btn btn-sm btn-outline-primary" data-edit><i class="bi bi-pencil me-1"></i>Editar</button>${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button>' : ''}</div>`}</div></div>`).join('') : `<div class="col-12">${empty('bi-card-text', 'Aún no tienes plantillas propias.')}</div>`}</div>`;
+    const form = (r) => {
+      const { el: mo, m: mm } = modal(`${cab(r ? 'Editar plantilla' : 'Nueva plantilla')}<form class="modal-body d-grid gap-3" ${SCROLL}>
+        ${campo('nombre', 'Nombre (para ti)', r?.nombre, 'required maxlength="80" placeholder="Seguimiento de cotización"')}
+        <fieldset class="border rounded-3 p-3"><legend class="small fw-semibold float-none w-auto px-2 mb-0">¿En qué canales sirve?</legend><div class="small text-body-secondary mb-2">Si no marcas ninguno, sirve en todos.</div>
+          <div class="d-flex flex-wrap gap-3">${Object.entries(CAN_).map(([k, v]) => `<div class="form-check"><input class="form-check-input" type="checkbox" name="c_${k}" id="rc-${k}" ${(r?.canales || []).includes(k) ? 'checked' : ''}><label class="form-check-label small" for="rc-${k}">${ico(k)} ${esc(v.n)}</label></div>`).join('')}</div></fieldset>
+        ${campo('asunto', 'Asunto (solo para correos nuevos)', r?.asunto || '', 'maxlength="200" placeholder="Seguimiento a tu solicitud"')}
+        <label class="small text-body-secondary d-grid gap-1">Mensaje<textarea class="form-control" name="cuerpo" rows="7" required maxlength="4000" placeholder="Hola{nombre}, te escribo para dar seguimiento a…">${esc(r?.cuerpo || '')}</textarea><span class="text-body-tertiary">{nombre} = nombre de la persona · {empresa} = su negocio</span></label>
+        <button class="btn btn-primary">${r ? 'Guardar' : 'Crear plantilla'}</button></form>`);
+      mo.querySelector('form').onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
+        const body = { nombre: f.nombre.value.trim(), canales: JSON.stringify(Object.keys(CAN_).filter((k) => f[`c_${k}`].checked)), asunto: f.asunto.value.trim(), cuerpo: f.cuerpo.value.trim() };
+        try { if (r) await api(`${B}/respuestas/${r.id}`, { method: 'PATCH', body }); else await api(`${B}/respuestas`, { method: 'POST', body }); mm.hide(); toast('Plantilla guardada'); misPlantillas(el); } catch (x) { toast(x.message, false); btn.disabled = false; }
+      };
+    };
+    el.onclick = async (e) => {
+      if (e.target.closest('[data-new]')) return form(null);
+      const card = e.target.closest('[data-id]'); if (!card) return; const r = rows.find((x) => x.id === +card.dataset.id);
+      if (e.target.closest('[data-edit]')) form(r);
+      else if (e.target.closest('[data-del]')) { if (!(await confirm({ title: `¿Borrar «${r.nombre}»?`, text: 'No se puede deshacer.', ok: 'Borrar' }))) return; try { await api(`${B}/respuestas/${r.id}`, { method: 'DELETE' }); toast('Plantilla borrada'); misPlantillas(el); } catch (x) { toast(x.message, false); } }
+    };
+  }
+
+  /* ---------- Enviar mensajes nuevos a contactos de Marketing: WhatsApp (plantilla de Meta) o correo ---------- */
+  function enviarView(el) {
+    el.innerHTML = `<div class="d-flex flex-wrap gap-2 mb-3 align-items-center"><div class="btn-group btn-group-sm" role="group"><button class="btn btn-outline-success active" data-m="wa"><i class="bi bi-whatsapp me-1"></i>WhatsApp</button><button class="btn btn-outline-warning" data-m="co"><i class="bi bi-envelope me-1"></i>Correo</button></div>
+      <span class="small text-body-secondary">Instagram y Messenger no dejan iniciar conversaciones: solo se responde a quien escribe primero.</span></div><div data-caja></div>`;
+    const caja = $('[data-caja]', el);
+    const ir = (m) => { el.querySelectorAll('[data-m]').forEach((b) => b.classList.toggle('active', b.dataset.m === m)); timers.forEach(clearInterval); timers = []; m === 'wa' ? enviarWA(caja) : enviarCorreoView(caja); };
+    el.querySelector('.btn-group').onclick = (e) => { const b = e.target.closest('[data-m]'); if (b) ir(b.dataset.m); };
+    ir('wa');
+  }
+  async function enviarCorreoView(el) {
+    let bands = [], rs = [];
+    try { [bands, rs] = await Promise.all([api(`${B}/bandejas`).then((r) => r.rows.filter((b) => b.canal === 'correo' && b.activo)), api(`${B}/respuestas`).then((r) => r.rows.filter((x) => !(x.canales || []).length || x.canales.includes('correo')))]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    if (!bands.length) { el.innerHTML = empty('bi-envelope', 'Necesitas una bandeja de correo activa para enviar correos. Créala en Bandejas.'); return; }
+    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>El correo sale por <b>Gmail</b> si conectaste Google (queda en «Enviados»), o por Cloudflare. Cada persona queda como un chat de la bandeja, y si responde, entra a Chats. Envía solo a quienes aceptaron recibir tus correos. Máximo 50 por envío.</div>
+      <form class="row g-3" data-f><div class="col-lg-6 d-grid gap-3 align-content-start">
+        ${bands.length > 1 ? `<label class="small text-body-secondary d-grid gap-1">Bandeja<select class="form-select" name="bandeja">${bands.map((b) => `<option value="${b.id}">${esc(b.nombre)} · ${esc(b.phone_number_id)}</option>`).join('')}</select></label>` : `<input type="hidden" name="bandeja" value="${bands[0].id}">`}
+        ${rs.length ? `<label class="small text-body-secondary d-grid gap-1">Usar una de mis plantillas<select class="form-select" name="plt"><option value="">— Escribir desde cero —</option>${rs.map((r) => `<option value="${r.id}">${esc(r.nombre)}</option>`).join('')}</select></label>` : ''}
+        ${campo('asunto', 'Asunto', '', 'required maxlength="200" placeholder="Seguimiento a tu solicitud"')}
+        <label class="small text-body-secondary d-grid gap-1">Mensaje<textarea class="form-control" name="mensaje" rows="9" required maxlength="8000" placeholder="Hola{nombre},&#10;&#10;…"></textarea><span class="text-body-tertiary">{nombre} = nombre del contacto · {empresa} = su negocio</span></label>
+        <button class="btn btn-warning" data-send disabled><i class="bi bi-send me-1"></i>Enviar a <span data-cnt>0</span> contactos</button><div data-res></div></div>
+        <div class="col-lg-6"><input class="form-control form-control-sm mb-2" data-q placeholder="Buscar contactos de Marketing con correo…"><div class="list-group" data-lista style="max-height:60vh;overflow:auto"></div></div></form>`;
+    const f = $('[data-f]', el), elegidos = new Set();
+    const cuenta = () => { $('[data-cnt]', el).textContent = elegidos.size; $('[data-send]', el).disabled = !elegidos.size; };
+    async function contactos(q = '') {
+      let r; try { r = await api(`${B}/contactos?con=email&q=${encodeURIComponent(q)}`); } catch (x) { return toast(x.message, false); }
+      $('[data-lista]', el).innerHTML = !r.marketing ? '<div class="p-3 small text-body-secondary">Marketing no está activo en tu negocio: pídele a Diwilo que lo active para elegir contactos.</div>'
+        : r.rows.length ? r.rows.map((c) => `<label class="list-group-item d-flex gap-2 align-items-center"><input class="form-check-input mt-0" type="checkbox" data-c="${c.id}" ${elegidos.has(c.id) ? 'checked' : ''}><span class="flex-grow-1" style="min-width:0"><b>${esc(c.name)}</b>${c.company ? ` <small class="text-body-secondary">· ${esc(c.company)}</small>` : ''}<br><small class="text-body-secondary">${esc(c.email)}</small></span><span class="badge text-bg-light">${esc(c.stage || '')}</span></label>`).join('')
+        : '<div class="p-3 small text-body-secondary">No hay contactos con correo.</div>';
+    }
+    $('[data-lista]', el).onchange = (e) => { const c = e.target.closest('[data-c]'); if (!c) return; c.checked ? elegidos.add(+c.dataset.c) : elegidos.delete(+c.dataset.c); cuenta(); };
+    $('[data-q]', el).oninput = (e) => { clearTimeout(el._t); el._t = setTimeout(() => contactos(e.target.value.trim()), 300); };
+    if (f.plt) f.plt.onchange = () => { const r = rs.find((x) => x.id === +f.plt.value); if (r) { f.asunto.value = r.asunto || f.asunto.value; f.mensaje.value = r.cuerpo; } };
+    f.onsubmit = async (e) => {
+      e.preventDefault(); if (!elegidos.size) return;
+      if (!(await confirm({ title: `¿Enviar el correo a ${elegidos.size} contacto${elegidos.size === 1 ? '' : 's'}?`, text: 'Confirma que aceptaron recibir correos tuyos.', ok: 'Enviar' }))) return;
+      const btn = $('[data-send]', el); btn.disabled = true;
+      try {
+        const r = await api(`${B}/correo/enviar`, { method: 'POST', body: { bandeja_id: +f.bandeja.value, asunto: f.asunto.value.trim(), mensaje: f.mensaje.value.trim(), contactos: [...elegidos] } });
+        $('[data-res]', el).innerHTML = `<div class="alert ${r.fallidos.length ? 'alert-warning' : 'alert-success'} small">Enviados: <b>${r.enviados}</b>${r.fallidos.length ? `<br>Con error (${r.fallidos.length}):<br>${r.fallidos.map((x) => `${esc(x.nombre)}: ${esc(x.error || '')}`).join('<br>')}` : ''}</div>`;
+        if (r.enviados) toast('Correos enviados');
+      } catch (x) { toast(x.message, false); }
+      btn.disabled = !elegidos.size;
+    };
+    contactos();
   }
 
   /* ---------- Google (Gmail y Calendar) ---------- */
@@ -395,7 +519,7 @@ DW.ready.then((me) => {
         ${b ? '' : `<label class="small text-body-secondary d-grid gap-1">Canal<select class="form-select" name="canal">${Object.entries(CAN_).map(([k, v]) => `<option value="${k}">${v.n}</option>`).join('')}</select></label>`}
         <div class="small text-body-secondary" data-ayuda>${AYUDA[canal0]}</div>
         ${campo('nombre', 'Nombre de la bandeja de entrada', b?.nombre, 'required maxlength="80" placeholder="Ventas"')}
-        <div data-wa class="d-grid gap-3">${telCampo('tel', 'Número de teléfono de WhatsApp (elige el indicativo del país)', b?.telefono || '')}${campo('waba_id', 'ID de la cuenta de WhatsApp Business', b?.waba_id, 'inputmode="numeric"')}</div>
+        <div data-wa class="d-grid gap-3">${telCampo('tel', 'Número de teléfono de WhatsApp (elige el indicativo del país)', b?.telefono || '')}${campo('waba_id', 'ID de la cuenta de WhatsApp Business', b?.waba_id, 'inputmode="numeric"')}${campo('cuenta_plantillas', 'ID de la cuenta de mensajería (donde están tus plantillas de Meta; opcional)', b?.cuenta_plantillas || '', 'inputmode="numeric" placeholder="1468039218620641"')}</div>
         <div data-meta class="d-grid gap-3">${campo('phone_number_id', `<span data-idl>${canal0 === 'whatsapp' ? 'ID del número de teléfono' : canal0 === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}</span>`, b?.phone_number_id, 'inputmode="numeric"')}
           ${campo('api_key', 'Clave API (token de acceso de Meta)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_clave ? 'Guardada — déjalo vacío para conservarla' : 'EAAG…'}"`)}
           ${campo('app_secret', 'Secreto de la app de Meta (opcional, valida la firma del webhook)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_secreto ? 'Guardado — déjalo vacío para conservarlo' : ''}"`)}</div>
@@ -407,7 +531,7 @@ DW.ready.then((me) => {
       if (f.canal) f.canal.onchange = ver; ver();
       f.onsubmit = async (e) => {
         e.preventDefault(); const v = (n) => f[n].value.trim(), btn = f.querySelector('button'), canal = b ? b.canal : v('canal'); btn.disabled = true;
-        const core = canal === 'correo' ? { nombre: v('nombre'), phone_number_id: v('correo_dir'), reenviar_a: v('reenviar_a') } : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id') } : {}) };
+        const core = canal === 'correo' ? { nombre: v('nombre'), phone_number_id: v('correo_dir'), reenviar_a: v('reenviar_a') } : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id'), cuenta_plantillas: v('cuenta_plantillas') } : {}) };
         try {
           if (b) {
             await api(`${B}/bandejas/${b.id}`, { method: 'PATCH', body: core });
