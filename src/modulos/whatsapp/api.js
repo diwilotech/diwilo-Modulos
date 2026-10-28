@@ -9,6 +9,7 @@
 //   PATCH /api/whatsapp/chats/:id { ia_activa?, agente_id? }  enciende o apaga la IA en ese chat y elige qué agente lo atiende (0 = ninguno) · POST /:id/leer · POST /:id/enviar { texto } (apaga la IA de ese chat)
 //   POST  /api/whatsapp/chats/:id/sugerir        la IA lee la conversación y redacta una respuesta para revisar (no se envía)
 //   POST  /api/whatsapp/chats/:id/responder-ia   la IA responde ya al último mensaje, aunque la IA del chat esté apagada
+//   POST  /api/whatsapp/chats/:id/cita/cancelar  cancela la cita de Meet agendada en el chat · CRUD /api/whatsapp/admins  números administradores por WhatsApp
 //   POST  /api/whatsapp/chats/:id/contacto       guarda / enlaza el contacto en Marketing · DELETE /chats/:id
 //   GET   /api/whatsapp/google · POST /google/credenciales · /google/conectar · /google/desconectar · /google/probar · PUT /google/agenda  conexión con Google (Gmail y Calendar)
 //   GET   /api/whatsapp/mensajes?q=&canal=&bandeja=  todos los mensajes de todos los canales (los 200 más recientes)
@@ -25,7 +26,8 @@ import { guardarMensaje, tocarChat, responder, AGENTE_EN } from './webhook.js';
 import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limpiarDatos } from './contactos.js';
 import { paisDeTelefono } from './lugar.js';
 import { sincronizarSiToca } from './correo.js';
-import { estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, asignarUsos, enviarGmail, cuentaPara, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
+import { hashPin } from './admin.js';
+import { cancelarCita, estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, asignarUsos, enviarGmail, cuentaPara, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
 const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -123,6 +125,23 @@ ENTITIES.respuestas = {
   beforeUpdate(c, row) { if (row.canales != null) row.canales = JSON.stringify(canalesDe(row.canales)); if (row.cuerpo && row.cuerpo.length > 4000) throw new HttpError(400, 'La plantilla es muy larga (máximo 4000 letras)'); },
   decorate: (c, rows) => rows.map((r) => ({ ...r, canales: canalesDe(r.canales) })),
 };
+// Administradores por WhatsApp: números autorizados (con PIN opcional) que controlan el sistema desde el celular. El PIN nunca se devuelve.
+const numeroAdmin = (v) => { let d = String(v || '').replace(/\D/g, ''); if (d.length === 10 && d[0] === '3') d = `57${d}`; if (d.length < 8 || d.length > 15) throw new HttpError(400, 'Escribe el número con indicativo de país'); return d; };
+const pinAdmin = async (c, pin) => { const p = String(pin || '').trim(); if (p && !/^[A-Za-z0-9]{4,12}$/.test(p)) throw new HttpError(400, 'El PIN debe tener de 4 a 12 letras o números'); return p ? hashPin(c.businessId, p) : null; };
+ENTITIES.admins = {
+  table: 'wa_admins', label: 'el administrador', title: 'nombre', search: ['nombre', 'numero'], order: 'created_at',
+  fields: { nombre: 'text', numero: 'text!', pin: 'text', activo: 'bool+' },
+  leer: 'manager', crear: 'manager', borrar: 'manager',
+  async beforeCreate(c, row) {
+    if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_admins WHERE business_id = ?', c.businessId)).n >= 5) throw new HttpError(400, 'Máximo 5 administradores');
+    row.numero = numeroAdmin(row.numero); row.pin_hash = await pinAdmin(c, row.pin); delete row.pin;
+  },
+  async beforeUpdate(c, row) {
+    if ('numero' in row) row.numero = numeroAdmin(row.numero);
+    if ('pin' in row) { row.pin_hash = await pinAdmin(c, row.pin); row.desbloqueado_hasta = 0; row.fallos = 0; row.bloqueado_hasta = 0; delete row.pin; }
+  },
+  decorate: (c, rows) => rows.map(({ pin_hash, ...r }) => ({ ...r, tiene_pin: !!pin_hash })),
+};
 const listaBandejas = (t) => { try { const x = JSON.parse(t || '[]'); return Array.isArray(x) ? x.filter((n) => Number.isInteger(n) && n > 0) : []; } catch { return []; } };
 // Valida las bandejas elegidas (todas deben ser del negocio) y deja bandeja_id (la primera, o 0 = todas) por compatibilidad
 async function fijarBandejas(c, row, creando) {
@@ -152,7 +171,7 @@ export const chats = async (c, { bandeja, canal, q, limite = 200 } = {}) => {
   if (bandeja) { donde.push('c.bandeja_id = ?'); args.push(Number(bandeja)); }
   if (canal) { donde.push('b.canal = ?'); args.push(String(canal)); }
   if (q) { donde.push('(c.nombre LIKE ? OR c.contacto LIKE ? OR c.ultimo_texto LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
-  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.asunto, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
+  return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.asunto, c.admin, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
     FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args)).map(conLugar);
 };
 export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
@@ -168,9 +187,10 @@ export async function chatCompleto(c, id) {
   const marketing = await marketingActivo(c.env, c.businessId);
   const ultimoEntrante = (await one(c.env, "SELECT MAX(ts) t FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol = 'user'", c.businessId, chat.bandeja_id, chat.contacto))?.t || 0;
   let datos = null; try { datos = chat.datos ? JSON.parse(chat.datos) : null; } catch { /* sin datos */ }
+  let cita = null; try { cita = chat.cita ? JSON.parse(chat.cita) : null; } catch { /* sin cita */ }
   const agentes = await all(c.env, `SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND ${AGENTE_EN} ORDER BY id`, c.businessId, chat.bandeja_id);
   const agente = agentes.find((a) => a.id === chat.agente_id) || null;
-  return { chat: { ...conLugar(chat), datos }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes };
+  return { chat: { ...conLugar(chat), datos, cita }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes };
 }
 
 // Plantilla con sus {{n}} llenas, para dejar en el chat lo que se envió
@@ -256,6 +276,15 @@ export function routes(r) {
     const estado = (await one(c.env, "SELECT estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol = 'assistant' ORDER BY ts DESC, id DESC LIMIT 1", c.businessId, ch.bandeja_id, ch.contacto))?.estado;
     await audit(c, `Pidió una respuesta de la IA en el chat de ${ch.nombre || ch.contacto} (${ch.bandeja})`, { modulo: MOD });
     return json({ ok: true, respuesta: texto, estado, enviado: estado === 'enviado' });
+  });
+  // Cancelar la cita agendada en este chat (Google Calendar avisa por correo a la persona)
+  r.post(`${B}/chats/:id/cita/cancelar`, `tenant:${MOD}`, async (c) => {
+    const ch = await chatDe(c, c.params.id); let cita = null; try { cita = ch.cita ? JSON.parse(ch.cita) : null; } catch { /* sin cita */ }
+    if (!cita) throw new HttpError(400, 'Este chat no tiene una cita agendada');
+    try { await cancelarCita(c.env, c.businessId, cita); } catch (e) { throw gerr(e); }
+    await c.env.DB.prepare('UPDATE wa_conversaciones SET cita = NULL WHERE id = ? AND business_id = ?').bind(ch.id, c.businessId).run();
+    await audit(c, `Canceló la cita del ${cita.etiqueta} en el chat de ${ch.nombre || ch.contacto}`, { modulo: MOD });
+    return json({ ok: true });
   });
   r.post(`${B}/chats/:id/contacto`, `tenant:${MOD}`, async (c) => {
     const ch = await chatDe(c, c.params.id), b = await bandejaDe(c, ch.bandeja_id), d = await readJson(c.req);

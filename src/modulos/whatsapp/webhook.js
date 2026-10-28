@@ -12,7 +12,8 @@ import { enviarTexto, perfil, CANALES, soloDigitos } from './canales.js';
 import { marketingActivo, contactoPorTelefono, contactoPorId, guardarContacto, camposDe, limpiarDatos, CAMPOS } from './contactos.js';
 import { paisDeTelefono, paisValido, dispositivoDe } from './lugar.js';
 import { registrarCorreo } from './correo.js';
-import { huecosLibres, crearCita, etiquetaHora, conectado as googleConectado } from './google.js';
+import { huecosLibres, crearCita, cancelarCita, moverCita, etiquetaHora, conectado as googleConectado } from './google.js';
+import { adminDe, procesarAdmin } from './admin.js';
 
 const texto = (status, body, extra = {}) => ({ status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...extra }, body });
 const igual = (a, b) => { // comparación en tiempo constante
@@ -63,6 +64,8 @@ const MARCADOR = /\[\[DATOS\s*(\{[\s\S]*?\})\s*\]\]/;
 const SALUDO_LEAD = '¡Hola{nombre}! 👋 Vimos la solicitud que presentaste{solicitud}. Gracias por escribirnos. ¿Quieres que sigamos con eso o tienes otra consulta?';
 const SALUDO_CLIENTE = '¡Hola{nombre}! 👋 Qué gusto saludarte de nuevo. ¿En qué te podemos ayudar hoy?';
 const SALUDO = /^\s*(hola+|holi+|ola|hey|hi|hello|saludos|buen[oa]s(\s+(d[ií]as|tardes|noches))?|buen d[ií]a|info|informaci[oó]n)[\s!¡.,?¿]*$/i;
+const CANCELAR_CITA = /\[\[CANCELAR_CITA\]\]/;
+const REAGENDAR = /\[\[REAGENDAR\s*(\{[\s\S]*?\})\s*\]\]/;
 const AGENDAR = /\[\[AGENDAR\s*(\{[\s\S]*?\})\s*\]\]/;
 const ASESOR = /\[\[ASESOR(?::(pide|no_sabe))?\]\]/;
 const PIDE_ASESOR = /asesor|humano|persona real|hablar con (alguien|una persona|un agente|el equipo)|representante|operador|comunicarme con/i;
@@ -109,7 +112,10 @@ export async function responder(env, { bandeja, conv, entregar = true, contexto 
   let slots = [], agendaTxt = '', cita = null;
   try { cita = conv.cita ? JSON.parse(conv.cita) : null; } catch { /* sin cita */ }
   if (!sugerir && agente.agendar && (await googleConectado(env, org).catch(() => false))) {
-    if (cita) agendaTxt = `\nCITA YA AGENDADA: ${cita.etiqueta} (hora de Colombia), enlace de Meet: ${cita.link}. No agendes otra; si quiere cambiarla o cancelarla, dile que un asesor se la reprograma y termina con [[ASESOR:pide]].\n`;
+    if (cita) {
+      try { slots = (await huecosLibres(env, org)).slots; } catch (e) { console.error('agenda', e.message); }
+      agendaTxt = `\nCITA YA AGENDADA: ${cita.etiqueta} (hora de Colombia), enlace de Meet: ${cita.link}. No agendes otra. Si la persona quiere CANCELARLA: pregúntale primero si está segura y, cuando lo confirme, dile que la cancelas y termina tu respuesta con esta línea exacta (sin mencionarla): [[CANCELAR_CITA]]. Si quiere CAMBIARLA de horario${slots.length ? `: ofrécele 2 o 3 de estos horarios libres (hora de Colombia): ${slots.map((s, i) => `${i + 1}) ${s.etiqueta} [${s.iso}]`).join('; ')} (sin mostrarle los códigos entre corchetes) y, cuando elija uno, termina con esta línea exacta (sin mencionarla): [[REAGENDAR {"inicio":"<el código del horario elegido>"}]]. No inventes horarios` : ': dile que un asesor se lo reprograma y termina con [[ASESOR:pide]]'}.\n`;
+    }
     else {
       try {
         slots = (await huecosLibres(env, org)).slots;
@@ -148,7 +154,7 @@ ${sugerir ? '\nESTÁS REDACTANDO UNA RESPUESTA SUGERIDA: una persona del equipo 
   let reply;
   if (soloSaludo) reply = bienvenida;
   else try { reply = await llamarIA(env, org, system, hist, { fuente: 'whatsapp', maxTokens: 450, temperature: 0.5 }); } catch (e) { console.error('mensajes ia', e.message); return null; }
-  if (sugerir) return (reply || '').replace(MARCADOR, '').replace(ASESOR, '').replace(AGENDAR, '').trim().slice(0, 2500) || null;
+  if (sugerir) return (reply || '').replace(MARCADOR, '').replace(ASESOR, '').replace(AGENDAR, '').replace(CANCELAR_CITA, '').replace(REAGENDAR, '').trim().slice(0, 2500) || null;
   // ¿Hace falta una persona? Lo dice el agente con su marca o se nota en lo que escribió el cliente
   const ultimoUser = [...hist].reverse().find((h) => h.role === 'user')?.content || '';
   const av = ASESOR.exec(reply);
@@ -170,6 +176,27 @@ ${sugerir ? '\nESTÁS REDACTANDO UNA RESPUESTA SUGERIDA: una persona del equipo 
       reply = `${reply}\n\nNo pude agendar la cita automáticamente (${/libre/.test(e.message) ? 'ese horario ya no está disponible' : 'tuve un problema'}). Un asesor te contactará para coordinarla.`.trim();
       await pedirAtencion(env, conv.id, 'no_sabe');
     }
+  }
+  // Cancelar o mover la cita que ya tiene (Google avisa por correo a la persona)
+  if (cita && CANCELAR_CITA.test(reply)) {
+    reply = reply.replace(CANCELAR_CITA, '').trim();
+    try {
+      await cancelarCita(env, org, cita);
+      await env.DB.prepare('UPDATE wa_conversaciones SET cita = NULL WHERE id = ?').bind(conv.id).run();
+      if (marketingOn && conv.contact_id) await env.DB.prepare("UPDATE mk_contacts SET notes = COALESCE(notes || char(10), '') || ?, updated_at = ? WHERE id = ? AND business_id = ?").bind(`Cita cancelada (${cita.etiqueta}) por el cliente en el chat`, now(), conv.contact_id, org).run();
+      reply = `${reply}\n\n✅ Listo: cancelé tu cita del ${cita.etiqueta}. Si quieres, agendamos otra cuando te quede bien.`.trim();
+    } catch (e) { console.error('cancelar cita', e.message); reply = `${reply}\n\nNo pude cancelar la cita automáticamente. Un asesor la cancelará y te confirma.`.trim(); await pedirAtencion(env, conv.id, 'no_sabe'); }
+  }
+  const rg = cita ? REAGENDAR.exec(reply) : null;
+  if (rg) {
+    reply = reply.replace(REAGENDAR, '').trim();
+    try {
+      const d = JSON.parse(rg[1]);
+      if (!slots.some((s) => s.iso === d.inicio)) throw new Error('horario no válido');
+      const nueva = await moverCita(env, org, cita, d.inicio);
+      await env.DB.prepare('UPDATE wa_conversaciones SET cita = ? WHERE id = ?').bind(JSON.stringify(nueva), conv.id).run();
+      reply = `${reply}\n\n✅ Listo: moví tu cita al ${nueva.etiqueta} (hora de Colombia). Te llegó la actualización por correo${nueva.link ? ` y el enlace de Meet sigue siendo: ${nueva.link}` : ''}.`.trim();
+    } catch (e) { console.error('reagendar', e.message); reply = `${reply}\n\nNo pude cambiar la cita automáticamente (${/libre/.test(e.message) ? 'ese horario ya no está disponible' : 'tuve un problema'}). Un asesor te ayuda a reprogramarla.`.trim(); await pedirAtencion(env, conv.id, 'no_sabe'); }
   }
   const m = MARCADOR.exec(reply);
   if (m) {
@@ -303,7 +330,7 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
 
   const lista = eventos(data);
   console.log(`mensajes: webhook ${data.object || '?'} con ${lista.length} mensaje(s) en ${org}`);
-  const nuevos = new Map();
+  const nuevos = new Map(), tareasAdmin = [];
   for (const ev of lista) {
     // Cada evento va a la bandeja de ese canal con ese id de número / página / cuenta (varias bandejas pueden compartir la URL)
     let bandeja = await one(env, 'SELECT * FROM wa_bandejas WHERE business_id = ? AND canal = ? AND phone_number_id = ? AND activo = 1', org, ev.canal, ev.cuenta);
@@ -316,8 +343,15 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
     // En Instagram y Messenger el nombre no viene en el mensaje: se pide a Meta mientras el chat no lo tenga
     const previo = await one(env, 'SELECT nombre FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto);
     const nombre = ev.nombre || (ev.canal !== 'whatsapp' && !previo?.nombre ? await perfil(env, bandeja, ev.contacto) : null);
+    const admin = ev.canal === 'whatsapp' ? await adminDe(env, org, ev.contacto).catch(() => null) : null;   // un número autorizado como administrador
     const nuevo = await guardarMensaje(env, { org, bandeja: bandeja.id, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, wamid: ev.id, ts: ev.ts });
     if (!nuevo) continue;
+    if (admin) {   // número autorizado como administrador: no es un cliente (sin agente, sin Marketing); habla con el asistente del negocio
+      const c = await tocarChat(env, { org, bandeja, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, ts: ev.ts, leido: true, pais: paisDeTelefono(ev.contacto), sinAgente: true, iaInicial: 0 });
+      await env.DB.prepare('UPDATE wa_conversaciones SET admin = 1, ia_activa = 0, agente_id = 0, nombre = ? WHERE id = ?').bind(`${admin.nombre || nombre || 'Administrador'} (admin)`, c.id).run();
+      if (ev.texto) tareasAdmin.push({ bandeja, conv: c, admin, texto: ev.texto });
+      continue;
+    }
     const primera = !(await one(env, 'SELECT 1 FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto));
     const conv = await tocarChat(env, { org, bandeja, contacto: ev.contacto, nombre, rol: 'user', contenido: ev.texto || `[${ev.tipo || 'mensaje'}]`, ts: ev.ts, leido: false, pais: ev.canal === 'whatsapp' ? paisDeTelefono(ev.contacto) : null });
     // Si el contacto ya está en Marketing (mismo teléfono), el chat queda enlazado desde el primer mensaje
@@ -326,6 +360,10 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
       if (c) { await env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ?, nombre = ? WHERE id = ?').bind(c.id, c.name, conv.id).run(); conv.contact_id = c.id; conv.nombre = c.name; }
     }
     if (ev.texto) nuevos.set(`${bandeja.id}:${ev.contacto}`, { bandeja, conv });
+  }
+  for (const tarea of tareasAdmin) {
+    const p = procesarAdmin(env, tarea).catch((e) => console.error('admin', e.message));
+    if (waitUntil) waitUntil(p); else await p;
   }
   for (const { bandeja, conv } of nuevos.values()) {
     const p = responder(env, { bandeja, conv }).catch((e) => console.error('mensajes responder', e.message));

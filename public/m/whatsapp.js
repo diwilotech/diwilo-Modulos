@@ -7,7 +7,7 @@ DW.ready.then((me) => {
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
-  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['enviar', 'Enviar mensajes'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['google', 'Google']];
+  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['enviar', 'Enviar mensajes'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
   let view = (location.hash || '#chats').slice(1), timers = [], abrirId = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'chats';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
@@ -59,7 +59,7 @@ DW.ready.then((me) => {
     el.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; nav(); render(); };
   }
-  function render() { timers.forEach(clearInterval); timers = []; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
+  function render() { timers.forEach(clearInterval); timers = []; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
   const cada = (ms, f) => timers.push(setInterval(() => { if (!document.hidden) f(); }, ms));
 
   /* ---------- chats ---------- */
@@ -79,7 +79,7 @@ DW.ready.then((me) => {
       try { items = (await api(`${B}/chats?${filtro ? `canal=${filtro}&` : ''}${filtroB ? `bandeja=${filtroB}&` : ''}${q ? `q=${encodeURIComponent(q)}` : ''}`)).rows; } catch (x) { lista.innerHTML = `<p class="text-danger p-3 small">${esc(x.message)}</p>`; return; }
       lista.innerHTML = items.length ? items.map((c) => `<button class="wa-it ${c.id === sel ? 'on' : ''}${c.atencion ? ' alerta' : ''}" data-id="${c.id}"><span class="wa-av">${esc((c.nombre || c.contacto).trim()[0]?.toUpperCase() || '?')}${ico(c.canal)}</span>
         <span class="t"><span class="l1"><b>${esc(c.nombre || (c.canal === 'whatsapp' ? '+' : '') + c.contacto)}</b>${lugar(c)}</span>
-        <span class="l2">${c.atencion ? `<b class="wa-pill-r" title="Una persona debe responder este chat">${c.atencion === 'no_sabe' ? 'No supo responder' : 'Pidió asesor'}</b>` : ''}<span>${c.ultimo_rol === 'assistant' ? 'IA: ' : c.ultimo_rol === 'humano' ? 'Tú: ' : ''}${esc(c.ultimo_texto || '')}</span>${c.ia_activa ? '' : '<i class="bi bi-person-fill" title="Atiende una persona (IA apagada)"></i>'}${c.no_leidos ? `<b class="wa-n">${c.no_leidos}</b>` : ''}</span></span>
+        <span class="l2">${c.admin ? '<b class="wa-pill-r" style="background:#0d9488" title="Chat de un administrador"><i class="bi bi-shield-lock me-1"></i>Admin</b>' : ''}${c.atencion ? `<b class="wa-pill-r" title="Una persona debe responder este chat">${c.atencion === 'no_sabe' ? 'No supo responder' : 'Pidió asesor'}</b>` : ''}<span>${c.ultimo_rol === 'assistant' ? 'IA: ' : c.ultimo_rol === 'humano' ? 'Tú: ' : ''}${esc(c.ultimo_texto || '')}</span>${c.ia_activa ? '' : '<i class="bi bi-person-fill" title="Atiende una persona (IA apagada)"></i>'}${c.no_leidos ? `<b class="wa-n">${c.no_leidos}</b>` : ''}</span></span>
         <span class="wa-r"><small>${esc(hora(c.ultimo_ts))}</small>${RO ? '' : `<span class="wa-ag" data-ag="${c.id}" title="Cambiar el agente de este chat" role="button"><i class="bi bi-robot"></i><span>${esc(c.agente || 'Sin agente')}</span></span>`}</span></button>`).join('')
         : `<div class="wa-vacio">${q ? 'Sin resultados.' : 'Aún no hay chats. Cuando alguien escriba a una bandeja conectada aparecerá aquí.'}</div>`;
     }
@@ -123,7 +123,8 @@ DW.ready.then((me) => {
         <div class="form-check form-switch" title="Cuando está encendida, el agente responde solo en este chat"><input class="form-check-input" type="checkbox" role="switch" id="wa-ia" data-ia ${c.ia_activa ? 'checked' : ''}><label class="form-check-label small" for="wa-ia">IA</label></div>`;
       const av = $('[data-aviso]', cont);
       const rojo = c.atencion ? `<div class="alert alert-danger small m-2 py-2 d-flex flex-wrap gap-2 align-items-center"><span><i class="bi bi-exclamation-triangle-fill me-1"></i><b>${c.atencion === 'no_sabe' ? 'El agente no supo responder.' : 'El cliente pidió hablar con un asesor.'}</b> Una persona debe atender este chat.</span>${RO ? '' : '<button class="btn btn-sm btn-outline-danger ms-auto" data-ok>Ya lo atendí</button>'}</div>` : '';
-      av.innerHTML = rojo + (!det.ventana_abierta ? `<div class="alert alert-warning small m-2 py-2">Pasaron más de 24 h desde el último mensaje de esta persona. ${c.canal === 'whatsapp' ? 'Solo puedes escribirle con una <b>plantilla</b>.' : 'Meta ya no deja escribirle en este canal hasta que ella escriba.'}</div>`
+      const cita = c.cita ? `<div class="alert alert-info small m-2 py-2 d-flex flex-wrap gap-2 align-items-center"><span><i class="bi bi-calendar-check me-1"></i><b>Cita agendada:</b> ${esc(c.cita.etiqueta)} (hora de Colombia)${c.cita.link ? ` · <a href="${esc(c.cita.link)}" target="_blank" rel="noopener">Enlace de Meet</a>` : ''}</span>${RO ? '' : '<button class="btn btn-sm btn-outline-danger ms-auto" data-cancel-cita>Cancelar cita</button>'}</div>` : '';
+      av.innerHTML = rojo + cita + (!det.ventana_abierta ? `<div class="alert alert-warning small m-2 py-2">Pasaron más de 24 h desde el último mensaje de esta persona. ${c.canal === 'whatsapp' ? 'Solo puedes escribirle con una <b>plantilla</b>.' : 'Meta ya no deja escribirle en este canal hasta que ella escriba.'}</div>`
         : (c.ia_activa && !det.agente ? '<div class="alert alert-light border small m-2 py-2">Este chat no tiene agente: nadie responde solo. Elígelo con el botón del agente.</div>' : ''));
     }
     function pintarMensajes(baja) {
@@ -179,6 +180,10 @@ DW.ready.then((me) => {
         b.disabled = false; return;
       }
       if (e.target.closest('[data-plt]')) return insertarPlantilla();
+      if (e.target.closest('[data-cancel-cita]')) {
+        if (!(await confirm({ title: '¿Cancelar la cita?', text: 'Se elimina del Calendar y Google le avisa por correo a la persona.', ok: 'Cancelar cita' }))) return;
+        try { await api(`${B}/chats/${sel}/cita/cancelar`, { method: 'POST', body: {} }); toast('Cita cancelada'); await cargarChat(true); } catch (x) { toast(x.message, false); } return;
+      }
       if (e.target.closest('[data-ok]')) { try { await api(`${B}/chats/${sel}`, { method: 'PATCH', body: { atencion: false } }); toast('Marcado como atendido'); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); } return; }
       if (e.target.closest('[data-agbtn]')) return elegirAgente({ ...det.chat, agente_id: det.chat.agente_id });
       if (e.target.closest('[data-cto]')) return contacto(det, async () => { await cargarChat(true); cargarLista(); });
@@ -407,6 +412,41 @@ DW.ready.then((me) => {
       btn.disabled = !elegidos.size;
     };
     contactos();
+  }
+
+  /* ---------- Administrador: números que controlan el sistema desde WhatsApp ---------- */
+  async function adminView(el) {
+    let rows; try { rows = (await api(`${B}/admins`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-shield-lock me-1"></i><b>Controla todo desde tu celular.</b> Cuando uno de estos números escribe a tu WhatsApp del negocio, no es tratado como cliente: habla con el <b>asistente del negocio</b>, que consulta y hace cosas con los módulos que tengas activos y te manda resúmenes. Lo que cambia datos o le escribe a un cliente te lo propone y solo lo hace cuando respondes <b>SÍ</b>.
+        <div class="mt-2">Ejemplos: <i>«resumen»</i> · <i>«¿qué chats necesitan un asesor?»</i> · <i>«lee el chat de Ana»</i> · <i>«apaga la IA en el chat de Ana»</i> · <i>«envíale a Ana: te llamo en 10 min»</i> · <i>«cancela la cita de Ana»</i> · <i>«¿cuánto me deben?»</i>. Escribe <i>ayuda</i> para ver la lista.</div>
+        <div class="mt-2 text-warning-emphasis"><i class="bi bi-exclamation-triangle me-1"></i>Quien tenga ese celular controla el negocio. Pon un <b>PIN</b> y, en tu bandeja de WhatsApp, el <b>secreto de la app de Meta</b> (así solo se aceptan mensajes que de verdad vienen de Meta). El resumen se manda cuando lo pides: WhatsApp no deja escribirte primero fuera de las 24 h.</div></div>
+      <div class="mb-3"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Agregar administrador</button></div>
+      <div class="row g-3">${rows.length ? rows.map((r) => { const p = partirTel(r.numero); return `<div class="col-lg-6"><div class="dw-card h-100" data-id="${r.id}"><div class="d-flex align-items-start gap-2"><i class="bi bi-person-badge fs-4"></i><div class="flex-grow-1" style="min-width:0"><b>${esc(r.nombre || 'Administrador')}</b><div class="small text-body-secondary">${bandera(p.iso)} +${esc(r.numero)}</div></div><span class="badge ${r.activo ? 'text-bg-success' : 'text-bg-secondary'}">${r.activo ? 'Activo' : 'Pausado'}</span></div>
+        <div class="small mt-2">${r.tiene_pin ? '<i class="bi bi-lock-fill text-success me-1"></i>Pide PIN (sesión de 12 horas)' : '<i class="bi bi-unlock text-warning me-1"></i>Sin PIN: el número basta'}</div>
+        <div class="d-flex gap-1 mt-2"><button class="btn btn-sm btn-outline-primary" data-edit><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-sm btn-outline-secondary" data-act>${r.activo ? 'Pausar' : 'Activar'}</button><button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button></div></div></div>`; }).join('') : `<div class="col-12">${empty('bi-shield-lock', 'Aún no hay administradores. Agrega tu número para controlar el sistema desde WhatsApp.')}</div>`}</div>`;
+    const form = (r) => {
+      const { el: mo, m: mm } = modal(`${cab(r ? 'Editar administrador' : 'Agregar administrador')}<form class="modal-body d-grid gap-3" ${SCROLL} autocomplete="off">
+        ${campo('nombre', 'Nombre', r?.nombre || '', 'maxlength="60" placeholder="Yomar"')}
+        ${telCampo('tel', 'Número de WhatsApp (elige el indicativo del país)', r ? `+${r.numero}` : '')}
+        ${campo('pin', r?.tiene_pin ? 'PIN nuevo (déjalo vacío para conservar el actual)' : 'PIN (opcional, 4 a 12 letras o números)', '', 'type="password" autocomplete="new-password" maxlength="12"')}
+        ${r?.tiene_pin ? '<div class="form-check"><input class="form-check-input" type="checkbox" name="quitar" id="adq"><label class="form-check-label small" for="adq">Quitar el PIN (el número bastará)</label></div>' : ''}
+        <button class="btn btn-primary">${r ? 'Guardar' : 'Agregar'}</button></form>`);
+      mo.querySelector('form').onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
+        const body = { nombre: f.nombre.value.trim(), numero: leerTel(f, 'tel') };
+        if (f.pin.value.trim()) body.pin = f.pin.value.trim(); else if (f.quitar?.checked) body.pin = '';
+        try { if (r) await api(`${B}/admins/${r.id}`, { method: 'PATCH', body }); else await api(`${B}/admins`, { method: 'POST', body }); mm.hide(); toast('Guardado'); render(); } catch (x) { toast(x.message, false); btn.disabled = false; }
+      };
+    };
+    el.onclick = async (e) => {
+      if (e.target.closest('[data-new]')) return form(null);
+      const card = e.target.closest('[data-id]'); if (!card) return; const r = rows.find((x) => x.id === +card.dataset.id);
+      try {
+        if (e.target.closest('[data-edit]')) form(r);
+        else if (e.target.closest('[data-act]')) { await api(`${B}/admins/${r.id}`, { method: 'PATCH', body: { activo: !r.activo } }); toast(r.activo ? 'Pausado' : 'Activado'); render(); }
+        else if (e.target.closest('[data-del]')) { if (!(await confirm({ title: '¿Quitar este administrador?', text: 'Ese número volverá a tratarse como un cliente más.', ok: 'Quitar' }))) return; await api(`${B}/admins/${r.id}`, { method: 'DELETE' }); toast('Quitado'); render(); }
+      } catch (x) { toast(x.message, false); }
+    };
   }
 
   /* ---------- Google (Gmail y Calendar) ---------- */

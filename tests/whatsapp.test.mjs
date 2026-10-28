@@ -324,6 +324,37 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: el correo a contactos responde cuántos salieron y cuáles fallaron (un contacto que no existe falla; sin Gmail ni Cloudflare configurados el envío avisa)', ce.status === 200 && ce.data.enviados + ce.data.fallidos.length === 2 && ce.data.fallidos.some((x) => /correo válido/.test(x.error)), JSON.stringify(ce.data));
   check('Mensajes: la bandeja de WhatsApp guarda la cuenta de mensajería de las plantillas y rechaza ids que no son números', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'PATCH', body: { cuenta_plantillas: '14680392186' } })).status === 200 && (await A.app(`${X}/bandejas`)).data.rows.find((x) => x.id === ba.id).cuenta_plantillas === '14680392186' && (await A.app(`${X}/bandejas/${ba.id}`, { method: 'PATCH', body: { cuenta_plantillas: 'abc' } })).status === 400);
 
+  /* ---------- modo administrador por WhatsApp y cancelar citas ---------- */
+  check('Mensajes: sin cita en el chat, cancelar la cita avisa', (await A.app(`${X}/chats/${chA.id}/cita/cancelar`, { method: 'POST', body: {} })).status === 400 && (await B.app(`${X}/chats/${chA.id}/cita/cancelar`, { method: 'POST', body: {} })).status === 404);
+  const ad1 = await A.app(`${X}/admins`, { method: 'POST', body: { nombre: 'Yo', numero: '+57 300 111 0001' } });
+  const ad2 = await A.app(`${X}/admins`, { method: 'POST', body: { nombre: 'Con PIN', numero: '573001110002', pin: 'abc123' } });
+  const lad = (await A.app(`${X}/admins`)).data.rows;
+  check('Mensajes: se autorizan números administradores (con o sin PIN) y el PIN nunca se devuelve', ad1.status === 201 && ad2.status === 201 && lad.find((x) => x.id === ad1.data.id).numero === '573001110001' && lad.find((x) => x.id === ad1.data.id).tiene_pin === false && lad.find((x) => x.id === ad2.data.id).tiene_pin === true && !JSON.stringify(lad).includes('abc123') && !JSON.stringify(lad).includes('pin_hash'), JSON.stringify(lad));
+  check('Mensajes: un número o PIN inválidos y un administrador repetido se rechazan; B no ve los de A y el personal tampoco', (await A.app(`${X}/admins`, { method: 'POST', body: { numero: '123' } })).status === 400 && (await A.app(`${X}/admins`, { method: 'POST', body: { numero: '573001110009', pin: '12' } })).status === 400
+    && (await A.app(`${X}/admins`, { method: 'POST', body: { numero: '573001110001' } })).status === 409 && (await B.app(`${X}/admins`)).data.rows.length === 0 && (await (await newMember(A.id, 'staff')).app(`${X}/admins`)).status === 403);
+  const verAdmin = async (num) => { const ch = (await chats()).find((x) => x.contacto === num); return ch ? (await A.app(`${X}/chats/${ch.id}`)).data : null; };
+  // sin PIN: el número basta; el asistente responde y propone (no hace) lo que cambia datos hasta que diga «sí»
+  const guion = `[prueba] [[GUION]]{"accion":"usar","herramienta":"whatsapp.cambiar_ia_del_chat","args":{"chat_id":${chA.id},"ia_activa":false}}\n---\n{"accion":"fin","respuesta":"Voy a apagar la IA de ese chat."}[[/GUION]]`;
+  await hook(url, wa('1090000000001', 'wamid.AD1', guion, '573001110001'));
+  const dA1 = await esperar(async () => { const d = await verAdmin('573001110001'); return d?.mensajes.some((m) => m.rol === 'assistant') ? d : null; });
+  check('Mensajes: el número administrador no es un cliente (chat marcado Admin, sin agente ni Marketing) y el asistente le propone la acción pidiendo confirmación', dA1?.chat.admin === 1 && dA1.chat.ia_activa === 0 && dA1.chat.agente_id === 0 && /Voy a apagar la IA de ese chat\./.test(dA1.mensajes.at(-1).contenido) && /Responde \*SÍ\* o \*NO\*/.test(dA1.mensajes.at(-1).contenido) && (await det()).chat.ia_activa === 1, JSON.stringify(dA1?.mensajes));
+  await hook(url, wa('1090000000001', 'wamid.AD2', 'sí', '573001110001'));
+  const dA2 = await esperar(async () => { const d = await verAdmin('573001110001'); return d?.mensajes.at(-1).contenido.startsWith('✅ Hecho') ? d : null; });
+  check('Mensajes: al responder «sí» se ejecuta lo propuesto (aquí apagó la IA de ese chat)', !!dA2 && (await det()).chat.ia_activa === 0, JSON.stringify(dA2?.mensajes.at(-1)));
+  await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: true } });
+  await hook(url, wa('1090000000001', 'wamid.AD3', 'ayuda', '573001110001'));
+  const dA3 = await esperar(async () => { const d = await verAdmin('573001110001'); return /Modo administrador/.test(d?.mensajes.at(-1).contenido || '') ? d : null; });
+  check('Mensajes: «ayuda» lista lo que puede hacer el administrador', !!dA3);
+  // con PIN: hasta que no lo escriba no pasa nada; el PIN malo no abre
+  await hook(url, wa('1090000000001', 'wamid.AD4', 'resumen', '573001110002'));
+  await hook(url, wa('1090000000001', 'wamid.AD5', 'pin-equivocado', '573001110002'));
+  const dP1 = await esperar(async () => { const d = await verAdmin('573001110002'); return d?.mensajes.filter((m) => m.rol === 'assistant').length >= 2 ? d : null; });
+  check('Mensajes: con PIN, el administrador no entra sin él (ni con uno equivocado) y no se le revela nada', dP1?.mensajes.filter((m) => m.rol === 'assistant').every((m) => /Escribe tu PIN/.test(m.contenido)), JSON.stringify(dP1?.mensajes));
+  await hook(url, wa('1090000000001', 'wamid.AD6', 'abc123', '573001110002'));
+  const dP2 = await esperar(async () => { const d = await verAdmin('573001110002'); return /Modo administrador activado/.test(d?.mensajes.at(-1).contenido || '') ? d : null; });
+  check('Mensajes: con el PIN correcto se abre la sesión de administrador', !!dP2);
+  check('Mensajes: un número que no es administrador sigue siendo un cliente (el chat no es Admin)', (await chats()).find((x) => x.contacto === '573001112233').admin === 0);
+
   /* ---------- permisos y módulo inactivo ---------- */
   const staff = await newMember(A.id, 'staff');
   check('Mensajes: el personal no crea bandejas ni activa agentes (403)', (await staff.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x' } })).status === 403 && (await staff.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { activo: true } })).status === 403);
@@ -332,8 +363,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 6 && (await chats()).length === 17);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 16 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 6 && (await chats()).length === 19);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 18 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

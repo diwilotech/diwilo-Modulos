@@ -230,3 +230,20 @@ export async function crearCita(env, org, { inicio, nombre, correo, descripcion 
   cacheHuecos.delete(org);
   return { id: ev.id, inicio: ini.toISOString(), etiqueta: etiquetaHora(ini.getTime(), agenda.offset), link: ev.hangoutLink || ev.htmlLink || null };
 }
+
+// Cancela la cita en Google Calendar (Google avisa por correo a la persona invitada). Si ya no existe, se da por cancelada.
+export async function cancelarCita(env, org, cita) {
+  const a = await agendaDe(env, org);
+  try { await gapi(env, org, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(a.calendario)}/events/${encodeURIComponent(cita.id)}?sendUpdates=all`, { method: 'DELETE' }, 'calendario'); }
+  catch (e) { if (!/not found|deleted|gone|410|404/i.test(e.message)) throw e; }
+  cacheHuecos.delete(org);
+}
+// Cambia la cita a otro horario libre (mantiene el enlace de Meta; Google avisa a la persona invitada)
+export async function moverCita(env, org, cita, inicio) {
+  const { agenda, slots } = await huecosLibres(env, org, { fresco: true });
+  if (!slots.some((s) => s.iso === new Date(inicio).toISOString())) throw new GoogleError('Ese horario ya no está libre');
+  const ini = new Date(inicio), fin = new Date(ini.getTime() + agenda.duracion * 60000);
+  await gapi(env, org, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(agenda.calendario)}/events/${encodeURIComponent(cita.id)}?sendUpdates=all`, { method: 'PATCH', body: JSON.stringify({ start: { dateTime: ini.toISOString() }, end: { dateTime: fin.toISOString() } }) }, 'calendario');
+  cacheHuecos.delete(org);
+  return { ...cita, inicio: ini.toISOString(), etiqueta: etiquetaHora(ini.getTime(), agenda.offset) };
+}

@@ -1,5 +1,11 @@
 # WhatsApp — cambios
 
+## 3.6.0 · 2026-10-28
+- **El agente cancela y cambia citas:** si la persona pide cancelar su cita, el agente le pide confirmar y la cancela en Google Calendar (Google le avisa por correo); si pide cambiarla, le ofrece horarios libres y la mueve (mismo enlace de Meet). Antes solo decía que un asesor la contactaría. En el chat aparece una barra con la cita y el botón **Cancelar cita**.
+- **Modo administrador por WhatsApp (pestaña «Administrador»):** números autorizados que, al escribir a tu WhatsApp del negocio, no son clientes: hablan con el asistente del negocio, que consulta y hace cosas con las herramientas de los módulos activos y manda resúmenes. Lo que cambia datos o escribe a clientes se propone y solo se ejecuta cuando responden «sí». PIN opcional (sesión de 12 horas, 5 fallos bloquean 30 min), comandos «ayuda» y «salir». Su chat se marca «Admin» y ningún agente le contesta.
+- Herramientas nuevas para el asistente y el MCP: `whatsapp.resumen` (últimas 24 h), `whatsapp.enviar_mensaje`, `whatsapp.marcar_atendido`, `whatsapp.cancelar_cita`.
+- Migración `0035_admin_whatsapp.sql`.
+
 ## 3.5.0 · 2026-10-27
 - **Pantalla más clara:** la cabecera del chat va en dos filas (nombre y datos arriba; botones abajo), con textos que no se parten y botones solo con ícono cuando el espacio es poco.
 - **Pestaña Plantillas:** (1) las plantillas de Meta con su estado (aprobada, pendiente, rechazada) y motivo, que se actualizan solas cada minuto y con «Recargar»; (2) «Mis plantillas», respuestas propias para cualquier canal (WhatsApp, Instagram, Messenger, correo, web) con {nombre} y {empresa}, que se insertan desde el botón junto al cuadro de texto del chat.
