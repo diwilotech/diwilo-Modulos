@@ -147,7 +147,9 @@ ${sugerir ? '\nESTÁS REDACTANDO UNA RESPUESTA SUGERIDA: una persona del equipo 
   const previas = (await one(env, "SELECT COUNT(*) n FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol IN ('assistant', 'humano')", org, bandeja.id, conv.contacto)).n;
   // Quien ya está en Marketing: se le dice que vimos su solicitud (lo que quedó en sus notas) y se le pregunta si quiere seguir con eso u otra consulta
   const llenar = (t) => String(t).replace(/\s*\{nombre\}/gi, primerNombre ? ` ${primerNombre}` : '').replace(/\{solicitud\}/gi, contacto?.notes ? ` («${String(contacto.notes).split('\n')[0].replace(/^Chat:\s*/i, '').slice(0, 110)}»)` : '').replace(/\{empresa\}/gi, contacto?.company || '').trim();
-  const plantillaConocido = contacto && agente.usar_conocido !== 0 ? (agente.bienvenida_conocido || (contacto.stage === 'cliente' ? SALUDO_CLIENTE : SALUDO_LEAD)) : null;
+  // «Vimos la solicitud que presentaste» solo si el contacto ya existía antes de este chat (no el que se acaba de guardar a partir del mismo chat)
+  const previoAlChat = !!contacto && Number(contacto.created_at) < Number(conv.created_at);
+  const plantillaConocido = previoAlChat && agente.usar_conocido !== 0 ? (agente.bienvenida_conocido || (contacto.stage === 'cliente' ? SALUDO_CLIENTE : SALUDO_LEAD)) : null;
   const bienvenida = !sugerir && previas === 0 && (plantillaConocido || agente.bienvenida) ? llenar(plantillaConocido || agente.bienvenida) : null;
   const ultimoTxt = [...hist].reverse().find((h) => h.role === 'user')?.content || '';
   const soloSaludo = !!bienvenida && SALUDO.test(ultimoTxt);
@@ -358,6 +360,11 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
     if (ev.canal === 'whatsapp' && !conv.contact_id && (await marketingActivo(env, org))) {
       const c = await contactoPorTelefono(env, org, `+${ev.contacto}`);
       if (c) { await env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ?, nombre = ? WHERE id = ?').bind(c.id, c.name, conv.id).run(); conv.contact_id = c.id; conv.nombre = c.name; }
+    }
+    // Con nombre (el del perfil de WhatsApp) y teléfono, quien escribe se guarda en Marketing (se puede apagar en los ajustes de la bandeja)
+    if (ev.canal === 'whatsapp' && !conv.contact_id && bandeja.autoguardar && ev.nombre && (await marketingActivo(env, org))) {
+      const r = await guardarContacto(env, org, { bandeja, conv, d: { nombre: ev.nombre } }).catch(() => null);
+      if (r) { await env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ? WHERE id = ?').bind(r.id, conv.id).run(); conv.contact_id = r.id; }
     }
     if (ev.texto) nuevos.set(`${bandeja.id}:${ev.contacto}`, { bandeja, conv });
   }

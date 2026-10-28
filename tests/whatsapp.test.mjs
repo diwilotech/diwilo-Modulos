@@ -194,6 +194,24 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: un teléfono con otro indicativo (+1) se guarda tal cual y un celular colombiano de 10 dígitos recibe +57', tel1.status === 200 && tel1.data.contact.phone === '+14155552671'
     && (await A.app(`${X}/chats/${(await chats()).find((x) => x.contacto === 'psid42').id}/contacto`, { method: 'POST', body: { nombre: 'Pedro Soto', telefono: '3105556677' } })).data.contact.phone === '+573105556677');
 
+  // Guardado automático y «añadir a uno guardado»
+  await hook(url, wa('1090000000001', 'wamid.G1', 'hola', '573001114321'));
+  const kG = await esperar(async () => (await A.app('/api/marketing/contacts?q=3001114321')).data.rows[0]);
+  check('Mensajes: quien escribe por WhatsApp con nombre de perfil se guarda solo en Marketing (teléfono, origen WhatsApp)', kG?.name === 'Ana' && kG.phone === '+573001114321' && /WhatsApp: Ventas/.test(kG.source || ''), JSON.stringify(kG));
+  await A.app(`${X}/bandejas/${ba.id}`, { method: 'PATCH', body: { autoguardar: false } });
+  await hook(url, wa('1090000000001', 'wamid.G2', 'hola', '573001114322'));
+  await new Promise((r) => setTimeout(r, 500));
+  check('Mensajes: con el guardado automático apagado en la bandeja no se crea el contacto', (await A.app('/api/marketing/contacts?q=3001114322')).data.rows.length === 0);
+  await A.app(`${X}/bandejas/${ba.id}`, { method: 'PATCH', body: { autoguardar: true } });
+  const chP = (await chats()).find((x) => x.contacto === 'psid42');
+  const en = await A.app(`${X}/chats/${chP.id}/enlazar`, { method: 'POST', body: { contact_id: carla.data.id } });
+  const dP = (await A.app(`${X}/chats/${chP.id}`)).data, dCarla = (await A.app(`${X}/chats/${chD.id}`)).data;
+  check('Mensajes: se añade un chat de Messenger a un contacto guardado (el de WhatsApp): queda enlazado, se anota el canal y cada chat ve los otros', en.status === 200 && dP.chat.contact_id === carla.data.id && dP.contact.name === 'Carla Ruiz' && dP.otros_chats.some((o) => o.id === chD.id && o.canal === 'whatsapp') && dCarla.otros_chats.some((o) => o.id === chP.id && o.canal === 'messenger') && /Messenger:/.test(dP.contact.notes || ''), JSON.stringify([en.status, dP.otros_chats]));
+  const lt = (await A.app(`${X}/contactos?con=todos&q=Carla`)).data.rows.find((x) => x.id === carla.data.id);
+  check('Mensajes: la lista de contactos muestra en qué canales tiene chat cada uno', lt && lt.canales.includes('whatsapp') && lt.canales.includes('messenger'), JSON.stringify(lt));
+  check('Mensajes: se quita el enlace y B no enlaza chats de A ni usa sus contactos', (await A.app(`${X}/chats/${chP.id}/enlazar`, { method: 'POST', body: { contact_id: null } })).status === 200 && (await A.app(`${X}/chats/${chP.id}`)).data.chat.contact_id === null && (await B.app(`${X}/chats/${chP.id}/enlazar`, { method: 'POST', body: { contact_id: 1 } })).status === 404 && (await A.app(`${X}/chats/${chP.id}/enlazar`, { method: 'POST', body: { contact_id: 999999 } })).status === 404);
+  check('Mensajes: la lista del equipo para los administradores existe y es solo para quien administra', Array.isArray((await A.app(`${X}/admins/equipo`)).data.equipo) && (await (await newMember(A.id, 'staff')).app(`${X}/admins/equipo`)).status === 403);
+
   /* ---------- canal webhook (web, n8n…) ---------- */
   check('Mensajes: la URL de salida de un webhook debe ser https público', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', canal: 'webhook', url_salida: 'http://127.0.0.1/x' } })).status === 400);
   const cw = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Chat de la web', canal: 'webhook' } });
@@ -253,34 +271,25 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   await pm({ de: 'cliente@x.co', asunto: 'Re: Cotización', mensaje: 'Gracias, ¿y el plazo?', id: '<m2@x.co>' });
   check('Mensajes: una respuesta del mismo hilo no repite el asunto', (await A.app(`${X}/chats/${chM.id}`)).data.mensajes.at(-1).contenido === 'Gracias, ¿y el plazo?');
   check('Mensajes: un remitente inválido o la propia dirección de la bandeja no crean chats', (await pm({ de: 'nadie', mensaje: 'x' })).status === 400 && (await pm({ de: 'soporte-a@ejemplo.com', mensaje: 'x' })).status === 400 && (await chats(A, '?canal=correo')).length === 1);
+  const kM = (await A.app('/api/marketing/contacts?q=cliente@x.co')).data.rows.find((x) => x.email === 'cliente@x.co');
+  check('Mensajes: quien escribe por correo con nombre se guarda solo en Marketing y el chat queda enlazado', kM?.name === 'Cliente X' && /Correo: Soporte/.test(kM.source || '') && (await A.app(`${X}/chats/${chM.id}`)).data.chat.contact_id === kM.id, JSON.stringify(kM));
+  check('Mensajes: una bandeja de correo con una cuenta de Google que no está vinculada se rechaza', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Gmail', canal: 'correo', phone_number_id: 'otro@ejemplo.com', cuenta_google: 999 } })).status === 400);
   const er = await A.app(`${X}/chats/${chM.id}/enviar`, { method: 'POST', body: { texto: 'Te respondo por correo' } });
   check('Mensajes: responder un correo queda guardado en el chat (si el envío no está activo en Cloudflare, avisa)', [200, 502].includes(er.status) && (await A.app(`${X}/chats/${chM.id}`)).data.mensajes.at(-1).rol === 'humano', JSON.stringify([er.status, er.data]));
   const pc = await A.app(`${X}/bandejas/${bc.id}/probar`, { method: 'POST', body: {} });
   check('Mensajes: el verificador de correo explica cómo recibir y si el envío está configurado', pc.status === 200 && pc.data.pasos.some((p) => p.nombre === 'Recepción') && pc.data.pasos.some((p) => p.nombre === 'Envío'), JSON.stringify(pc.data));
 
-  /* ---------- Google: credenciales, conexión y horario de las citas ---------- */
+  /* ---------- Google: las credenciales son de Diwilo; cada negocio vincula sus cuentas y fija su horario ---------- */
   const G0 = (await A.app(`${X}/google`)).data;
-  check('Mensajes: sin credenciales Google aparece sin conectar, con la URL de redirección', G0.credenciales === false && G0.conectado === false && /\/admin\/api\/google\/callback$/.test(G0.redirect) && G0.agenda.duracion === 45, JSON.stringify(G0));
-  check('Mensajes: credenciales de Google inválidas se rechazan (archivo que no es JSON, sin client_id, sin secreto)', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: 'no es json' } })).status === 400
-    && (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: { web: { client_id: 'abc', client_secret: 'GOCSPX-xxxxxxxxxxxx' } } } })).status === 400
-    && (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: { web: { client_id: '123-abc.apps.googleusercontent.com', client_secret: '' } } } })).status === 400);
-  const credJson = JSON.stringify({ web: { client_id: '123456-abcdef.apps.googleusercontent.com', client_secret: 'GOCSPX-secreto-de-prueba-1234', redirect_uris: ['https://diwilo.com/admin/api/google/callback'] } });
-  const gc = await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: credJson } });
-  if (gc.status === 500 && /CLAVES_KEK/.test(gc.data.error || '')) check('Mensajes: sin CLAVES_KEK no se guardan credenciales (se salta el resto de las pruebas de Google)', true);
-  else {
-    const G1 = (await A.app(`${X}/google`)).data;
-    check('Mensajes: se suben las credenciales con el JSON de Google y el secreto nunca se devuelve', gc.status === 200 && G1.credenciales === true && G1.conectado === false && !JSON.stringify(G1).includes('GOCSPX') && /123456-abcd/.test(G1.client_id), JSON.stringify(G1));
-    check('Mensajes: volver a subir las credenciales del mismo cliente no desconecta las cuentas', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: credJson } })).data.cuentas_conservadas === true);
-    check('Mensajes: también se aceptan el client_id y el secreto sueltos', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { client_id: '123456-abcdef.apps.googleusercontent.com', client_secret: 'GOCSPX-secreto-de-prueba-1234' } })).status === 200);
-    check('Mensajes: B no ve las credenciales de A y A no puede conectar fuera de Diwilo (sin cuenta conectada)', (await B.app(`${X}/google`)).data.credenciales === false && (await A.app(`${X}/google/conectar`, { method: 'POST', body: {} })).status === 400 && (await A.app(`${X}/google/probar`, { method: 'POST', body: {} })).status === 400);
-    const ag1 = await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1, 2, 3], desde: '09:00', hasta: '16:00', duracion: 30, buffer: 10, adelanto_dias: 10, minimo_horas: 2, titulo: 'Cita – {nombre}', gmail_activo: false, copia: 'Hola@Ejemplo.com', envio: 'cloudflare' } });
-    const G2 = (await A.app(`${X}/google`)).data;
-    check('Mensajes: se guarda el horario de las citas (días, horas, duración) y el interruptor de Gmail', ag1.status === 200 && G2.agenda.duracion === 30 && G2.agenda.desde === '09:00' && JSON.stringify(G2.agenda.dias) === '[1,2,3]' && G2.gmail_activo === false && G2.agenda.copia === 'hola@ejemplo.com' && G2.agenda.envio === 'cloudflare', JSON.stringify(G2.agenda));
-    check('Mensajes: el horario sin días o con la hora de cierre antes de la de inicio se rechaza', (await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [] } })).status === 400 && (await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1], desde: '17:00', hasta: '08:00' } })).status === 400);
-    check('Mensajes: sin cuentas conectadas la lista está vacía y no se puede asignar una cuenta que no existe', Array.isArray((await A.app(`${X}/google`)).data.cuentas) && (await A.app(`${X}/google`)).data.cuentas.length === 0 && (await A.app(`${X}/google/usos`, { method: 'PUT', body: { cuenta_gmail: 999 } })).status === 400);
-    check('Mensajes: el personal no sube credenciales ni cambia el horario (403)', (await (await newMember(A.id, 'staff')).app(`${X}/google/credenciales`, { method: 'POST', body: { json: credJson } })).status === 403);
-    check('Mensajes: desconectar Google limpia la conexión (las credenciales quedan)', (await A.app(`${X}/google/desconectar`, { method: 'POST', body: {} })).status === 200 && (await A.app(`${X}/google`)).data.conectado === false);
-  }
+  check('Mensajes: Google aparece sin configurar para un negocio, con la URL de redirección central y sin permiso para subir credenciales', G0.credenciales === false && G0.conectado === false && G0.es_plataforma === false && G0.puede_conectar === false && /\/google\/callback$/.test(G0.redirect) && G0.agenda.duracion === 45, JSON.stringify(G0));
+  check('Mensajes: un negocio no puede subir las credenciales de Google (son de Diwilo, 403) ni conectar mientras Diwilo no las configure', (await A.app(`${X}/google/credenciales`, { method: 'POST', body: { json: { web: { client_id: '123-abc.apps.googleusercontent.com', client_secret: 'GOCSPX-xxxxxxxxxxxx' } } } })).status === 403 && (await A.app(`${X}/google/conectar`, { method: 'POST', body: {} })).status === 400);
+  check('Mensajes: sin cuentas vinculadas no hay direcciones, ni se prueba Google ni se asigna una cuenta que no existe', (await A.app(`${X}/google/direcciones`)).data.cuentas.length === 0 && (await A.app(`${X}/google/probar`, { method: 'POST', body: {} })).status === 400 && (await A.app(`${X}/google/usos`, { method: 'PUT', body: { cuenta_gmail: 999 } })).status === 400);
+  const ag1 = await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1, 2, 3], desde: '09:00', hasta: '16:00', duracion: 30, buffer: 10, adelanto_dias: 10, minimo_horas: 2, titulo: 'Cita – {nombre}', gmail_activo: false, copia: 'Hola@Ejemplo.com', envio: 'cloudflare' } });
+  const G2 = (await A.app(`${X}/google`)).data;
+  check('Mensajes: cada negocio guarda su horario de citas, la copia y cómo se envían los correos (sin necesitar credenciales)', ag1.status === 200 && G2.agenda.duracion === 30 && G2.agenda.desde === '09:00' && JSON.stringify(G2.agenda.dias) === '[1,2,3]' && G2.gmail_activo === false && G2.agenda.copia === 'hola@ejemplo.com' && G2.agenda.envio === 'cloudflare', JSON.stringify(G2.agenda));
+  check('Mensajes: el horario sin días o con la hora de cierre antes de la de inicio se rechaza', (await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [] } })).status === 400 && (await A.app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1], desde: '17:00', hasta: '08:00' } })).status === 400);
+  check('Mensajes: el personal no cambia el horario (403) y B no ve el de A', (await (await newMember(A.id, 'staff')).app(`${X}/google/agenda`, { method: 'PUT', body: { dias: [1] } })).status === 403 && (await B.app(`${X}/google`)).data.agenda.duracion === 45);
+  check('Mensajes: desconectar Google sin cuentas no falla', (await A.app(`${X}/google/desconectar`, { method: 'POST', body: {} })).status === 200 && (await A.app(`${X}/google`)).data.conectado === false);
   check('Mensajes: un agente guarda si puede agendar citas', (await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { agendar: true } })).status === 200 && (await ags()).find((a) => a.id === g1.data.id).agendar === 1 && (await A.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { agendar: false } })).status === 200);
 
   /* ---------- el agente sabe dónde conversa (canal, cuenta, de dónde escribe, otros canales, hora) ---------- */
@@ -308,13 +317,13 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: B no envía con la bandeja de A', (await B.app(`${X}/plantillas/enviar`, { method: 'POST', body: { bandeja_id: ba.id, plantilla: 'x', idioma: 'es', contactos: [1] } })).status === 404);
 
   /* ---------- mis plantillas (para cualquier canal), correo a contactos y cuenta de plantillas ---------- */
-  const r1 = await A.app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'Seguimiento', canales: JSON.stringify(['correo', 'instagram', 'inventado']), asunto: 'Seguimiento a tu solicitud', cuerpo: 'Hola{nombre}, ¿cómo vas con {empresa}?' } });
-  const r2 = await A.app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'Gracias', cuerpo: 'Gracias por escribirnos' } });
+  const rp1 = await A.app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'Seguimiento', canales: JSON.stringify(['correo', 'instagram', 'inventado']), asunto: 'Seguimiento a tu solicitud', cuerpo: 'Hola{nombre}, ¿cómo vas con {empresa}?' } });
+  const rp2 = await A.app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'Gracias', cuerpo: 'Gracias por escribirnos' } });
   const rs = (await A.app(`${X}/respuestas`)).data.rows;
-  check('Mensajes: crea plantillas propias para varios canales (los canales que no existen se descartan; vacío = todos)', r1.status === 201 && r2.status === 201 && JSON.stringify(rs.find((x) => x.id === r1.data.id).canales) === '["correo","instagram"]' && rs.find((x) => x.id === r2.data.id).canales.length === 0, JSON.stringify(rs));
-  check('Mensajes: se edita una plantilla propia y una sin mensaje se rechaza', (await A.app(`${X}/respuestas/${r2.data.id}`, { method: 'PATCH', body: { canales: JSON.stringify(['whatsapp']) } })).status === 200 && (await A.app(`${X}/respuestas`)).data.rows.find((x) => x.id === r2.data.id).canales[0] === 'whatsapp' && (await A.app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'x' } })).status === 400);
-  check('Mensajes: B no ve las plantillas de A y el personal las crea pero no las borra', (await B.app(`${X}/respuestas`)).data.rows.length === 0 && (await B.app(`${X}/respuestas/${r1.data.id}`, { method: 'PATCH', body: { nombre: 'x' } })).status === 404
-    && (await (await newMember(A.id, 'staff')).app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'Del personal', cuerpo: 'Hola' } })).status === 201 && (await (await newMember(A.id, 'staff')).app(`${X}/respuestas/${r1.data.id}`, { method: 'DELETE' })).status === 403);
+  check('Mensajes: crea plantillas propias para varios canales (los canales que no existen se descartan; vacío = todos)', rp1.status === 201 && rp2.status === 201 && JSON.stringify(rs.find((x) => x.id === rp1.data.id).canales) === '["correo","instagram"]' && rs.find((x) => x.id === rp2.data.id).canales.length === 0, JSON.stringify(rs));
+  check('Mensajes: se edita una plantilla propia y una sin mensaje se rechaza', (await A.app(`${X}/respuestas/${rp2.data.id}`, { method: 'PATCH', body: { canales: JSON.stringify(['whatsapp']) } })).status === 200 && (await A.app(`${X}/respuestas`)).data.rows.find((x) => x.id === rp2.data.id).canales[0] === 'whatsapp' && (await A.app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'x' } })).status === 400);
+  check('Mensajes: B no ve las plantillas de A y el personal las crea pero no las borra', (await B.app(`${X}/respuestas`)).data.rows.length === 0 && (await B.app(`${X}/respuestas/${rp1.data.id}`, { method: 'PATCH', body: { nombre: 'x' } })).status === 404
+    && (await (await newMember(A.id, 'staff')).app(`${X}/respuestas`, { method: 'POST', body: { nombre: 'Del personal', cuerpo: 'Hola' } })).status === 201 && (await (await newMember(A.id, 'staff')).app(`${X}/respuestas/${rp1.data.id}`, { method: 'DELETE' })).status === 403);
   const lc2 = (await A.app(`${X}/contactos?con=email`)).data;
   check('Mensajes: la lista de contactos puede pedirse por correo (no solo por teléfono)', lc2.marketing && lc2.rows.length > 0 && lc2.rows.every((c) => c.email) && lc2.rows.some((c) => c.company !== undefined));
   const luis = lc2.rows[0];
@@ -332,12 +341,13 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: se autorizan números administradores (con o sin PIN) y el PIN nunca se devuelve', ad1.status === 201 && ad2.status === 201 && lad.find((x) => x.id === ad1.data.id).numero === '573001110001' && lad.find((x) => x.id === ad1.data.id).tiene_pin === false && lad.find((x) => x.id === ad2.data.id).tiene_pin === true && !JSON.stringify(lad).includes('abc123') && !JSON.stringify(lad).includes('pin_hash'), JSON.stringify(lad));
   check('Mensajes: un número o PIN inválidos y un administrador repetido se rechazan; B no ve los de A y el personal tampoco', (await A.app(`${X}/admins`, { method: 'POST', body: { numero: '123' } })).status === 400 && (await A.app(`${X}/admins`, { method: 'POST', body: { numero: '573001110009', pin: '12' } })).status === 400
     && (await A.app(`${X}/admins`, { method: 'POST', body: { numero: '573001110001' } })).status === 409 && (await B.app(`${X}/admins`)).data.rows.length === 0 && (await (await newMember(A.id, 'staff')).app(`${X}/admins`)).status === 403);
+  await A.app(`${X}/chats/${chA.id}`, { method: 'PATCH', body: { ia_activa: true } });
   const verAdmin = async (num) => { const ch = (await chats()).find((x) => x.contacto === num); return ch ? (await A.app(`${X}/chats/${ch.id}`)).data : null; };
   // sin PIN: el número basta; el asistente responde y propone (no hace) lo que cambia datos hasta que diga «sí»
   const guion = `[prueba] [[GUION]]{"accion":"usar","herramienta":"whatsapp.cambiar_ia_del_chat","args":{"chat_id":${chA.id},"ia_activa":false}}\n---\n{"accion":"fin","respuesta":"Voy a apagar la IA de ese chat."}[[/GUION]]`;
   await hook(url, wa('1090000000001', 'wamid.AD1', guion, '573001110001'));
   const dA1 = await esperar(async () => { const d = await verAdmin('573001110001'); return d?.mensajes.some((m) => m.rol === 'assistant') ? d : null; });
-  check('Mensajes: el número administrador no es un cliente (chat marcado Admin, sin agente ni Marketing) y el asistente le propone la acción pidiendo confirmación', dA1?.chat.admin === 1 && dA1.chat.ia_activa === 0 && dA1.chat.agente_id === 0 && /Voy a apagar la IA de ese chat\./.test(dA1.mensajes.at(-1).contenido) && /Responde \*SÍ\* o \*NO\*/.test(dA1.mensajes.at(-1).contenido) && (await det()).chat.ia_activa === 1, JSON.stringify(dA1?.mensajes));
+  check('Mensajes: el número administrador no es un cliente (chat marcado Admin, sin agente ni Marketing) y el asistente le propone la acción pidiendo confirmación', dA1?.chat.admin === 1 && dA1.chat.ia_activa === 0 && dA1.chat.agente_id === 0 && /Voy a apagar la IA de ese chat\./.test(dA1.mensajes.at(-1).contenido) && /Responde \*SÍ\* o \*NO\*/.test(dA1.mensajes.at(-1).contenido) && (await det()).chat.ia_activa === 1, JSON.stringify([dA1?.chat.admin, dA1?.chat.ia_activa, dA1?.chat.agente_id, (await det()).chat.ia_activa]));
   await hook(url, wa('1090000000001', 'wamid.AD2', 'sí', '573001110001'));
   const dA2 = await esperar(async () => { const d = await verAdmin('573001110001'); return d?.mensajes.at(-1).contenido.startsWith('✅ Hecho') ? d : null; });
   check('Mensajes: al responder «sí» se ejecuta lo propuesto (aquí apagó la IA de ese chat)', !!dA2 && (await det()).chat.ia_activa === 0, JSON.stringify(dA2?.mensajes.at(-1)));
@@ -363,8 +373,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 6 && (await chats()).length === 19);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 18 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 6 && (await chats()).length === 21);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 20 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

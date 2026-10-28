@@ -53,7 +53,11 @@ export async function contactoPorTelefono(env, org, tel) {
   const filas = await all(env, 'SELECT id, name, phone, email, stage FROM mk_contacts WHERE business_id = ? AND phone LIKE ? LIMIT 50', org, `%${u.slice(-4)}%`);
   return filas.find((f) => ultimos(f.phone) === u) || null;
 }
-export const contactoPorId = (env, org, id) => (id ? one(env, 'SELECT id, name, phone, email, stage, company, notes FROM mk_contacts WHERE id = ? AND business_id = ?', id, org) : null);
+export async function contactoPorCorreo(env, org, correo) {
+  const e = String(correo || '').trim().toLowerCase();
+  return e ? one(env, 'SELECT id, name, phone, email, stage FROM mk_contacts WHERE business_id = ? AND lower(email) = ? LIMIT 1', org, e) : null;
+}
+export const contactoPorId = (env, org, id) => (id ? one(env, 'SELECT id, name, phone, email, stage, company, notes, source, created_at FROM mk_contacts WHERE id = ? AND business_id = ?', id, org) : null);
 
 // Guarda lo que se sabe de la persona del chat como contacto de Marketing y lo enlaza al chat. `d` = { nombre, telefono, correo, empresa, interes }.
 // Devuelve { id, creado } o null si no hay Marketing activo o faltan datos mínimos.
@@ -73,6 +77,7 @@ export async function guardarContacto(env, org, { bandeja, conv, d, manual = fal
   const notas = lineas.join('\n').slice(0, 800) || null;
   let existente = conv.contact_id ? await contactoPorId(env, org, conv.contact_id) : null;
   if (!existente && tel) existente = await contactoPorTelefono(env, org, tel);
+  if (!existente && correoOk) existente = await contactoPorCorreo(env, org, correoOk);
   const eraCliente = /^\s*(s[ií]|yes|ya soy)/i.test(String(d.es_cliente || ''));
   if (existente) {
     // Es la misma persona (mismo teléfono): lo que dice ahora completa y corrige el contacto. Si el nombre guardado era otro (p. ej. el negocio que escribió
@@ -87,7 +92,10 @@ export async function guardarContacto(env, org, { bandeja, conv, d, manual = fal
     }
     const extra = [];
     let nuevoNombre = previo?.name, empresaNueva = empresa;
-    if (!mismoNombre) { nuevoNombre = nombre; extra.push(`Nombre anterior: ${previo.name}`); if (!previo.company && !empresa) empresaNueva = previo.name; }
+    // Nombre distinto: reemplaza al guardado (el anterior pasa a «empresa» y a las notas). Nombre más completo del mismo (p. ej. «Ana» → «Ana Pérez»): se actualiza sin más.
+    const tPrev = norm(previo?.name), tNuevo = norm(nombre), masCompleto = !!nombre && tNuevo.length > tPrev.length && tPrev.every((w) => tNuevo.includes(w));
+    if (masCompleto) nuevoNombre = nombre;
+    else if (!mismoNombre) { nuevoNombre = nombre; extra.push(`Nombre anterior: ${previo.name}`); if (!previo.company && !empresa) empresaNueva = previo.name; }
     if (correoOk && previo?.email && previo.email.toLowerCase() !== correoOk) extra.push(`Otro correo dado en el chat: ${correoOk}`);
     const notasTodas = [notas, ...extra].filter(Boolean).join('\n').slice(0, 800) || null;
     await env.DB.prepare('UPDATE mk_contacts SET name = ?, email = COALESCE(NULLIF(email, \'\'), ?), phone = COALESCE(NULLIF(phone, \'\'), ?), company = COALESCE(NULLIF(company, \'\'), ?), stage = CASE WHEN ? = 1 AND stage = \'lead\' THEN \'cliente\' ELSE stage END, notes = CASE WHEN ? IS NULL THEN notes ELSE COALESCE(notes || char(10), \'\') || ? END, updated_at = ? WHERE id = ? AND business_id = ?')

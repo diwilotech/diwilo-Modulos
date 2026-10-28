@@ -1,5 +1,15 @@
 # WhatsApp — cambios
 
+## 3.7.0 · 2026-10-28
+- **Credenciales de Google solo de Diwilo:** una sola app de Google para todos los negocios; solo Diwilo las sube (pestaña Google) y cada negocio únicamente vincula sus cuentas. La vuelta de Google es una URL pública central (`https://diwilo.com/google/callback`, la misma para todos: hay que agregarla al cliente OAuth). Si se cambia de cliente, todos los negocios deben volver a vincular.
+- **Bandeja de correo desde Google:** al crearla se elige la dirección entre las de las cuentas vinculadas (la cuenta y sus alias «Enviar como»); la bandeja queda asociada a esa cuenta, que envía y lee sus correos. La tarjeta dice si usa Gmail o Cloudflare.
+- **Administrador con el equipo:** la pestaña lista a las personas del equipo con acceso (la app las entrega) para activar a cada una por WhatsApp con su número y PIN, y aparte otros números autorizados.
+- **«+ Nuevo» en Chats** (reemplaza la pestaña «Enviar mensajes»): abre un modal con los contactos guardados para escribirles por WhatsApp (plantilla de Meta) o correo; muestra en qué canales tiene chat cada contacto.
+- **Guardar o añadir a un contacto:** el contacto del chat se guarda como nuevo o se **añade a uno guardado** (p. ej. el chat de Instagram de alguien que ya tiene WhatsApp): se enlazan, se completa lo que falta y cada chat muestra los otros de la misma persona. Quien escribe por WhatsApp (nombre de perfil + teléfono) o correo (nombre + correo) se guarda solo en Marketing (se apaga por bandeja).
+- «Vimos la solicitud que presentaste» solo se dice si el contacto ya existía antes del chat; un nombre más completo («Ana» → «Ana Pérez») actualiza el contacto.
+- Corrección de pruebas: desde la 3.5.0 el archivo de pruebas de Mensajes tenía una variable repetida y no se ejecutaba; ya corre completo.
+- Migración `0036_google_plataforma.sql`.
+
 ## 3.6.0 · 2026-10-28
 - **El agente cancela y cambia citas:** si la persona pide cancelar su cita, el agente le pide confirmar y la cancela en Google Calendar (Google le avisa por correo); si pide cambiarla, le ofrece horarios libres y la mueve (mismo enlace de Meet). Antes solo decía que un asesor la contactaría. En el chat aparece una barra con la cita y el botón **Cancelar cita**.
 - **Modo administrador por WhatsApp (pestaña «Administrador»):** números autorizados que, al escribir a tu WhatsApp del negocio, no son clientes: hablan con el asistente del negocio, que consulta y hace cosas con las herramientas de los módulos activos y manda resúmenes. Lo que cambia datos o escribe a clientes se propone y solo se ejecuta cuando responden «sí». PIN opcional (sesión de 12 horas, 5 fallos bloquean 30 min), comandos «ayuda» y «salir». Su chat se marca «Admin» y ningún agente le contesta.

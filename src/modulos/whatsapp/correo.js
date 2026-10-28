@@ -8,6 +8,7 @@ import { orgUsa } from '../../lib/contexto.js';
 import { guardarMensaje, tocarChat, responder } from './webhook.js';
 import { sincronizarGmail } from './google.js';
 import { all } from '../../lib/crud.js';
+import { marketingActivo, contactoPorCorreo, guardarContacto } from './contactos.js';
 
 const AUTOMATICO = /^(mailer-daemon|postmaster|no-?reply|do-?not-?reply|bounce|notifications?@)/i;
 const CITA = /^(>|on .{5,80} wrote:|el .{5,80} escribi[oó]:|-{2,}\s*(original message|mensaje original)|de:\s.+@|from:\s.+@)/i;
@@ -34,6 +35,12 @@ export async function registrarCorreo(env, bandeja, datos, { responderIA = true 
   const conv = await tocarChat(env, { org, bandeja, contacto: de, nombre: datos.nombre ? String(datos.nombre).slice(0, 120) : null, rol: 'user', contenido, ts, leido: false, iaInicial: 0 });
   await env.DB.prepare('UPDATE wa_conversaciones SET asunto = ?, ref_correo = COALESCE(?, ref_correo) WHERE id = ?').bind(asunto, datos.ref ? String(datos.ref).slice(0, 300) : null, conv.id).run();
   conv.asunto = asunto; conv.ref_correo = datos.ref || conv.ref_correo;
+  // Quien escribe por correo: si ya está en Marketing (mismo correo) se enlaza; si no, con nombre y correo se guarda (se puede apagar en los ajustes de la bandeja)
+  if (!conv.contact_id && (await marketingActivo(env, org).catch(() => false))) {
+    const k = await contactoPorCorreo(env, org, de);
+    const id = k?.id ?? (bandeja.autoguardar && datos.nombre ? (await guardarContacto(env, org, { bandeja, conv, d: { nombre: datos.nombre, correo: de } }).catch(() => null))?.id : null);
+    if (id) { await env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ?, nombre = COALESCE(nombre, ?) WHERE id = ?').bind(id, k?.name || null, conv.id).run(); conv.contact_id = id; }
+  }
   const respuesta = responderIA ? await responder(env, { bandeja, conv }) : null;   // solo si ese chat tiene la IA encendida
   return { ok: true, chat_id: conv.id, respuesta };
 }

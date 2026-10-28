@@ -7,7 +7,7 @@ DW.ready.then((me) => {
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
-  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['enviar', 'Enviar mensajes'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
+  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
   let view = (location.hash || '#chats').slice(1), timers = [], abrirId = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'chats';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
@@ -64,7 +64,7 @@ DW.ready.then((me) => {
 
   /* ---------- chats ---------- */
   async function chatsView(el) {
-    el.innerHTML = `<div class="wa-box"><aside class="wa-list"><div class="wa-search"><input class="form-control form-control-sm" data-q placeholder="Buscar chats…" aria-label="Buscar chats"></div><div class="wa-fil" data-fil></div><div class="wa-items" data-items></div></aside><section class="wa-chat" data-chat></section></div>`;
+    el.innerHTML = `<div class="wa-box"><aside class="wa-list"><div class="wa-search d-flex gap-2"><input class="form-control form-control-sm" data-q placeholder="Buscar chats…" aria-label="Buscar chats">${RO ? '' : '<button class="btn btn-sm btn-primary text-nowrap" data-nuevo title="Escribir a un contacto: WhatsApp o correo"><i class="bi bi-plus-lg"></i> Nuevo</button>'}</div><div class="wa-fil" data-fil></div><div class="wa-items" data-items></div></aside><section class="wa-chat" data-chat></section></div>`;
     const box = $('.wa-box', el), cont = $('[data-chat]', el), lista = $('[data-items]', el);
     let items = [], sel = null, filtro = '', filtroB = '', q = '', det = null, firma = '';
     let bands = [], agentes = [], respuestas = [];
@@ -158,6 +158,11 @@ DW.ready.then((me) => {
         ${canal === 'whatsapp' && !det.ventana_abierta ? '<div class="alert alert-warning small mb-0">Pasaron más de 24 h desde su último mensaje: WhatsApp solo deja enviarle plantillas de Meta (botón «Plantilla»).</div>' : ''}</div>`);
       mo.onclick = (e) => { const b = e.target.closest('[data-r]'); if (!b) return; const r = rs.find((x) => x.id === +b.dataset.r), ta = $('[name=texto]', cont); if (ta) { ta.value = llenar(r.cuerpo); ta.focus(); } mm.hide(); };
     }
+    // «+ Nuevo»: escribir a contactos guardados (WhatsApp con plantilla de Meta, o correo)
+    el.querySelector('[data-nuevo]')?.addEventListener('click', () => {
+      const { el: mo } = modal(`${cab('Nuevo mensaje')}<div class="modal-body" data-caja style="max-height:calc(100dvh - 130px);overflow-y:auto"></div>`, { size: 'modal-xl' });
+      enviarView($('[data-caja]', mo));
+    });
     lista.onclick = (e) => {
       const ag = e.target.closest('[data-ag]');
       if (ag) { e.stopPropagation(); const c = items.find((x) => x.id === +ag.dataset.ag); if (c) elegirAgente(c); return; }
@@ -186,7 +191,7 @@ DW.ready.then((me) => {
       }
       if (e.target.closest('[data-ok]')) { try { await api(`${B}/chats/${sel}`, { method: 'PATCH', body: { atencion: false } }); toast('Marcado como atendido'); await cargarChat(true); cargarLista(); } catch (x) { toast(x.message, false); } return; }
       if (e.target.closest('[data-agbtn]')) return elegirAgente({ ...det.chat, agente_id: det.chat.agente_id });
-      if (e.target.closest('[data-cto]')) return contacto(det, async () => { await cargarChat(true); cargarLista(); });
+      if (e.target.closest('[data-cto]')) return contacto(det, async () => { await cargarChat(true); cargarLista(); }, (id) => abrir(id));
       if (e.target.closest('[data-tpl]')) return plantillaChat(det, async () => { await cargarChat(true); cargarLista(); });
       if (e.target.closest('[data-del]')) {
         if (!(await confirm({ title: '¿Borrar este chat?', text: 'Se borran sus mensajes. No se puede deshacer.', ok: 'Borrar' }))) return;
@@ -226,27 +231,47 @@ DW.ready.then((me) => {
   }
 
   // Datos del contacto del chat: lo que capturó el agente o lo que escribe el equipo → contacto de Marketing (sin duplicar por teléfono)
-  function contacto(det, listo) {
+  function contacto(det, listo, abrirChat) {
     const c = det.chat, k = det.contact, d = c.datos || {}, wa = c.canal === 'whatsapp';
     const opt = (v, l, sel) => `<option value="${v}" ${sel === v ? 'selected' : ''}>${l}</option>`;
     const cliente = k?.stage === 'cliente' || /^s[ií]/i.test(d.es_cliente || '') ? 'si' : 'no';
-    const { el: mo, m: mm } = modal(`${cab('Datos del contacto')}<form class="modal-body d-grid gap-3" ${SCROLL}>
-      ${k ? `<div class="alert alert-success small mb-0"><i class="bi bi-check-circle me-1"></i>Enlazado con el contacto <b>${esc(k.name)}</b> de Marketing${k.stage ? ` (${esc(k.stage)})` : ''}. Lo que cambies aquí lo actualiza.</div>` : '<div class="alert alert-light border small mb-0">Este chat aún no está en Marketing. Completa los datos y se crea el contacto (si el teléfono ya existe, se actualiza el de siempre).</div>'}
-      ${!det.marketing ? '<div class="alert alert-warning small mb-0">Marketing no está activo en tu negocio: pídele a Diwilo que lo active para guardar contactos.</div>' : ''}
-      ${campo('nombre', 'Nombre de la persona', k?.name || d.nombre || '', 'maxlength="120" placeholder="Nombre y apellido"')}
-      ${wa ? `<div class="small text-body-secondary">Teléfono: <b>+${esc(c.contacto)}</b> ${c.pais ? `${bandera(c.pais)} ${esc(paisNombre(c.pais))}` : ''} (el del chat)</div>` : telCampo('tel', 'Teléfono (elige el indicativo del país)', k?.phone || d.telefono || '')}
-      ${campo('correo', 'Correo electrónico', k?.email || d.correo || '', 'type="email" placeholder="nombre@empresa.com"')}
-      <div class="row g-2"><div class="col-sm-6">${campo('empresa', 'Negocio o empresa', k?.company || d.empresa || '', 'maxlength="120"')}</div>
-        <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">Escribe como<select class="form-select" name="tipo">${opt('', '—', d.tipo || '')}${opt('persona', 'Persona', d.tipo || '')}${opt('negocio', 'Negocio o empresa', d.tipo || '')}</select></label></div></div>
-      <div class="row g-2"><div class="col-sm-6">${campo('ciudad', 'Ciudad', d.ciudad || '', 'maxlength="80"')}</div>
-        <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">¿Ya es cliente?<select class="form-select" name="es_cliente">${opt('no', 'No, es nuevo (lead)', cliente)}${opt('si', 'Sí, ya es cliente', cliente)}</select></label></div></div>
-      ${campo('interes', 'Qué busca / notas', d.interes || '', 'maxlength="300"')}
-      ${d.extras && Object.keys(d.extras).length ? `<div class="small text-body-secondary">${Object.entries(d.extras).map(([a, z]) => `${esc(a)}: <b>${esc(z)}</b>`).join('<br>')}</div>` : ''}
-      <button class="btn btn-primary" ${det.marketing && !RO ? '' : 'disabled'}>${k ? 'Actualizar en Marketing' : 'Guardar en Marketing'}</button></form>`);
-    mo.querySelector('form').onsubmit = async (e) => {
+    const otros = det.otros_chats || [];
+    const { el: mo, m: mm } = modal(`${cab('Contacto del chat')}<div class="modal-body" ${SCROLL}>
+      ${!det.marketing ? '<div class="alert alert-warning small">Marketing no está activo en tu negocio: pídele a Diwilo que lo active para guardar contactos.</div>' : ''}
+      ${k ? `<div class="alert alert-success small d-flex flex-wrap gap-2 align-items-center"><span><i class="bi bi-check-circle me-1"></i>Enlazado con <b>${esc(k.name)}</b> de Marketing${k.stage ? ` (${esc(k.stage)})` : ''}.</span>${RO ? '' : '<button class="btn btn-sm btn-outline-secondary ms-auto" data-desenlazar>Quitar enlace</button>'}</div>` : '<div class="alert alert-light border small">Este chat aún no está en tus contactos. Guárdalo como contacto nuevo o añádelo a uno que ya tengas (por ejemplo, si esta persona ya te escribió por otro canal).</div>'}
+      ${otros.length ? `<div class="small mb-3"><div class="text-body-secondary mb-1">También escribe por:</div><div class="d-flex flex-wrap gap-2">${otros.map((o) => `<button type="button" class="btn btn-sm btn-outline-secondary" data-otro="${o.id}">${ico(o.canal)} ${esc(CAN_[o.canal]?.n || o.canal)} · ${esc(o.bandeja)}</button>`).join('')}</div></div>` : ''}
+      <ul class="nav nav-pills mb-3 small" role="tablist"><li class="nav-item"><button class="nav-link active py-1" type="button" data-t="datos">${k ? 'Datos del contacto' : 'Guardar como contacto nuevo'}</button></li>${RO || !det.marketing ? '' : `<li class="nav-item"><button class="nav-link py-1" type="button" data-t="enlazar">Añadir a uno guardado</button></li>`}</ul>
+      <form class="d-grid gap-3" data-datos>
+        ${campo('nombre', 'Nombre de la persona', k?.name || d.nombre || c.nombre || '', 'maxlength="120" placeholder="Nombre y apellido"')}
+        ${wa ? `<div class="small text-body-secondary">Teléfono: <b>+${esc(c.contacto)}</b> ${c.pais ? `${bandera(c.pais)} ${esc(paisNombre(c.pais))}` : ''} (el del chat)</div>` : c.canal === 'correo' ? `<div class="small text-body-secondary">Correo: <b>${esc(c.contacto)}</b> (el del chat)</div>${telCampo('tel', 'Teléfono (elige el indicativo del país)', k?.phone || d.telefono || '')}` : telCampo('tel', 'Teléfono (elige el indicativo del país)', k?.phone || d.telefono || '')}
+        ${c.canal === 'correo' ? '' : campo('correo', 'Correo electrónico', k?.email || d.correo || '', 'type="email" placeholder="nombre@empresa.com"')}
+        <div class="row g-2"><div class="col-sm-6">${campo('empresa', 'Negocio o empresa', k?.company || d.empresa || '', 'maxlength="120"')}</div>
+          <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">Escribe como<select class="form-select" name="tipo">${opt('', '—', d.tipo || '')}${opt('persona', 'Persona', d.tipo || '')}${opt('negocio', 'Negocio o empresa', d.tipo || '')}</select></label></div></div>
+        <div class="row g-2"><div class="col-sm-6">${campo('ciudad', 'Ciudad', d.ciudad || '', 'maxlength="80"')}</div>
+          <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">¿Ya es cliente?<select class="form-select" name="es_cliente">${opt('no', 'No, es nuevo (lead)', cliente)}${opt('si', 'Sí, ya es cliente', cliente)}</select></label></div></div>
+        ${campo('interes', 'Qué busca / notas', d.interes || '', 'maxlength="300"')}
+        ${d.extras && Object.keys(d.extras).length ? `<div class="small text-body-secondary">${Object.entries(d.extras).map(([a, z]) => `${esc(a)}: <b>${esc(z)}</b>`).join('<br>')}</div>` : ''}
+        <button class="btn btn-primary" ${det.marketing && !RO ? '' : 'disabled'}>${k ? 'Actualizar en Marketing' : 'Guardar contacto'}</button></form>
+      <div data-enlazar hidden class="d-grid gap-2"><input class="form-control form-control-sm" data-bq placeholder="Buscar entre tus contactos guardados…"><div class="list-group" data-blista style="max-height:40vh;overflow:auto"></div></div></div>`);
+    const tabs = mo.querySelectorAll('[data-t]'), pDatos = $('[data-datos]', mo), pEnl = $('[data-enlazar]', mo);
+    let cargado = false;
+    async function buscar(q = '') {
+      let r; try { r = await api(`${B}/contactos?con=todos&q=${encodeURIComponent(q)}`); } catch (x) { return toast(x.message, false); }
+      $('[data-blista]', mo).innerHTML = r.rows.length ? r.rows.map((x) => `<button type="button" class="list-group-item list-group-item-action d-flex gap-2 align-items-center" data-k="${x.id}"><span class="flex-grow-1" style="min-width:0"><b>${esc(x.name)}</b>${x.company ? ` <small class="text-body-secondary">· ${esc(x.company)}</small>` : ''}<br><small class="text-body-secondary">${esc([x.phone, x.email].filter(Boolean).join(' · ') || 'sin teléfono ni correo')}</small></span><span class="d-flex gap-1">${x.phone ? ico('whatsapp') : ''}${x.email ? ico('correo') : ''}${(x.canales || []).filter((q) => q !== 'whatsapp' && q !== 'correo').map((q) => ico(q)).join('')}</span></button>`).join('') : '<div class="p-3 small text-body-secondary">No encontré contactos.</div>';
+    }
+    tabs.forEach((t) => { t.onclick = () => { tabs.forEach((x) => x.classList.toggle('active', x === t)); const enl = t.dataset.t === 'enlazar'; pDatos.hidden = enl; pEnl.hidden = !enl; if (enl && !cargado) { cargado = true; buscar(); } }; });
+    $('[data-bq]', mo).oninput = (e) => { clearTimeout(mo._t); mo._t = setTimeout(() => buscar(e.target.value.trim()), 300); };
+    mo.onclick = async (e) => {
+      const o = e.target.closest('[data-otro]'); if (o) { mm.hide(); abrirChat?.(+o.dataset.otro); return; }
+      if (e.target.closest('[data-desenlazar]')) { try { await api(`${B}/chats/${c.id}/enlazar`, { method: 'POST', body: { contact_id: null } }); mm.hide(); toast('Enlace quitado'); listo?.(); } catch (x) { toast(x.message, false); } return; }
+      const b = e.target.closest('[data-k]'); if (!b) return;
+      if (!(await confirm({ title: '¿Añadir este chat a ese contacto?', text: `El chat de ${c.nombre || c.contacto} (${CAN_[c.canal]?.n || c.canal}) quedará enlazado a ese contacto de Marketing y se completará lo que le falte (teléfono, correo, canal).`, ok: 'Añadir' }))) return;
+      try { await api(`${B}/chats/${c.id}/enlazar`, { method: 'POST', body: { contact_id: +b.dataset.k } }); mm.hide(); toast('Chat añadido al contacto'); listo?.(); } catch (x) { toast(x.message, false); }
+    };
+    pDatos.onsubmit = async (e) => {
       e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
-      const body = { nombre: f.nombre.value.trim(), correo: f.correo.value.trim(), empresa: f.empresa.value.trim(), interes: f.interes.value.trim(), tipo: f.tipo.value, ciudad: f.ciudad.value.trim(), es_cliente: f.es_cliente.value, ...(d.extras ? { extras: d.extras } : {}), ...(wa ? {} : { telefono: leerTel(f, 'tel') }) };
-      try { const r = await api(`${B}/chats/${c.id}/contacto`, { method: 'POST', body }); mm.hide(); toast(r.creado ? 'Contacto creado en Marketing' : 'Contacto actualizado'); listo?.(); } catch (x) { toast(x.message, false); btn.disabled = false; }
+      const body = { nombre: f.nombre.value.trim(), correo: c.canal === 'correo' ? c.contacto : f.correo.value.trim(), empresa: f.empresa.value.trim(), interes: f.interes.value.trim(), tipo: f.tipo.value, ciudad: f.ciudad.value.trim(), es_cliente: f.es_cliente.value, ...(d.extras ? { extras: d.extras } : {}), ...(wa ? {} : { telefono: leerTel(f, 'tel') }) };
+      try { const r = await api(`${B}/chats/${c.id}/contacto`, { method: 'POST', body }); mm.hide(); toast(r.creado ? 'Contacto guardado en Marketing' : 'Contacto actualizado'); listo?.(); } catch (x) { toast(x.message, false); btn.disabled = false; }
     };
   }
 
@@ -394,7 +419,7 @@ DW.ready.then((me) => {
     async function contactos(q = '') {
       let r; try { r = await api(`${B}/contactos?con=email&q=${encodeURIComponent(q)}`); } catch (x) { return toast(x.message, false); }
       $('[data-lista]', el).innerHTML = !r.marketing ? '<div class="p-3 small text-body-secondary">Marketing no está activo en tu negocio: pídele a Diwilo que lo active para elegir contactos.</div>'
-        : r.rows.length ? r.rows.map((c) => `<label class="list-group-item d-flex gap-2 align-items-center"><input class="form-check-input mt-0" type="checkbox" data-c="${c.id}" ${elegidos.has(c.id) ? 'checked' : ''}><span class="flex-grow-1" style="min-width:0"><b>${esc(c.name)}</b>${c.company ? ` <small class="text-body-secondary">· ${esc(c.company)}</small>` : ''}<br><small class="text-body-secondary">${esc(c.email)}</small></span><span class="badge text-bg-light">${esc(c.stage || '')}</span></label>`).join('')
+        : r.rows.length ? r.rows.map((c) => `<label class="list-group-item d-flex gap-2 align-items-center"><input class="form-check-input mt-0" type="checkbox" data-c="${c.id}" ${elegidos.has(c.id) ? 'checked' : ''}><span class="flex-grow-1" style="min-width:0"><b>${esc(c.name)}</b>${c.company ? ` <small class="text-body-secondary">· ${esc(c.company)}</small>` : ''}<br><small class="text-body-secondary">${esc(c.email)}</small></span><span class="d-flex gap-1">${(c.canales || []).map((k) => `<span title="Tiene chat en ${esc(CAN_[k]?.n || k)}">${ico(k)}</span>`).join('')}</span><span class="badge text-bg-light">${esc(c.stage || '')}</span></label>`).join('')
         : '<div class="p-3 small text-body-secondary">No hay contactos con correo.</div>';
     }
     $('[data-lista]', el).onchange = (e) => { const c = e.target.closest('[data-c]'); if (!c) return; c.checked ? elegidos.add(+c.dataset.c) : elegidos.delete(+c.dataset.c); cuenta(); };
@@ -414,35 +439,48 @@ DW.ready.then((me) => {
     contactos();
   }
 
-  /* ---------- Administrador: números que controlan el sistema desde WhatsApp ---------- */
+  /* ---------- Administrador: personas del equipo que controlan el sistema desde WhatsApp ---------- */
   async function adminView(el) {
-    let rows; try { rows = (await api(`${B}/admins`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
-    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-shield-lock me-1"></i><b>Controla todo desde tu celular.</b> Cuando uno de estos números escribe a tu WhatsApp del negocio, no es tratado como cliente: habla con el <b>asistente del negocio</b>, que consulta y hace cosas con los módulos que tengas activos y te manda resúmenes. Lo que cambia datos o le escribe a un cliente te lo propone y solo lo hace cuando respondes <b>SÍ</b>.
-        <div class="mt-2">Ejemplos: <i>«resumen»</i> · <i>«¿qué chats necesitan un asesor?»</i> · <i>«lee el chat de Ana»</i> · <i>«apaga la IA en el chat de Ana»</i> · <i>«envíale a Ana: te llamo en 10 min»</i> · <i>«cancela la cita de Ana»</i> · <i>«¿cuánto me deben?»</i>. Escribe <i>ayuda</i> para ver la lista.</div>
-        <div class="mt-2 text-warning-emphasis"><i class="bi bi-exclamation-triangle me-1"></i>Quien tenga ese celular controla el negocio. Pon un <b>PIN</b> y, en tu bandeja de WhatsApp, el <b>secreto de la app de Meta</b> (así solo se aceptan mensajes que de verdad vienen de Meta). El resumen se manda cuando lo pides: WhatsApp no deja escribirte primero fuera de las 24 h.</div></div>
-      <div class="mb-3"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Agregar administrador</button></div>
-      <div class="row g-3">${rows.length ? rows.map((r) => { const p = partirTel(r.numero); return `<div class="col-lg-6"><div class="dw-card h-100" data-id="${r.id}"><div class="d-flex align-items-start gap-2"><i class="bi bi-person-badge fs-4"></i><div class="flex-grow-1" style="min-width:0"><b>${esc(r.nombre || 'Administrador')}</b><div class="small text-body-secondary">${bandera(p.iso)} +${esc(r.numero)}</div></div><span class="badge ${r.activo ? 'text-bg-success' : 'text-bg-secondary'}">${r.activo ? 'Activo' : 'Pausado'}</span></div>
-        <div class="small mt-2">${r.tiene_pin ? '<i class="bi bi-lock-fill text-success me-1"></i>Pide PIN (sesión de 12 horas)' : '<i class="bi bi-unlock text-warning me-1"></i>Sin PIN: el número basta'}</div>
-        <div class="d-flex gap-1 mt-2"><button class="btn btn-sm btn-outline-primary" data-edit><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-sm btn-outline-secondary" data-act>${r.activo ? 'Pausar' : 'Activar'}</button><button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button></div></div></div>`; }).join('') : `<div class="col-12">${empty('bi-shield-lock', 'Aún no hay administradores. Agrega tu número para controlar el sistema desde WhatsApp.')}</div>`}</div>`;
-    const form = (r) => {
-      const { el: mo, m: mm } = modal(`${cab(r ? 'Editar administrador' : 'Agregar administrador')}<form class="modal-body d-grid gap-3" ${SCROLL} autocomplete="off">
-        ${campo('nombre', 'Nombre', r?.nombre || '', 'maxlength="60" placeholder="Yomar"')}
+    let rows, equipo = []; try { [rows, equipo] = await Promise.all([api(`${B}/admins`).then((r) => r.rows), api(`${B}/admins/equipo`).then((r) => r.equipo).catch(() => [])]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const ROL = { owner: 'Propietario', admin: 'Administrador', staff: 'Personal', equipo: 'Equipo' };
+    const deUsuario = (m) => rows.find((r) => (r.usuario || '').toLowerCase() === m.email);
+    const sueltos = rows.filter((r) => !r.usuario || !equipo.some((m) => m.email === r.usuario.toLowerCase()));
+    const inicial = (t) => esc(String(t || '?').trim()[0]?.toUpperCase() || '?');
+    const fila = (r, titulo, sub, rol) => { const p = r ? partirTel(r.numero) : null; return `<div class="dw-card" data-id="${r?.id || ''}" data-email="${esc(sub || '')}"><div class="d-flex flex-wrap gap-3 align-items-center">
+        <span class="wa-av" style="width:44px;height:44px">${inicial(titulo)}</span>
+        <div class="flex-grow-1" style="min-width:180px"><div class="fw-semibold text-truncate">${esc(titulo)}${rol ? ` <span class="badge text-bg-light border ms-1">${esc(ROL[rol] || rol)}</span>` : ''}</div><div class="small text-body-secondary text-truncate">${esc(sub || '')}</div></div>
+        ${r ? `<div class="small"><div>${bandera(p.iso)} +${esc(r.numero)}</div><div class="${r.tiene_pin ? 'text-success' : 'text-warning-emphasis'}"><i class="bi ${r.tiene_pin ? 'bi-lock-fill' : 'bi-unlock'} me-1"></i>${r.tiene_pin ? 'Con PIN (sesión de 12 h)' : 'Sin PIN'}</div></div>
+          <span class="badge ${r.activo ? 'text-bg-success' : 'text-bg-secondary'}">${r.activo ? 'Activo' : 'Pausado'}</span>
+          <div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary" data-edit title="Editar"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-secondary" data-act>${r.activo ? 'Pausar' : 'Activar'}</button><button class="btn btn-sm btn-outline-danger" data-del title="Quitar"><i class="bi bi-trash"></i></button></div>`
+        : `<button class="btn btn-sm btn-outline-success" data-activar><i class="bi bi-whatsapp me-1"></i>Activar por WhatsApp</button>`}</div></div>`; };
+    el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-shield-lock me-1"></i><b>Controla todo desde tu celular.</b> Cuando el número de una persona del equipo escribe a tu WhatsApp del negocio, no se trata como cliente: habla con el <b>asistente del negocio</b>, que consulta y hace cosas con los módulos que tengas activos y manda resúmenes. Lo que cambia datos o le escribe a un cliente se propone y solo se hace cuando responde <b>SÍ</b>.
+        <div class="mt-2">Ejemplos: <i>«resumen»</i> · <i>«¿qué chats necesitan un asesor?»</i> · <i>«lee el chat de Ana»</i> · <i>«apaga la IA en el chat de Ana»</i> · <i>«envíale a Ana: te llamo en 10 min»</i> · <i>«cancela la cita de Ana»</i>. Escribe <i>ayuda</i> para ver la lista.</div>
+        <div class="mt-2 text-warning-emphasis"><i class="bi bi-exclamation-triangle me-1"></i>Quien tenga ese celular controla el negocio: usa un <b>PIN</b> y pon el <b>secreto de la app de Meta</b> en tu bandeja de WhatsApp. El resumen llega cuando lo pides (WhatsApp no deja escribirte primero fuera de las 24 h).</div></div>
+      ${equipo.length ? `<h2 class="h6 mb-2"><i class="bi bi-people me-1"></i>Equipo con acceso</h2><div class="d-grid gap-2 mb-4">${equipo.map((m) => fila(deUsuario(m), m.nombre || m.email.split('@')[0], m.email, m.rol)).join('')}</div>` : ''}
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2"><h2 class="h6 mb-0"><i class="bi bi-phone me-1"></i>${equipo.length ? 'Otros números autorizados' : 'Números autorizados'}</h2><button class="btn btn-sm btn-primary ms-auto" data-new><i class="bi bi-plus-lg me-1"></i>Agregar un número</button></div>
+      <div class="d-grid gap-2">${sueltos.length ? sueltos.map((r) => fila(r, r.nombre || 'Administrador', null, null)).join('') : `<div class="small text-body-secondary p-3 border rounded-3">${equipo.length ? 'Ningún otro número. Los de tu equipo se activan arriba.' : 'Aún no hay números autorizados. Agrega el tuyo para controlar el sistema desde WhatsApp.'}</div>`}</div>`;
+    const form = (r, miembro) => {
+      const { el: mo, m: mm } = modal(`${cab(r ? 'Editar administrador' : 'Activar administrador por WhatsApp')}<form class="modal-body d-grid gap-3" ${SCROLL} autocomplete="off">
+        ${miembro ? `<div class="small text-body-secondary">Persona del equipo: <b>${esc(miembro.nombre || miembro.email)}</b> · ${esc(miembro.email)}</div>` : ''}
+        ${campo('nombre', 'Nombre', r?.nombre || miembro?.nombre || '', 'maxlength="60" placeholder="Yomar"')}
         ${telCampo('tel', 'Número de WhatsApp (elige el indicativo del país)', r ? `+${r.numero}` : '')}
-        ${campo('pin', r?.tiene_pin ? 'PIN nuevo (déjalo vacío para conservar el actual)' : 'PIN (opcional, 4 a 12 letras o números)', '', 'type="password" autocomplete="new-password" maxlength="12"')}
+        ${campo('pin', r?.tiene_pin ? 'PIN nuevo (déjalo vacío para conservar el actual)' : 'PIN (recomendado, 4 a 12 letras o números)', '', 'type="password" autocomplete="new-password" maxlength="12"')}
         ${r?.tiene_pin ? '<div class="form-check"><input class="form-check-input" type="checkbox" name="quitar" id="adq"><label class="form-check-label small" for="adq">Quitar el PIN (el número bastará)</label></div>' : ''}
-        <button class="btn btn-primary">${r ? 'Guardar' : 'Agregar'}</button></form>`);
+        <button class="btn btn-primary">${r ? 'Guardar' : 'Activar'}</button></form>`);
       mo.querySelector('form').onsubmit = async (e) => {
         e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
-        const body = { nombre: f.nombre.value.trim(), numero: leerTel(f, 'tel') };
+        const body = { nombre: f.nombre.value.trim(), numero: leerTel(f, 'tel'), ...(miembro ? { usuario: miembro.email } : {}) };
         if (f.pin.value.trim()) body.pin = f.pin.value.trim(); else if (f.quitar?.checked) body.pin = '';
         try { if (r) await api(`${B}/admins/${r.id}`, { method: 'PATCH', body }); else await api(`${B}/admins`, { method: 'POST', body }); mm.hide(); toast('Guardado'); render(); } catch (x) { toast(x.message, false); btn.disabled = false; }
       };
     };
     el.onclick = async (e) => {
-      if (e.target.closest('[data-new]')) return form(null);
-      const card = e.target.closest('[data-id]'); if (!card) return; const r = rows.find((x) => x.id === +card.dataset.id);
+      if (e.target.closest('[data-new]')) return form(null, null);
+      const card = e.target.closest('[data-id]'); if (!card) return;
+      const r = rows.find((x) => x.id === +card.dataset.id), miembro = equipo.find((m) => m.email === card.dataset.email);
       try {
-        if (e.target.closest('[data-edit]')) form(r);
+        if (e.target.closest('[data-activar]')) form(null, miembro);
+        else if (e.target.closest('[data-edit]')) form(r, miembro || (r.usuario ? equipo.find((m) => m.email === r.usuario.toLowerCase()) : null));
         else if (e.target.closest('[data-act]')) { await api(`${B}/admins/${r.id}`, { method: 'PATCH', body: { activo: !r.activo } }); toast(r.activo ? 'Pausado' : 'Activado'); render(); }
         else if (e.target.closest('[data-del]')) { if (!(await confirm({ title: '¿Quitar este administrador?', text: 'Ese número volverá a tratarse como un cliente más.', ok: 'Quitar' }))) return; await api(`${B}/admins/${r.id}`, { method: 'DELETE' }); toast('Quitado'); render(); }
       } catch (x) { toast(x.message, false); }
@@ -457,19 +495,20 @@ DW.ready.then((me) => {
       <div class="col-lg-6"><div class="dw-card h-100 d-grid gap-3 align-content-start">
         <div class="d-flex align-items-center gap-2"><i class="bi bi-google fs-4"></i><h2 class="h6 mb-0">Conexión con Google</h2><span class="badge ms-auto ${g.conectado ? 'text-bg-success' : g.credenciales ? 'text-bg-warning' : 'text-bg-secondary'}">${g.conectado ? `${g.cuentas.length} cuenta${g.cuentas.length === 1 ? '' : 's'}` : g.credenciales ? 'Falta conectar' : 'Sin credenciales'}</span></div>
         <p class="small text-body-secondary mb-0">Con Google conectado, las respuestas del canal de <b>correo</b> salen por <b>Gmail</b> (quedan en «Enviados» y en el mismo hilo), los correos nuevos de Gmail entran como chats y los agentes pueden <b>agendar citas con Google Meet</b> en tu Calendar.</p>
-        <div><div class="small fw-semibold mb-1">1. Credenciales del cliente OAuth</div>
-          <div class="small text-body-secondary mb-2">En Google Cloud: APIs y servicios → Credenciales → tu «ID de cliente de OAuth» → <b>Descargar JSON</b>. Súbelo aquí (o pega su contenido). El secreto se guarda cifrado y no se vuelve a mostrar.</div>
+        ${g.es_plataforma ? `<div><div class="small fw-semibold mb-1">Credenciales de la app de Google <span class="badge text-bg-secondary ms-1">solo Diwilo</span></div>
+          <div class="small text-body-secondary mb-2">Son <b>una sola app de Google para todos los negocios</b>: Diwilo las sube aquí y cada negocio solo vincula sus propias cuentas. En Google Cloud: APIs y servicios → Credenciales → tu «ID de cliente de OAuth» → <b>Descargar JSON</b>. El secreto se guarda cifrado y no se vuelve a mostrar.</div>
           ${g.credenciales ? `<div class="small mb-2"><i class="bi bi-check-circle text-success me-1"></i>Guardadas: <span class="font-monospace">${esc(g.client_id)}</span></div>` : ''}
           ${CAN ? `<form data-cred class="d-grid gap-2"><input class="form-control form-control-sm" type="file" name="archivo" accept=".json,application/json" aria-label="Archivo JSON de credenciales"><textarea class="form-control form-control-sm font-monospace" name="json" rows="3" placeholder='o pega aquí el contenido del JSON: {"web":{"client_id":"…","client_secret":"…"}}'></textarea><button class="btn btn-sm btn-primary">${g.credenciales ? 'Reemplazar credenciales' : 'Guardar credenciales'}</button></form>` : ''}
-          <div class="small text-body-secondary mt-2">URL de redirección que debe estar en tu cliente de Google: <button class="btn btn-sm btn-link p-0" data-cp="${esc(g.redirect)}"><i class="bi bi-clipboard"></i> Copiar</button><div class="font-monospace small text-break p-2 rounded-3 mt-1" style="background:rgba(var(--bs-body-color-rgb),.06)">${esc(g.redirect)}</div></div></div>
-        <div><div class="small fw-semibold mb-1">2. Cuentas de Google conectadas</div>
+          <div class="small text-body-secondary mt-2">URL de redirección que debe estar en el cliente de Google (una para todos): <button class="btn btn-sm btn-link p-0" data-cp="${esc(g.redirect)}"><i class="bi bi-clipboard"></i> Copiar</button><div class="font-monospace small text-break p-2 rounded-3 mt-1" style="background:rgba(var(--bs-body-color-rgb),.06)">${esc(g.redirect)}</div></div></div>`
+          : `<div class="small ${g.credenciales ? 'text-body-secondary' : 'text-warning-emphasis'}"><i class="bi ${g.credenciales ? 'bi-check-circle text-success' : 'bi-exclamation-triangle'} me-1"></i>${g.credenciales ? 'La app de Google la administra Diwilo: aquí solo vinculas tus cuentas.' : 'Google aún no está listo: Diwilo debe configurar la app de Google antes de que puedas vincular tus cuentas.'}</div>`}
+        <div><div class="small fw-semibold mb-1">${g.es_plataforma ? '' : '1. '}Cuentas de Google vinculadas</div>
           <div class="small text-body-secondary mb-2">Puedes conectar varias (por ejemplo una para el correo y otra para las citas con Meet). Cada una se autoriza con su propio inicio de sesión de Google.</div>
           ${g.cuentas.length ? `<div class="d-grid gap-1 mb-2">${g.cuentas.map((c) => `<div class="d-flex flex-wrap gap-2 align-items-center p-2 rounded-3" style="background:rgba(var(--bs-body-color-rgb),.06)"><i class="bi bi-person-check text-success"></i><b class="text-break">${esc(c.email)}</b>${c.id === g.cuenta_gmail ? '<span class="badge text-bg-primary">Correo</span>' : ''}${c.id === g.cuenta_calendario ? '<span class="badge text-bg-info">Calendario y Meet</span>' : ''}${CAN ? `<button class="btn btn-sm btn-outline-danger ms-auto" data-quitar="${c.id}" aria-label="Quitar cuenta"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('')}</div>
             ${CAN ? `<div class="row g-2 mb-2"><div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">Envía y lee el correo<select class="form-select form-select-sm" data-uso="cuenta_gmail">${g.cuentas.map((c) => `<option value="${c.id}" ${c.id === g.cuenta_gmail ? 'selected' : ''}>${esc(c.email)}</option>`).join('')}</select></label></div>
               <div class="col-sm-6"><label class="small text-body-secondary d-grid gap-1">Agenda las citas con Meet<select class="form-select form-select-sm" data-uso="cuenta_calendario">${g.cuentas.map((c) => `<option value="${c.id}" ${c.id === g.cuenta_calendario ? 'selected' : ''}>${esc(c.email)}</option>`).join('')}</select></label></div></div>` : ''}` : '<div class="small text-body-secondary mb-2">Aún no hay cuentas conectadas.</div>'}
           ${CAN ? `<div class="d-flex flex-wrap gap-2 align-items-end"><label class="small text-body-secondary d-grid gap-1 flex-grow-1">Correo de la cuenta a conectar (opcional)<input class="form-control form-control-sm" data-hint type="email" placeholder="hola@tuempresa.com"></label><button class="btn btn-sm btn-success" data-conectar ${g.credenciales && g.puede_conectar ? '' : 'disabled'}><i class="bi bi-box-arrow-up-right me-1"></i>${g.cuentas.length ? 'Conectar otra cuenta' : 'Conectar con Google'}</button></div>` : ''}
-          ${!g.puede_conectar ? '<div class="small text-body-secondary mt-1">Conectar Google está disponible por ahora solo en Diwilo.</div>' : ''}</div>
-        ${g.conectado && CAN ? `<div><div class="small fw-semibold mb-1">3. Probar</div><div class="d-flex flex-wrap gap-2 align-items-end"><label class="small text-body-secondary d-grid gap-1 flex-grow-1">Enviar un correo de prueba a (opcional)<input class="form-control form-control-sm" data-para type="email" placeholder="tu-correo@gmail.com"></label><button class="btn btn-sm btn-outline-success" data-probar>Probar</button></div><div data-res class="mt-2"></div></div>` : ''}
+          </div>
+        ${g.conectado && CAN ? `<div><div class="small fw-semibold mb-1">Probar</div><div class="d-flex flex-wrap gap-2 align-items-end"><label class="small text-body-secondary d-grid gap-1 flex-grow-1">Enviar un correo de prueba a (opcional)<input class="form-control form-control-sm" data-para type="email" placeholder="tu-correo@gmail.com"></label><button class="btn btn-sm btn-outline-success" data-probar>Probar</button></div><div data-res class="mt-2"></div></div>` : ''}
       </div></div>
       <div class="col-lg-6"><form class="dw-card h-100 d-grid gap-3 align-content-start" data-agenda>
         <div class="d-flex align-items-center gap-2"><i class="bi bi-calendar-check fs-4"></i><h2 class="h6 mb-0">Citas con Meet</h2></div>
@@ -530,6 +569,7 @@ DW.ready.then((me) => {
   const ejemplo = (b) => `curl -X POST "${b.webhook_url}?token=${b.verify_token}" \\\n  -H "content-type: application/json" \\\n  -d '{"contacto":"visitante-123","nombre":"Ana","mensaje":"Hola, quiero información","responder":true}'`;
   async function bandejasView(el) {
     let rows; try { rows = (await api(`${B}/bandejas`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const cuentasG = {}; try { (await api(`${B}/google`)).cuentas.forEach((c) => { cuentasG[c.id] = c.email; }); } catch (_) {}
     el.innerHTML = `<div class="alert alert-light border small mb-3"><i class="bi bi-info-circle me-1"></i>Cada bandeja es una cuenta conectada a Meta: un número de <b>WhatsApp</b>, una cuenta de <b>Instagram</b> o una página de <b>Messenger</b>. Copia la <b>URL del webhook</b> y el <b>token de verificación</b> en Meta (Webhooks de cada producto) y suscríbete al campo <b>messages</b>. Instagram y Messenger solo atienden a clientes reales cuando Meta aprueba los permisos de tu app; antes funcionan con cuentas de prueba.</div>
       ${CAN ? '<div class="mb-3"><button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nueva bandeja</button></div>' : ''}
       <div class="row g-3">${rows.length ? rows.map((b) => `<div class="col-lg-6"><div class="dw-card h-100" data-id="${b.id}">
@@ -537,7 +577,7 @@ DW.ready.then((me) => {
           <span class="badge ${b.activo ? 'text-bg-success' : 'text-bg-secondary'}">${b.activo ? 'Activa' : 'En pausa'}</span></div>
         <div class="small mt-2 d-grid gap-1">
           ${b.canal === 'correo' ? `<div>Dirección: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.reenviar_a ? ` · copia a <span class="font-monospace">${esc(b.reenviar_a)}</span>` : ''}</div>
-            <div class="text-body-secondary">Para recibir: en <b>Cloudflare → Email Routing → Routing rules</b>, la regla de <b>${esc(b.phone_number_id)}</b> debe usar la acción <b>Send to a Worker → diwilo-modulos</b>. Las respuestas salen por Gmail si conectas Google (pestaña Google) o, si no, por Cloudflare Email Sending.</div>` : ''}
+            ${b.cuenta_google && cuentasG[b.cuenta_google] ? `<div class="text-body-secondary"><i class="bi bi-google me-1"></i>Recibe y responde por <b>Gmail</b> con la cuenta <b>${esc(cuentasG[b.cuenta_google])}</b>.</div>` : `<div class="text-body-secondary">Para recibir: en <b>Cloudflare → Email Routing → Routing rules</b>, la regla de <b>${esc(b.phone_number_id)}</b> debe usar <b>Send to a Worker → diwilo-modulos</b>; o vincula una cuenta de Google que tenga esta dirección y créala de nuevo eligiéndola en la lista. Las respuestas salen por Gmail si hay Google vinculado o, si no, por Cloudflare Email Sending.</div>`}` : ''}
           ${b.canal === 'webhook' ? `<div>Respuestas a tu sistema: ${b.url_salida ? `<span class="font-monospace text-break">${esc(b.url_salida)}</span>` : '<span class="text-body-secondary">sin URL de salida</span>'}</div>`
             : b.canal === 'correo' ? '' : `<div>${b.canal === 'whatsapp' ? 'ID de número' : b.canal === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}: <span class="font-monospace">${esc(b.phone_number_id)}</span>${b.waba_id ? ` · Cuenta: <span class="font-monospace">${esc(b.waba_id)}</span>` : ''}</div>
           <div>Clave API: ${b.tiene_clave ? '<span class="text-success">guardada</span>' : '<span class="text-danger">falta</span>'}${b.tiene_secreto ? ' · firma del webhook validada' : ''}</div>`}
@@ -560,19 +600,34 @@ DW.ready.then((me) => {
         <div class="small text-body-secondary" data-ayuda>${AYUDA[canal0]}</div>
         ${campo('nombre', 'Nombre de la bandeja de entrada', b?.nombre, 'required maxlength="80" placeholder="Ventas"')}
         <div data-wa class="d-grid gap-3">${telCampo('tel', 'Número de teléfono de WhatsApp (elige el indicativo del país)', b?.telefono || '')}${campo('waba_id', 'ID de la cuenta de WhatsApp Business', b?.waba_id, 'inputmode="numeric"')}${campo('cuenta_plantillas', 'ID de la cuenta de mensajería (donde están tus plantillas de Meta; opcional)', b?.cuenta_plantillas || '', 'inputmode="numeric" placeholder="1468039218620641"')}</div>
+        <div class="form-check form-switch" data-auto><input class="form-check-input" type="checkbox" name="autoguardar" id="baa" ${!b || b.autoguardar ? 'checked' : ''}><label class="form-check-label small" for="baa">Guardar en Marketing a quien escribe cuando traiga nombre y teléfono o correo (WhatsApp y correo)</label></div>
         <div data-meta class="d-grid gap-3">${campo('phone_number_id', `<span data-idl>${canal0 === 'whatsapp' ? 'ID del número de teléfono' : canal0 === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'}</span>`, b?.phone_number_id, 'inputmode="numeric"')}
           ${campo('api_key', 'Clave API (token de acceso de Meta)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_clave ? 'Guardada — déjalo vacío para conservarla' : 'EAAG…'}"`)}
           ${campo('app_secret', 'Secreto de la app de Meta (opcional, valida la firma del webhook)', '', `type="password" autocomplete="new-password" placeholder="${b?.tiene_secreto ? 'Guardado — déjalo vacío para conservarlo' : ''}"`)}</div>
-        <div data-mail class="d-grid gap-3">${campo('correo_dir', 'Dirección de correo de la bandeja', b?.canal === 'correo' ? b.phone_number_id : '', 'type="email" placeholder="hola@tuempresa.com"')}${campo('reenviar_a', 'Seguir enviando una copia de cada correo a (opcional; debe estar verificada en Cloudflare)', b?.reenviar_a || '', 'type="email" placeholder="tu-correo@gmail.com"')}</div>
+        <div data-mail class="d-grid gap-3">${b ? campo('correo_dir', 'Dirección de correo de la bandeja', b.canal === 'correo' ? b.phone_number_id : '', 'type="email" readonly') : `<div data-dirs><label class="small text-body-secondary d-grid gap-1">Dirección de correo (de tus cuentas de Google)<select class="form-select" name="dir"><option value="">Cargando tus direcciones…</option></select></label></div>${campo('correo_dir', 'Escribe la dirección', '', 'type="email" placeholder="hola@tuempresa.com" hidden')}`}${campo('reenviar_a', 'Seguir enviando una copia de cada correo a (opcional; debe estar verificada en Cloudflare)', b?.reenviar_a || '', 'type="email" placeholder="tu-correo@gmail.com"')}</div>
         <div data-web class="d-grid gap-3">${campo('url_salida', 'URL de salida (opcional): aquí enviamos las respuestas del equipo y del agente', b?.url_salida || '', 'type="url" placeholder="https://tu-sistema.com/mensajes"')}</div>
         <button class="btn btn-primary">${b ? 'Guardar' : 'Crear bandeja'}</button></form>`);
       const f = mo.querySelector('form');
-      const ver = () => { const c = b ? b.canal : f.canal.value; f.querySelector('[data-wa]').hidden = c !== 'whatsapp'; f.querySelector('[data-meta]').hidden = c === 'webhook' || c === 'correo'; f.querySelector('[data-mail]').hidden = c !== 'correo'; f.querySelector('[data-web]').hidden = c !== 'webhook'; f.querySelector('[data-ayuda]').textContent = AYUDA[c]; f.querySelector('[data-idl]').textContent = c === 'whatsapp' ? 'ID del número de teléfono' : c === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'; };
-      if (f.canal) f.canal.onchange = ver; ver();
+      const ver = () => { const c = b ? b.canal : f.canal.value; f.querySelector('[data-auto]').hidden = !['whatsapp', 'correo'].includes(c); f.querySelector('[data-wa]').hidden = c !== 'whatsapp'; f.querySelector('[data-meta]').hidden = c === 'webhook' || c === 'correo'; f.querySelector('[data-mail]').hidden = c !== 'correo'; f.querySelector('[data-web]').hidden = c !== 'webhook'; f.querySelector('[data-ayuda]').textContent = AYUDA[c]; f.querySelector('[data-idl]').textContent = c === 'whatsapp' ? 'ID del número de teléfono' : c === 'instagram' ? 'ID de la cuenta de Instagram' : 'ID de la página'; };
+      let dirsCargadas = false;
+      async function cargarDirs() {
+        if (dirsCargadas || b) return; dirsCargadas = true;
+        const sel = f.dir, manual = f.correo_dir.closest('label');
+        try {
+          const r = (await api(`${B}/google/direcciones`)).cuentas;
+          const ops = r.flatMap((c) => c.direcciones.map((d) => `<option value="${c.cuenta_id}|${esc(d.email)}">${esc(d.email)}${d.alias ? ' (alias «Enviar como»)' : ' (cuenta)'} · cuenta ${esc(c.cuenta)}</option>`));
+          sel.innerHTML = ops.length ? `${ops.join('')}<option value="otra">Otra dirección (escribirla)…</option>` : '<option value="otra">Escribirla a mano (no hay cuentas de Google vinculadas)</option>';
+        } catch { sel.innerHTML = '<option value="otra">Escribirla a mano</option>'; }
+        const mostrar = () => { manual.hidden = sel.value !== 'otra'; f.correo_dir.hidden = sel.value !== 'otra'; };
+        sel.onchange = mostrar; mostrar();
+      }
+      if (f.canal) f.canal.onchange = () => { ver(); if (f.canal.value === 'correo') cargarDirs(); }; ver(); if (!b && f.canal?.value === 'correo') cargarDirs();
       f.onsubmit = async (e) => {
         e.preventDefault(); const v = (n) => f[n].value.trim(), btn = f.querySelector('button'), canal = b ? b.canal : v('canal'); btn.disabled = true;
-        const core = canal === 'correo' ? { nombre: v('nombre'), phone_number_id: v('correo_dir'), reenviar_a: v('reenviar_a') } : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id'), cuenta_plantillas: v('cuenta_plantillas') } : {}) };
+        const dirSel = !b && canal === 'correo' && f.dir && f.dir.value && f.dir.value !== 'otra' ? f.dir.value.split('|') : null;
+        const core = canal === 'correo' ? (dirSel ? { nombre: v('nombre'), phone_number_id: dirSel[1], cuenta_google: +dirSel[0], reenviar_a: v('reenviar_a') } : { nombre: v('nombre'), phone_number_id: v('correo_dir'), reenviar_a: v('reenviar_a') }) : canal === 'webhook' ? { nombre: v('nombre'), url_salida: v('url_salida') } : { nombre: v('nombre'), phone_number_id: v('phone_number_id'), ...(canal === 'whatsapp' ? { telefono: leerTel(f, 'tel'), waba_id: v('waba_id'), cuenta_plantillas: v('cuenta_plantillas') } : {}) };
         try {
+          if (['whatsapp', 'correo'].includes(canal)) core.autoguardar = f.autoguardar.checked;
           if (b) {
             await api(`${B}/bandejas/${b.id}`, { method: 'PATCH', body: core });
             const cred = {}; if (canal !== 'webhook' && canal !== 'correo' && v('api_key')) cred.api_key = v('api_key'); if (canal !== 'webhook' && canal !== 'correo' && v('app_secret')) cred.app_secret = v('app_secret');

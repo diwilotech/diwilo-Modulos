@@ -18,17 +18,18 @@ export function leerCredenciales(entrada) {
   if (secreto.length < 10 || /\s/.test(secreto)) throw new GoogleError('No encontré el client_secret en el archivo');
   return { client_id: id, client_secret: secreto };
 }
-export async function guardarCredenciales(env, org, { client_id, client_secret }) {
+// Credenciales del cliente OAuth de Google: son de Diwilo (una sola app para todos los negocios). Solo Diwilo las sube.
+export const credencialesPlataforma = (env) => one(env, 'SELECT * FROM wa_google_plataforma WHERE id = 1');
+export const redirectCentral = (env) => `${env.SITIO_DIWILO || 'https://diwilo.com'}/google/callback`;
+export async function guardarCredenciales(env, { client_id, client_secret }) {
   if (!env.CLAVES_KEK) throw new GoogleError('Falta configurar CLAVES_KEK en Diwilo Modulos para guardar claves de forma segura', 500);
-  const t = now(), cif = await cifrarClave(env, client_secret), previo = await filaGoogle(env, org);
-  // Mismo cliente (solo cambia el secreto o se vuelve a subir el mismo archivo): las cuentas conectadas siguen valiendo. Otro cliente: sus permisos eran de otro, hay que reconectar.
-  if (previo && previo.client_id === client_id) {
-    await env.DB.prepare('UPDATE wa_google SET secreto_cifrado = ?, updated_at = ? WHERE business_id = ?').bind(cif, t, org).run();
-    return { cuentasConservadas: true };
-  }
-  await env.DB.prepare(`INSERT INTO wa_google (business_id, client_id, secreto_cifrado, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT (business_id) DO UPDATE SET client_id = excluded.client_id, secreto_cifrado = excluded.secreto_cifrado, refresh_cifrado = NULL, email = NULL, scopes = NULL, conectado_at = NULL, cuenta_gmail = NULL, cuenta_calendario = NULL, estado = NULL, estado_exp = NULL, updated_at = excluded.updated_at`).bind(org, client_id, cif, t, t).run();
-  await env.DB.prepare('DELETE FROM wa_google_cuentas WHERE business_id = ?').bind(org).run();
+  const t = now(), cif = await cifrarClave(env, client_secret), previo = await credencialesPlataforma(env);
+  await env.DB.prepare(`INSERT INTO wa_google_plataforma (id, client_id, secreto_cifrado, updated_at) VALUES (1, ?, ?, ?)
+    ON CONFLICT (id) DO UPDATE SET client_id = excluded.client_id, secreto_cifrado = excluded.secreto_cifrado, updated_at = excluded.updated_at`).bind(client_id, cif, t).run();
+  // Mismo cliente: las cuentas vinculadas siguen valiendo. Otro cliente: los permisos eran de otro y todos los negocios deben volver a vincular sus cuentas.
+  if (previo && previo.client_id === client_id) return { cuentasConservadas: true };
+  await env.DB.prepare('DELETE FROM wa_google_cuentas').run();
+  await env.DB.prepare('UPDATE wa_google SET cuenta_gmail = NULL, cuenta_calendario = NULL, estado = NULL, estado_exp = NULL').run();
   cacheTokens.clear();
   return { cuentasConservadas: false };
 }
@@ -40,24 +41,27 @@ export async function cuentaPara(env, org, uso = 'gmail') {
 }
 export async function conectado(env, org, uso = 'gmail') { return !!(await cuentaPara(env, org, uso)); }
 export async function estadoGoogle(env, org) {
-  const g = await filaGoogle(env, org), cuentas = await all(env, 'SELECT id, email, scopes, conectado_at FROM wa_google_cuentas WHERE business_id = ? ORDER BY id', org);
+  const g = await filaGoogle(env, org), cp = await credencialesPlataforma(env), cuentas = await all(env, 'SELECT id, email, scopes, conectado_at FROM wa_google_cuentas WHERE business_id = ? ORDER BY id', org);
   let agenda = null; try { agenda = g?.agenda ? JSON.parse(g.agenda) : null; } catch { /* sin horario */ }
   const cg = cuentas.find((c) => c.id === g?.cuenta_gmail), cc = cuentas.find((c) => c.id === g?.cuenta_calendario);
-  return { credenciales: !!g?.client_id, client_id: g?.client_id ? `${g.client_id.slice(0, 12)}…${g.client_id.slice(-30)}` : null, conectado: cuentas.length > 0,
+  return { credenciales: !!cp, client_id: cp ? `${cp.client_id.slice(0, 12)}…${cp.client_id.slice(-30)}` : null, redirect: redirectCentral(env), conectado: cuentas.length > 0,
     cuentas: cuentas.map((c) => ({ id: c.id, email: c.email, permisos: String(c.scopes || '').split(' ').filter((x) => x.startsWith('https://')).map((x) => x.split('/').pop()), conectado_at: c.conectado_at })),
     cuenta_gmail: cg?.id || null, cuenta_calendario: cc?.id || null, email: cg?.email || cuentas[0]?.email || null, gmail_activo: g ? !!g.gmail_activo : true, agenda: { ...AGENDA_BASE, ...(agenda || {}) } };
 }
-export async function urlConexion(env, org, redirect, correo = '') {
-  const g = await filaGoogle(env, org);
-  if (!g?.client_id) throw new GoogleError('Primero sube las credenciales de Google');
-  const estado = hex(20);
-  await env.DB.prepare('UPDATE wa_google SET estado = ?, estado_exp = ? WHERE business_id = ?').bind(estado, now() + 15 * 60000, org).run();
-  const p = new URLSearchParams({ client_id: g.client_id, redirect_uri: redirect, response_type: 'code', scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: estado, ...(/^[^\s@]+@[^\s@]+$/.test(correo) ? { login_hint: correo } : {}) });
+export async function urlConexion(env, org, correo = '') {
+  const cp = await credencialesPlataforma(env);
+  if (!cp) throw new GoogleError('Google aún no está configurado: Diwilo debe subir las credenciales de la app de Google');
+  const t = now(), estado = hex(20);
+  await env.DB.prepare('INSERT OR IGNORE INTO wa_google (business_id, created_at, updated_at) VALUES (?, ?, ?)').bind(org, t, t).run();
+  await env.DB.prepare('UPDATE wa_google SET estado = ?, estado_exp = ? WHERE business_id = ?').bind(estado, t + 15 * 60000, org).run();
+  const p = new URLSearchParams({ client_id: cp.client_id, redirect_uri: redirectCentral(env), response_type: 'code', scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: estado, ...(/^[^\s@]+@[^\s@]+$/.test(correo) ? { login_hint: correo } : {}) });
   return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
 }
-const pedirToken = async (env, g, params) => {
-  const secreto = await descifrarClave(env, g.secreto_cifrado);
-  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: g.client_id, client_secret: secreto, ...params }) });
+const pedirToken = async (env, _g, params) => {
+  const cp = await credencialesPlataforma(env);
+  if (!cp) throw new GoogleError('Google aún no está configurado: Diwilo debe subir las credenciales de la app de Google');
+  const secreto = await descifrarClave(env, cp.secreto_cifrado);
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: cp.client_id, client_secret: secreto, ...params }) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) {
     // invalid_grant: el permiso venció (apps en modo «Prueba» de Google: a los 7 días), se revocó o cambió la contraseña
@@ -67,7 +71,8 @@ const pedirToken = async (env, g, params) => {
   return d;
 };
 // Vuelta de Google: cambia el código por el token permanente. Devuelve { org, email }
-export async function completarConexion(env, { code, state, redirect }) {
+export async function completarConexion(env, { code, state }) {
+  const redirect = redirectCentral(env);
   const g = state ? await one(env, 'SELECT * FROM wa_google WHERE estado = ?', String(state)) : null;
   if (!g || !g.estado_exp || g.estado_exp < now()) throw new GoogleError('La conexión expiró o no es válida: vuelve a pulsar «Conectar con Google»');
   const d = await pedirToken(env, g, { code: String(code || ''), grant_type: 'authorization_code', redirect_uri: redirect });
@@ -105,7 +110,7 @@ export async function asignarUsos(env, org, { cuenta_gmail, cuenta_calendario })
 }
 const cacheTokens = new Map();
 export async function tokenDe(env, org, uso = 'gmail') {
-  const cu = await cuentaPara(env, org, uso);
+  const cu = typeof uso === 'number' ? await one(env, 'SELECT * FROM wa_google_cuentas WHERE id = ? AND business_id = ?', uso, org) : await cuentaPara(env, org, uso);
   if (!cu) throw new GoogleError(uso === 'calendario' ? 'No hay una cuenta de Google conectada para el calendario' : 'Google no está conectado');
   const c = cacheTokens.get(cu.id);
   if (c && c.exp > Date.now() + 60000) return c.t;
@@ -133,16 +138,18 @@ export function armarCorreo({ de, nombre, para, copia, responderA, asunto, texto
 }
 // Responde por Gmail en el mismo hilo (si encuentra el correo original en Gmail) y queda en «Enviados». Desde la dirección de la bandeja si es un alias «Enviar como»; si no, desde la cuenta conectada con Reply-To a la bandeja.
 export async function enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo = false } = {}) {
-  const org = bandeja.business_id, cu = await cuentaPara(env, org, 'gmail');
+  const org = bandeja.business_id, cu = bandeja.cuenta_google ? await one(env, 'SELECT * FROM wa_google_cuentas WHERE id = ? AND business_id = ?', bandeja.cuenta_google, org) : await cuentaPara(env, org, 'gmail');
+  if (!cu) throw new GoogleError('La cuenta de Google de esta bandeja ya no está vinculada: vuelve a vincularla o elige otra');
+  const uso = cu.id;
   let de = cu?.email, nombre = bandeja.nombre;
-  try { const alias = (await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs'))?.sendAs?.find((a) => String(a.sendAsEmail).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() && (!a.verificationStatus || a.verificationStatus === 'accepted')); if (alias) { de = alias.sendAsEmail; nombre = alias.displayName || nombre; } } catch { /* sin permiso de alias: se envía desde la cuenta */ }
+  try { const alias = (await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs', {}, uso))?.sendAs?.find((a) => String(a.sendAsEmail).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() && (!a.verificationStatus || a.verificationStatus === 'accepted')); if (alias) { de = alias.sendAsEmail; nombre = alias.displayName || nombre; } } catch { /* sin permiso de alias: se envía desde la cuenta */ }
   if (!de) throw new GoogleError('No sé desde qué cuenta enviar: vuelve a conectar Google');
   let threadId = null;
-  if (ref && !nuevo) { try { const id = String(ref).replace(/^<|>$/g, ''); threadId = (await gapi(env, org, `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(`rfc822msgid:${id}`)}&maxResults=1`))?.messages?.[0]?.threadId || null; } catch { /* sin hilo: sale como correo nuevo con Re: */ } }
+  if (ref && !nuevo) { try { const id = String(ref).replace(/^<|>$/g, ''); threadId = (await gapi(env, org, `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(`rfc822msgid:${id}`)}&maxResults=1`, {}, uso))?.messages?.[0]?.threadId || null; } catch { /* sin hilo: sale como correo nuevo con Re: */ } }
   const subject = nuevo ? (asunto || 'Mensaje') : /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
   const cc = (await agendaDe(env, org)).copia;   // copia de cada respuesta (p. ej. hola@): si responden a todos, también llega a la bandeja
   const raw = b64url(armarCorreo({ de, nombre, para, copia: cc && cc !== String(para).toLowerCase() && cc !== String(de).toLowerCase() ? cc : null, responderA: String(de).toLowerCase() === String(bandeja.phone_number_id).toLowerCase() ? null : bandeja.phone_number_id, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: nuevo ? null : ref || null, referencias: nuevo ? null : ref || null }));
-  await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }) });
+  await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }) }, uso);
   return { de, cuenta: cu.email, alias: String(de).toLowerCase() !== String(cu.email).toLowerCase() };
 }
 const cab = (m, n) => (m.payload?.headers || []).find((h) => h.name.toLowerCase() === n)?.value || '';
@@ -162,9 +169,10 @@ export async function sincronizarGmail(env, registrar, soloOrg = null) {
       if (!bandejas.length) continue;
       const desde = f.gmail_desde || Math.floor(now() / 1000) - 600, ahora = Math.floor(now() / 1000);
       for (const b of bandejas) {
-        const lista = await gapi(env, f.business_id, `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=${encodeURIComponent(`to:${b.phone_number_id} -from:me after:${desde}`)}`);
+        const uso = b.cuenta_google || 'gmail';
+        const lista = await gapi(env, f.business_id, `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=${encodeURIComponent(`to:${b.phone_number_id} -from:me after:${desde}`)}`, {}, uso);
         for (const x of lista?.messages || []) {
-          const m = await gapi(env, f.business_id, `https://gmail.googleapis.com/gmail/v1/users/me/messages/${x.id}?format=full`);
+          const m = await gapi(env, f.business_id, `https://gmail.googleapis.com/gmail/v1/users/me/messages/${x.id}?format=full`, {}, uso);
           const de = cab(m, 'from'), dir = (de.match(/<([^>]+)>/)?.[1] || de).trim().toLowerCase(), nombre = (de.match(/^"?([^"<]+?)"?\s*</)?.[1] || '').trim() || null;
           const auto = (cab(m, 'auto-submitted') && cab(m, 'auto-submitted').toLowerCase() !== 'no') || /bulk|list|junk|auto_reply/i.test(cab(m, 'precedence')) || cab(m, 'list-id') || /^(mailer-daemon|postmaster|no-?reply|do-?not-?reply|bounce|notifications?@)/i.test(dir);
           if (auto) continue;
@@ -246,4 +254,16 @@ export async function moverCita(env, org, cita, inicio) {
   await gapi(env, org, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(agenda.calendario)}/events/${encodeURIComponent(cita.id)}?sendUpdates=all`, { method: 'PATCH', body: JSON.stringify({ start: { dateTime: ini.toISOString() }, end: { dateTime: fin.toISOString() } }) }, 'calendario');
   cacheHuecos.delete(org);
   return { ...cita, inicio: ini.toISOString(), etiqueta: etiquetaHora(ini.getTime(), agenda.offset) };
+}
+
+// Direcciones de correo disponibles en las cuentas de Google vinculadas (la propia cuenta y sus alias «Enviar como» verificados), para crear bandejas de correo
+export async function listarDirecciones(env, org) {
+  const cuentas = await all(env, 'SELECT id, email, scopes FROM wa_google_cuentas WHERE business_id = ? ORDER BY id', org), out = [];
+  for (const cu of cuentas) {
+    if (!String(cu.scopes || '').includes('gmail')) continue;
+    const dir = [{ email: cu.email, nombre: null, alias: false }];
+    try { for (const a of (await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs', {}, cu.id))?.sendAs || []) if ((!a.verificationStatus || a.verificationStatus === 'accepted') && String(a.sendAsEmail).toLowerCase() !== String(cu.email).toLowerCase()) dir.push({ email: String(a.sendAsEmail).toLowerCase(), nombre: a.displayName || null, alias: true }); } catch (e) { console.error('direcciones', e.message); }
+    out.push({ cuenta_id: cu.id, cuenta: cu.email, direcciones: dir });
+  }
+  return out;
 }

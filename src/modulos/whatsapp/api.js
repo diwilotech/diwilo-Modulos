@@ -10,6 +10,7 @@
 //   POST  /api/whatsapp/chats/:id/sugerir        la IA lee la conversación y redacta una respuesta para revisar (no se envía)
 //   POST  /api/whatsapp/chats/:id/responder-ia   la IA responde ya al último mensaje, aunque la IA del chat esté apagada
 //   POST  /api/whatsapp/chats/:id/cita/cancelar  cancela la cita de Meet agendada en el chat · CRUD /api/whatsapp/admins  números administradores por WhatsApp
+//   POST  /api/whatsapp/chats/:id/enlazar        { contact_id } añade el chat a un contacto de Marketing que ya existe (null = quitar el enlace)
 //   POST  /api/whatsapp/chats/:id/contacto       guarda / enlaza el contacto en Marketing · DELETE /chats/:id
 //   GET   /api/whatsapp/google · POST /google/credenciales · /google/conectar · /google/desconectar · /google/probar · PUT /google/agenda  conexión con Google (Gmail y Calendar)
 //   GET   /api/whatsapp/mensajes?q=&canal=&bandeja=  todos los mensajes de todos los canales (los 200 más recientes)
@@ -27,7 +28,7 @@ import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limp
 import { paisDeTelefono } from './lugar.js';
 import { sincronizarSiToca } from './correo.js';
 import { hashPin } from './admin.js';
-import { cancelarCita, estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, asignarUsos, enviarGmail, cuentaPara, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
+import { cancelarCita, estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, asignarUsos, enviarGmail, cuentaPara, listarDirecciones, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
 const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -62,13 +63,18 @@ const textoLargo = (row) => {
 export const ENTITIES = {
   bandejas: {
     table: 'wa_bandejas', label: 'la bandeja', title: 'nombre', search: ['nombre', 'telefono'], order: 'created_at',
-    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', cuenta_plantillas: 'text', activo: 'bool+' },
+    fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', cuenta_plantillas: 'text', cuenta_google: 'int', autoguardar: 'bool+', activo: 'bool+' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row, body) {
       row.canal ||= 'whatsapp';
       if (row.canal === 'whatsapp' && (!row.telefono || !row.waba_id)) throw new HttpError(400, 'WhatsApp necesita el teléfono y el id de la cuenta de WhatsApp Business');
       if (row.canal === 'webhook') row.phone_number_id = `wh_${hex(6)}`;
-      else if (row.canal === 'correo' && !row.phone_number_id) throw new HttpError(400, 'Falta la dirección de correo de la bandeja');     // la bandeja webhook se identifica por su URL, no por un id de Meta
+      else if (row.canal === 'correo' && !row.phone_number_id) throw new HttpError(400, 'Falta la dirección de correo de la bandeja');
+      if (row.canal === 'correo' && row.cuenta_google) {   // la dirección debe ser de esa cuenta de Google (la cuenta o un alias «Enviar como» verificado)
+        let dirs; try { dirs = (await listarDirecciones(c.env, c.businessId)).find((x) => x.cuenta_id === row.cuenta_google); } catch (e) { throw new HttpError(502, `No pude leer las direcciones de esa cuenta de Google: ${e.message}`); }
+        if (!dirs) throw new HttpError(400, 'Esa cuenta de Google no está vinculada');
+        if (!dirs.direcciones.some((d) => d.email === String(row.phone_number_id).trim().toLowerCase())) throw new HttpError(400, 'Esa dirección no está en la cuenta de Google elegida');
+      }     // la bandeja webhook se identifica por su URL, no por un id de Meta
       else if (!row.phone_number_id) throw new HttpError(400, 'Falta el id del número, de la página o de la cuenta de Instagram');
       revisarBandeja(row, row.canal);
       row.telefono ||= ''; row.waba_id ||= '';
@@ -130,7 +136,7 @@ const numeroAdmin = (v) => { let d = String(v || '').replace(/\D/g, ''); if (d.l
 const pinAdmin = async (c, pin) => { const p = String(pin || '').trim(); if (p && !/^[A-Za-z0-9]{4,12}$/.test(p)) throw new HttpError(400, 'El PIN debe tener de 4 a 12 letras o números'); return p ? hashPin(c.businessId, p) : null; };
 ENTITIES.admins = {
   table: 'wa_admins', label: 'el administrador', title: 'nombre', search: ['nombre', 'numero'], order: 'created_at',
-  fields: { nombre: 'text', numero: 'text!', pin: 'text', activo: 'bool+' },
+  fields: { nombre: 'text', numero: 'text!', pin: 'text', usuario: 'email', activo: 'bool+' },
   leer: 'manager', crear: 'manager', borrar: 'manager',
   async beforeCreate(c, row) {
     if ((await one(c.env, 'SELECT COUNT(*) n FROM wa_admins WHERE business_id = ?', c.businessId)).n >= 5) throw new HttpError(400, 'Máximo 5 administradores');
@@ -188,9 +194,10 @@ export async function chatCompleto(c, id) {
   const ultimoEntrante = (await one(c.env, "SELECT MAX(ts) t FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? AND rol = 'user'", c.businessId, chat.bandeja_id, chat.contacto))?.t || 0;
   let datos = null; try { datos = chat.datos ? JSON.parse(chat.datos) : null; } catch { /* sin datos */ }
   let cita = null; try { cita = chat.cita ? JSON.parse(chat.cita) : null; } catch { /* sin cita */ }
+  const otros = chat.contact_id ? await all(c.env, 'SELECT c.id, b.canal, b.nombre bandeja, c.nombre, c.contacto, c.ultimo_ts FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id WHERE c.business_id = ? AND c.contact_id = ? AND c.id <> ? ORDER BY c.ultimo_ts DESC LIMIT 6', c.businessId, chat.contact_id, chat.id) : [];
   const agentes = await all(c.env, `SELECT id, nombre FROM wa_agentes WHERE business_id = ? AND ${AGENTE_EN} ORDER BY id`, c.businessId, chat.bandeja_id);
   const agente = agentes.find((a) => a.id === chat.agente_id) || null;
-  return { chat: { ...conLugar(chat), datos, cita }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes };
+  return { chat: { ...conLugar(chat), datos, cita }, mensajes: await mensajesDe(c, chat), marketing, contact: marketing ? await contactoPorId(c.env, c.businessId, chat.contact_id) : null, ventana_abierta: now() - ultimoEntrante < 86400000, agente, agentes, otros_chats: otros };
 }
 
 // Plantilla con sus {{n}} llenas, para dejar en el chat lo que se envió
@@ -286,6 +293,21 @@ export function routes(r) {
     await audit(c, `Canceló la cita del ${cita.etiqueta} en el chat de ${ch.nombre || ch.contacto}`, { modulo: MOD });
     return json({ ok: true });
   });
+  // «Añadir a uno guardado»: este chat (p. ej. el de Instagram) pertenece a un contacto de Marketing que ya existe (p. ej. el que tiene WhatsApp). Se completa el contacto con lo que se sabe del chat.
+  r.post(`${B}/chats/:id/enlazar`, `tenant:${MOD}`, async (c) => {
+    const ch = await chatDe(c, c.params.id), body = await readJson(c.req);
+    if (!(await marketingActivo(c.env, c.businessId))) throw new HttpError(400, 'Los contactos se guardan en Marketing: pídele a Diwilo que lo active para tu negocio');
+    if (body.contact_id === null) { await c.env.DB.prepare('UPDATE wa_conversaciones SET contact_id = NULL WHERE id = ? AND business_id = ?').bind(ch.id, c.businessId).run(); return json({ ok: true, contact: null }); }
+    const k = await contactoPorId(c.env, c.businessId, Number(body.contact_id));
+    if (!k) throw new HttpError(404, 'Ese contacto no existe');
+    const notas = ch.canal === 'whatsapp' || ch.canal === 'correo' ? null : `${CANALES[ch.canal]?.nombre || ch.canal}: ${ch.nombre || ch.contacto}`;
+    await c.env.DB.prepare(`UPDATE mk_contacts SET phone = COALESCE(NULLIF(phone, ''), ?), email = COALESCE(NULLIF(email, ''), ?),
+      notes = CASE WHEN ? IS NULL OR instr(COALESCE(notes, ''), ?) > 0 THEN notes ELSE COALESCE(notes || char(10), '') || ? END, updated_at = ? WHERE id = ? AND business_id = ?`)
+      .bind(ch.canal === 'whatsapp' ? `+${soloDigitos(ch.contacto)}` : null, ch.canal === 'correo' ? ch.contacto : null, notas, notas, notas, now(), k.id, c.businessId).run();
+    await c.env.DB.prepare('UPDATE wa_conversaciones SET contact_id = ?, nombre = COALESCE(nombre, ?) WHERE id = ? AND business_id = ?').bind(k.id, k.name, ch.id, c.businessId).run();
+    await audit(c, `Enlazó el chat de ${ch.nombre || ch.contacto} (${ch.bandeja}) con el contacto ${k.name}`, { modulo: MOD });
+    return json({ ok: true, contact: await contactoPorId(c.env, c.businessId, k.id) });
+  });
   r.post(`${B}/chats/:id/contacto`, `tenant:${MOD}`, async (c) => {
     const ch = await chatDe(c, c.params.id), b = await bandejaDe(c, ch.bandeja_id), d = await readJson(c.req);
     if (!(await marketingActivo(c.env, c.businessId))) throw new HttpError(400, 'Los contactos se guardan en Marketing: pídele a Diwilo que lo active para tu negocio');
@@ -321,18 +343,23 @@ export function routes(r) {
   /* Google: credenciales del cliente OAuth, conexión de la cuenta, horario de las citas */
   const gerr = (e) => (e instanceof GoogleError ? new HttpError(e.status === 500 ? 500 : 400, e.message) : e);
   const redirectDe = (c) => `${c.ctx?.origin || ''}/admin/api/google/callback`;
-  r.get(`${B}/google`, `tenant:${MOD}`, async (c) => json({ ...(await estadoGoogle(c.env, c.businessId)), redirect: redirectDe(c), puede_conectar: c.ctx?.app === 'diwilo', correos: (await one(c.env, "SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ? AND canal = 'correo'", c.businessId)).n }));
+  const esDiwilo = (c) => c.businessId === 'diwilo:diwilo';   // las credenciales de la app de Google son de Diwilo: solo Diwilo las sube
+  // Las personas del equipo con acceso (la app las entrega en el contexto): para elegir a quién pertenece cada número de administrador
+  r.get(`${B}/admins/equipo`, `manager:${MOD}`, async (c) => json({ equipo: Array.isArray(c.ctx?.equipo) ? c.ctx.equipo.slice(0, 100).map((p) => ({ email: String(p.email || '').toLowerCase(), nombre: p.nombre || p.name || null, rol: p.rol || p.role || null })).filter((p) => p.email) : [] }));
+  r.get(`${B}/google`, `tenant:${MOD}`, async (c) => { const g = await estadoGoogle(c.env, c.businessId); return json({ ...g, es_plataforma: esDiwilo(c), puede_conectar: g.credenciales, correos: (await one(c.env, "SELECT COUNT(*) n FROM wa_bandejas WHERE business_id = ? AND canal = 'correo'", c.businessId)).n }); });
   r.post(`${B}/google/credenciales`, `manager:${MOD}`, async (c) => {
+    if (!esDiwilo(c)) throw new HttpError(403, 'Las credenciales de Google las administra Diwilo: tú solo vinculas tus cuentas');
     const body = await readJson(c.req);
-    let r; try { r = await guardarCredenciales(c.env, c.businessId, leerCredenciales(body.json ?? { client_id: body.client_id, client_secret: body.client_secret })); } catch (e) { throw gerr(e); }
+    let r; try { r = await guardarCredenciales(c.env, leerCredenciales(body.json ?? { client_id: body.client_id, client_secret: body.client_secret })); } catch (e) { throw gerr(e); }
     await audit(c, 'Subió las credenciales de Google', { modulo: MOD });
     return json({ ok: true, cuentas_conservadas: !!r.cuentasConservadas });
   });
   r.post(`${B}/google/conectar`, `manager:${MOD}`, async (c) => {
-    if (c.ctx?.app !== 'diwilo') throw new HttpError(400, 'Conectar Google está disponible por ahora solo en Diwilo');
     const body = await readJson(c.req).catch(() => ({}));
-    try { return json({ url: await urlConexion(c.env, c.businessId, redirectDe(c), String(body.correo || '').trim()) }); } catch (e) { throw gerr(e); }
+    try { return json({ url: await urlConexion(c.env, c.businessId, String(body.correo || '').trim()) }); } catch (e) { throw gerr(e); }
   });
+  // Direcciones de correo de las cuentas vinculadas (cuenta y alias «Enviar como»): para crear bandejas de correo sin escribirlas a mano
+  r.get(`${B}/google/direcciones`, `tenant:${MOD}`, async (c) => { try { return json({ cuentas: await listarDirecciones(c.env, c.businessId) }); } catch (e) { throw gerr(e); } });
   r.post(`${B}/google/desconectar`, `manager:${MOD}`, async (c) => {
     const body = await readJson(c.req).catch(() => ({}));
     await desconectar(c.env, c.businessId, body.cuenta || null); await audit(c, body.cuenta ? 'Quitó una cuenta de Google' : 'Desconectó Google', { modulo: MOD });
@@ -347,7 +374,7 @@ export function routes(r) {
   });
   r.put(`${B}/google/agenda`, `manager:${MOD}`, async (c) => {
     const body = await readJson(c.req);
-    if (!(await filaGoogle(c.env, c.businessId))) throw new HttpError(400, 'Primero sube las credenciales de Google');
+    await c.env.DB.prepare('INSERT OR IGNORE INTO wa_google (business_id, created_at, updated_at) VALUES (?, ?, ?)').bind(c.businessId, now(), now()).run();
     const agenda = normalizarAgenda(body.agenda || body);
     if (!agenda.dias.length) throw new HttpError(400, 'Elige al menos un día de atención');
     if (agenda.desde >= agenda.hasta) throw new HttpError(400, 'La hora de inicio debe ser antes que la de cierre');
@@ -384,9 +411,11 @@ export function routes(r) {
   /* contactos de Marketing y plantillas */
   r.get(`${B}/contactos`, `tenant:${MOD}`, async (c) => {
     if (!(await marketingActivo(c.env, c.businessId))) return json({ marketing: false, rows: [] });
-    const q = (c.url.searchParams.get('q') || '').trim().slice(0, 60), con = c.url.searchParams.get('con') === 'email' ? 'email' : 'phone';   // con teléfono (WhatsApp) o con correo
-    const rows = await all(c.env, `SELECT id, name, phone, email, company, stage FROM mk_contacts WHERE business_id = ? AND ${con} IS NOT NULL AND ${con} <> '' ${q ? 'AND (name LIKE ? OR phone LIKE ? OR email LIKE ? OR company LIKE ?)' : ''} ORDER BY updated_at DESC LIMIT 100`, ...(q ? [c.businessId, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [c.businessId]));
-    return json({ marketing: true, rows });
+    const q = (c.url.searchParams.get('q') || '').trim().slice(0, 60), con = c.url.searchParams.get('con');   // email | todos | (teléfono)
+    const filtro = con === 'todos' ? '' : con === 'email' ? "AND email IS NOT NULL AND email <> ''" : "AND phone IS NOT NULL AND phone <> ''";
+    const rows = await all(c.env, `SELECT id, name, phone, email, company, stage, (SELECT group_concat(DISTINCT b.canal) FROM wa_conversaciones v JOIN wa_bandejas b ON b.id = v.bandeja_id WHERE v.contact_id = mk_contacts.id AND v.business_id = mk_contacts.business_id) canales
+      FROM mk_contacts WHERE business_id = ? ${filtro} ${q ? 'AND (name LIKE ? OR phone LIKE ? OR email LIKE ? OR company LIKE ?)' : ''} ORDER BY updated_at DESC LIMIT 100`, ...(q ? [c.businessId, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [c.businessId]));
+    return json({ marketing: true, rows: rows.map((r) => ({ ...r, canales: r.canales ? r.canales.split(',') : [] })) });
   });
   // Correo nuevo a contactos de Marketing (no es respuesta a un hilo): asunto y mensaje con {nombre} y {empresa}; cada persona queda como chat de la bandeja de correo
   r.post(`${B}/correo/enviar`, `tenant:${MOD}`, async (c) => {
