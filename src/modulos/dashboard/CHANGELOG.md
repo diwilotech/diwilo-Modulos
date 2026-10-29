@@ -1,5 +1,8 @@
 # Dashboard (`dashboard`) — cambios
 
+## 1.4.0 · 2026-10-29
+- **Agentes por módulo:** franja horizontal arriba del Inicio con un agente por módulo (el agente activo de IA cuyas herramientas son de ese módulo). Cada tarjeta muestra si está activo, trabajando, con propuestas por aprobar, con error, o si falta crearlo; al tocarla abre IA. `GET /api/dashboard` suma `agentes` e `ia_ruta`.
+
 ## 1.3.0 · 2026-10-29
 - **«Así funciona tu negocio»:** bloque del Inicio con la figura isométrica de la línea de negocio (educación, propiedad horizontal, servicios), con los números reales de cada etapa, nodos que abren su módulo y paquetes que viajan por la cinta cuando pasa algo (`GET /api/dashboard/figura`, tabla `inicio_eventos`, 30 días, solo el tipo del evento). Código en `/m/inicio.js`; las apps entregan valores propios con `window.DwInicioValores` y anotan movimientos con el RPC `inicioEvento`.
 - Migración `0040_inicio_eventos.sql`.

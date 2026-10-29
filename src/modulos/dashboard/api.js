@@ -1,6 +1,6 @@
 // Dashboard (módulo base de todas las apps): el inicio del negocio. Junta los indicadores (widgets) de los módulos centrales activos,
 // calcula las alertas que necesitan atención y arma los accesos directos. Ver: todo el equipo. No guarda datos propios.
-//   GET /api/dashboard   { negocio, widgets: [{ modulo, titulo, valor, detalle, icono, ruta }], alertas: [{ id, nivel, icono, texto, ruta }], atajos: [{ nombre, icono, ruta }] }
+//   GET /api/dashboard   { negocio, widgets: [{ modulo, titulo, valor, detalle, icono, ruta }], alertas: [{ id, nivel, icono, texto, ruta }], atajos: [{ nombre, icono, ruta }], agentes: [{ modulo, nombre, icono, ruta, agente: { id, nombre, estado, pendientes, autonomia } | null }], ia_ruta }
 // Las apps suman a esto sus propios indicadores (módulos propios) en su pantalla; el módulo solo conoce los centrales.
 import { json } from '../../lib/http.js';
 import { all } from '../../lib/crud.js';
@@ -51,8 +51,15 @@ export async function tablero(c) {
   const orden = { mala: 0, aviso: 1, info: 2 };
   alertas.sort((a, b) => orden[a.nivel] - orden[b.nivel]);
 
+  // Agentes por módulo: el agente activo cuyas herramientas son de ese módulo («finanzas.…»). Sin agente, la tarjeta invita a crearlo.
+  const ags = await ok(() => all(c.env, `SELECT a.id, a.nombre, a.herramientas, a.autonomia, (SELECT estado FROM ia_ejecuciones e WHERE e.agente_id = a.id ORDER BY e.id DESC LIMIT 1) estado, (SELECT COALESCE(SUM(pendientes), 0) FROM ia_ejecuciones e WHERE e.agente_id = a.id AND e.pendientes > 0) pendientes FROM ia_agentes a WHERE a.business_id = ? AND a.activo = 1 ORDER BY a.id`, c.businessId)) || [];
+  const tools = (s) => { try { const a = JSON.parse(s); return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []; } catch { return []; } };
+  const agentes = mods.filter((m) => !m.base && m.menu?.ruta && !m.menu.oculto).map((m) => {
+    const a = ags.find((x) => { const t = tools(x.herramientas); return t.length && t.filter((n) => n.startsWith(`${m.id}.`)).length * 2 > t.length; });
+    return { modulo: m.id, nombre: m.nombre, icono: m.icono, ruta: m.menu.ruta, agente: a ? { id: a.id, nombre: a.nombre, estado: a.estado || null, pendientes: a.pendientes || 0, autonomia: a.autonomia } : null };
+  });
   const atajos = mods.filter((m) => m.menu?.ruta && !m.menu.oculto).map((m) => ({ nombre: m.nombre, icono: m.icono, ruta: m.menu.ruta }));
-  return { negocio: { nombre: c.ctx?.business?.name || null, tema: c.ctx?.business?.tema || null, sede: c.ctx?.sede || null }, hoy: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10), widgets, alertas, atajos };
+  return { negocio: { nombre: c.ctx?.business?.name || null, tema: c.ctx?.business?.tema || null, sede: c.ctx?.sede || null }, hoy: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10), widgets, alertas, atajos, agentes, ia_ruta: REG.manifests?.find((m) => m.id === 'ai')?.menu?.ruta || null };
 }
 
 // Línea de negocio de cada app (figura de «Así funciona tu negocio»). Sin línea, el Inicio no muestra el bloque.

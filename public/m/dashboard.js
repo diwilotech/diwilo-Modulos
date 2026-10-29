@@ -26,6 +26,14 @@ DW.ready.then((me) => {
     .dsh-alerta{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid var(--bs-border-color);border-left:4px solid var(--c);background:var(--bs-body-bg);text-align:left;width:100%;color:inherit}
     .dsh-alerta[data-nivel=mala]{--c:#dc3545}.dsh-alerta[data-nivel=aviso]{--c:#f59e0b}.dsh-alerta[data-nivel=info]{--c:var(--dw-p,#6d28d9)}
     .dsh-alerta i.ic{color:var(--c);font-size:1.2rem}.dsh-alerta .x{margin-left:auto;opacity:.55}
+    .dsh-ags{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;margin:0 -2px 14px;scrollbar-width:thin}
+    .dsh-ag{flex:none;display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 14px 8px 10px;border-radius:14px;border:1px solid var(--bs-border-color);background:var(--bs-body-bg);color:inherit;text-align:left;cursor:pointer;transition:transform .12s}
+    .dsh-ag:hover{transform:translateY(-2px)}
+    .dsh-ag .bot{position:relative;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:rgba(var(--bs-body-color-rgb),.06);color:var(--dw-p,#6d28d9);font-size:1.1rem}
+    .dsh-ag .bot::after{content:"";position:absolute;right:-2px;top:-2px;width:10px;height:10px;border-radius:50%;border:2px solid var(--bs-body-bg);background:#34d399}
+    .dsh-ag[data-est=nuevo] .bot::after{background:#9ca3af}.dsh-ag[data-est=pend] .bot::after{background:#f59e0b}.dsh-ag[data-est=error] .bot::after{background:#dc3545}
+    .dsh-ag[data-est=nuevo]{border-style:dashed;opacity:.8}
+    .dsh-ag .n{font-weight:600;font-size:.85rem;line-height:1.2;white-space:nowrap}.dsh-ag .e{font-size:.74rem;color:var(--bs-secondary-color);white-space:nowrap}
     .dsh-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
     .dsh-kpi{display:block;text-decoration:none;color:inherit;text-align:left;width:100%;transition:transform .12s,box-shadow .12s}
     .dsh-kpi[data-ruta]:hover{transform:translateY(-2px);box-shadow:var(--bs-box-shadow)}.dsh-kpi[data-ruta]{cursor:pointer}
@@ -91,6 +99,13 @@ DW.ready.then((me) => {
     } catch (x) { console.warn('inicio', x.message); host.closest('.dw-card')?.remove(); }
   }
 
+  // Agentes por módulo (franja de arriba): un agente propio por módulo; sin agente, invita a crearlo en IA.
+  const agentesFranja = (T) => {
+    const L = (T.agentes || []).filter((a) => !me.modules || me.modules.some((m) => m.id === a.modulo));
+    if (!L.length) return '';
+    const est = (a) => !a.agente ? ['nuevo', 'Crear agente'] : a.agente.pendientes ? ['pend', `${a.agente.pendientes} por aprobar`] : a.agente.estado === 'error' ? ['error', 'Falló la última vez'] : a.agente.estado === 'en_curso' ? ['ok', 'Trabajando…'] : ['ok', a.agente.autonomia === 'ejecutar' ? 'Activo · solo' : 'Activo'];
+    return `<div class="dsh-ags" role="list" aria-label="Agentes por módulo">${L.map((a) => { const [k, t] = est(a); return `<button type="button" role="listitem" class="dsh-ag" data-est="${k}" data-ruta="${esc(T.ia_ruta || a.ruta)}" title="${esc(a.agente ? a.agente.nombre : 'Aún no tiene agente: créalo en IA')}"><span class="bot"><i class="bi bi-robot"></i></span><span><div class="n">${esc(a.nombre)}</div><div class="e">${esc(t)}</div></span></button>`; }).join('')}</div>`;
+  };
   async function pintar(primera) {
     if (primera) view.innerHTML = `<div class="dsh-sk" style="height:72px;margin-bottom:18px"></div><div class="dsh-grid">${'<div class="dsh-sk"></div>'.repeat(4)}</div>`;
     let T, M, F = { linea: null }, SEDES = [];
@@ -103,6 +118,7 @@ DW.ready.then((me) => {
         <div class="flex-grow-1"><h1>${saludo()}${primerNombre() ? `, ${esc(primerNombre())}` : ''}</h1><p class="text-body-secondary">${esc(M.nombre)}${M.lema ? ` · ${esc(M.lema)}` : ''}</p></div>
         ${AMB() && SEDES.length ? selectorSede(AMB(), SEDES) : ''}
         <button type="button" class="btn btn-outline-secondary btn-sm" data-refrescar aria-label="Actualizar"><i class="bi bi-arrow-clockwise"></i><span class="d-none d-sm-inline ms-1">Actualizar</span></button></div>
+      ${agentesFranja(T)}
       ${alertas.length ? `<div class="dsh-alertas" role="region" aria-label="Alertas">${alertas.map((a) => `<div class="dsh-alerta" data-nivel="${esc(a.nivel)}" ${a.ruta ? `data-ruta="${esc(a.ruta)}" role="button" tabindex="0" style="cursor:pointer"` : ''}><i class="bi ${esc(a.icono)} ic"></i><span>${esc(a.texto)}</span><button type="button" class="btn-close x" data-ocultar="${esc(a.id)}" aria-label="Ocultar alerta"></button></div>`).join('')}</div>` : ''}
       ${AMB() && !AMB().actual() && SEDES.length ? `<div class="dsh-h">Tus ${esc(String(AMB().plural || AMB().etiqueta).toLowerCase())}</div><div class="dsh-grid">${SEDES.map(tarjetaSede).join('')}</div>` : ''}
       <div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
