@@ -2,6 +2,7 @@
 // Web y celular (cuadrícula que se adapta), se actualiza solo cada 90 s mientras la pestaña está a la vista, y sus alertas
 // se mandan a la campana del panel/app (window.parent.postMessage). Dentro de Diwilo Admin los enlaces cambian de pestaña del panel.
 // Cada app suma sus propios indicadores con window.DwDashboard.push({ id, titulo, mount(host, { me, sede }) }) antes de cargar este archivo.
+// window.DwSinComoVa = true oculta las tarjetas de «Cómo va».
 // window.DwSinAgentes = true oculta la sección «Agentes IA» (la app pinta su propia versión).
 // window.DwSinFigura = true oculta «Así funciona tu negocio» (la app trae su propio Inicio).
 // Apps con varias sedes (conjuntos, edificios, sucursales) declaran el ÁMBITO con window.DwDashboardAmbito = { etiqueta: 'Conjunto', plural: 'Conjuntos',
@@ -162,8 +163,8 @@ DW.ready.then((me) => {
         <button type="button" class="btn btn-outline-secondary btn-sm" data-refrescar aria-label="Actualizar"><i class="bi bi-arrow-clockwise"></i><span class="d-none d-sm-inline ms-1">Actualizar</span></button></div>
       ${alertas.length ? `<div class="dsh-alertas" role="region" aria-label="Alertas">${alertas.map((a) => `<div class="dsh-alerta" data-nivel="${esc(a.nivel)}" ${a.ruta ? `data-ruta="${esc(a.ruta)}" role="button" tabindex="0" style="cursor:pointer"` : ''}><i class="bi ${esc(a.icono)} ic"></i><span>${esc(a.texto)}</span><button type="button" class="btn-close x" data-ocultar="${esc(a.id)}" aria-label="Ocultar alerta"></button></div>`).join('')}</div>` : ''}
       ${AMB() && !AMB().actual() && SEDES.length ? `<div class="dsh-h">Tus ${esc(String(AMB().plural || AMB().etiqueta).toLowerCase())}</div><div class="dsh-grid">${SEDES.map(tarjetaSede).join('')}</div>` : ''}
-      <div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
-      ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}
+      ${window.DwSinComoVa ? '' : `<div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
+      ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}`}
       ${F.linea && !window.DwSinFigura ? '<div class="dsh-h">Así funciona tu negocio</div><div class="dw-card" data-inicio></div>' : ''}
       ${extras.map((e) => `<div class="dsh-h">${esc(e.titulo)}</div><div data-extra="${esc(e.id)}"></div>`).join('')}
       ${window.DwSinAgentes ? '' : '<section><div class="dsh-h">Agentes IA</div><div data-agentes><div class="dsh-sk" style="height:96px"></div></div></section>'}`;
