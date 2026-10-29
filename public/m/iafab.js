@@ -53,6 +53,11 @@
     let hist = [];
     try { hist = JSON.parse(sessionStorage.getItem(KEY) || '[]'); } catch (_) {}
     const save = () => { try { sessionStorage.setItem(KEY, JSON.stringify(hist.slice(-30))); } catch (_) {} };
+    // Cada conversación lleva un id: el servidor la guarda para que el equipo pueda revisarla (IA → IA Diwilo)
+    const nuevoId = () => `a-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`;
+    let convId = null;
+    try { convId = sessionStorage.getItem(`${KEY}_id`); } catch (_) {}
+    if (!convId) { convId = nuevoId(); try { sessionStorage.setItem(`${KEY}_id`, convId); } catch (_) {} }
     let SUGG = [];
     document.head.insertAdjacentHTML('beforeend', `<style>${CSS}</style>`);
     document.body.insertAdjacentHTML('beforeend', `
@@ -89,10 +94,10 @@
       const card = document.createElement('div'); card.className = 'ia-pending';
       card.innerHTML = `<span><i>⚡</i>${esc(nombre(p.herramienta))}</span><pre>${esc(JSON.stringify(p.args, null, 2))}</pre>
         ${p.hecho ? `<small>${esc(p.hecho)}</small>` : '<div class="row"><button class="ia-b p" data-ok>Confirmar</button><button class="ia-b" data-no>Cancelar</button></div>'}`;
-      card.querySelector('[data-no]')?.addEventListener('click', () => { p.hecho = 'Cancelado'; save(); draw(); });
+      card.querySelector('[data-no]')?.addEventListener('click', () => { p.hecho = 'Cancelado'; call(`${B}/asistente/descartar`, { conversacion: convId, herramienta: p.herramienta }).catch(() => {}); save(); draw(); });
       card.querySelector('[data-ok]')?.addEventListener('click', async (e) => {
         e.target.disabled = true;
-        try { await call(`${B}/asistente/aprobar`, { herramienta: p.herramienta, args: p.args }); p.hecho = 'Hecho'; }
+        try { await call(`${B}/asistente/aprobar`, { conversacion: convId, herramienta: p.herramienta, args: p.args }); p.hecho = 'Hecho'; }
         catch (x) { p.hecho = `No se pudo: ${x.message}`; }
         save(); draw();
       });
@@ -121,17 +126,17 @@
         try { const g = await call(`${B}/asistente/progreso?id=${pid}`); if (g && (g.pasos?.length || g.actual)) { wait.innerHTML = `<div class="ia-wait"><span></span><span></span><span></span></div>${pasosHtml(g.pasos, g.actual)}`; log.scrollTop = log.scrollHeight; } } catch (_) {}
       }, 900);
       try {
-        const r = await call(`${B}/asistente`, { progreso: pid, mensajes: hist.map((m) => ({ role: m.role, content: m.content + (m.props?.some((p) => p.hecho) ? `\n(${m.props.filter((p) => p.hecho).map((p) => p.hecho).join(', ')})` : '') })) });
+        const r = await call(`${B}/asistente`, { progreso: pid, conversacion: convId, mensajes: hist.map((m) => ({ role: m.role, content: m.content + (m.props?.some((p) => p.hecho) ? `\n(${m.props.filter((p) => p.hecho).map((p) => p.hecho).join(', ')})` : '') })) });
         hist.push({ role: 'assistant', content: r.respuesta, sig: r.siguientes || [], pasos: r.pasos.filter((p) => p.estado !== 'propuesta'), todos: r.pasos, props: r.pasos.filter((p) => p.estado === 'propuesta') });
       } catch (x) { hist.push({ role: 'assistant', content: `No pude responder: ${x.message}` }); }
       clearInterval(t); form.querySelector('button').disabled = false; save(); draw();
     }
     const open = (on) => { panel.hidden = !on; $('#iaBack').hidden = !on; $('#iaFab').classList.toggle('on', on); if (on) { draw(); setTimeout(() => ta.focus(), 50); } };
-    window.DwIA = { ask: (q) => { open(true); ask(q); } };   // lo usan las secciones de IA (flujos) para abrir el botón y preguntar
+    window.DwIA = { open: () => open(true), ask: (q) => { open(true); ask(q); } };   // lo usan las secciones de IA (flujos) para abrir el botón y preguntar
     $('#iaFab').onclick = () => open(panel.hidden);
     $('#iaClose').onclick = () => open(false);
     $('#iaBack').onclick = () => open(false);
-    $('#iaNew').onclick = () => { hist = []; save(); draw(); };
+    $('#iaNew').onclick = () => { hist = []; convId = nuevoId(); try { sessionStorage.setItem(`${KEY}_id`, convId); } catch (_) {} save(); draw(); };
     $('#iaSugg').onclick = (e) => { const b = e.target.closest('.pill'); if (b) ask(b.dataset.q || b.textContent); };
     form.onsubmit = (e) => { e.preventDefault(); const q = ta.value; ta.value = ''; ta.style.height = ''; ask(q); };
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });

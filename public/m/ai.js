@@ -217,6 +217,38 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   }
 
   /* ================= Conversaciones ================= */
+  // Historial del asistente: lista, conversación completa (con lo que aprobó o descartó la persona) y análisis de errores con IA
+  async function historialAsistente(el) {
+    let rows;
+    try { rows = (await api(`${B}/asistente/conversaciones`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger small mb-0">${esc(x.message)}</p>`; return; }
+    el.innerHTML = rows.length ? `<div class="d-grid gap-2" style="max-height:50vh;overflow:auto">${rows.map((v) => `<button class="btn text-start border p-2" data-hid="${esc(v.id)}"><span class="d-block text-truncate fw-semibold">${esc(v.primero || 'Conversación')}</span><span class="small text-body-secondary">${esc(ago(v.last_at))} · ${v.msg_count} mensajes${v.analizada ? ' · <b>analizada</b>' : ''}</span></button>`).join('')}</div>` : '<p class="text-body-secondary small mb-0">Aún no hay conversaciones guardadas. Aparecen cuando alguien usa IA Diwilo.</p>';
+    el.onclick = async (e) => {
+      const b = e.target.closest('[data-hid]'); if (!b) return;
+      const { el: mo, m: mm } = modal('<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Conversación con IA Diwilo</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body" data-conv></div>', { size: 'modal-lg' });
+      const box = mo.querySelector('[data-conv]'); box.innerHTML = '<p class="text-body-secondary mb-0">Cargando…</p>';
+      try {
+        const d = await api(`${B}/conversaciones/${encodeURIComponent(b.dataset.hid)}`);
+        const pasos = (meta) => { try { return JSON.parse(meta || '[]'); } catch (_) { return []; } };
+        const burbuja = (m) => m.rol === 'sistema' ? `<div class="small text-center text-body-secondary fst-italic">${esc(m.contenido)}</div>`
+          : `<div class="p-2 px-3 rounded-4 ${m.rol === 'user' ? 'align-self-end text-white' : 'align-self-start'}" style="max-width:85%;white-space:pre-wrap;${m.rol === 'user' ? 'background:var(--dw-p)' : 'background:rgba(var(--bs-body-color-rgb),.08)'}">${esc(m.contenido)}${pasos(m.meta).length ? `<div class="mt-1" style="font-size:.72rem;opacity:.8">${pasos(m.meta).map((p) => `<span class="badge text-bg-${p.estado === 'error' || p.error ? 'danger' : 'light border'} fw-normal">${esc(p.herramienta || '')}${p.estado ? ` · ${esc(p.estado)}` : ''}</span>`).join(' ')}</div>` : ''}<div style="font-size:.7rem;opacity:.65">${esc(ago(m.ts))}</div></div>`;
+        const analisisHtml = (t, at) => `<div class="alert alert-light border mb-3" style="white-space:pre-wrap;font-size:.9rem" data-an><b class="d-block mb-1"><i class="bi bi-search me-1"></i>Análisis${at ? ` · ${esc(ago(at))}` : ''}</b>${esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</div>`;
+        box.innerHTML = `<div class="d-flex align-items-center mb-2"><div class="flex-grow-1 small text-body-secondary">${esc(ago(d.conversacion.started_at))} · ${d.mensajes.length} mensajes</div><button class="btn btn-sm btn-primary me-2" data-analizar><i class="bi bi-search me-1"></i>Analizar errores</button><button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button></div>
+          <div data-anbox>${d.conversacion.analisis ? analisisHtml(d.conversacion.analisis, d.conversacion.analizado_at) : ''}</div>
+          <div class="d-flex flex-column gap-2" style="max-height:55vh;overflow:auto">${d.mensajes.map(burbuja).join('')}</div>`;
+        $('[data-analizar]', box).onclick = async (ev) => {
+          const btn = ev.currentTarget; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Analizando…';
+          try { const r = await api(`${B}/asistente/conversaciones/${encodeURIComponent(b.dataset.hid)}/analizar`, { method: 'POST', body: {} }); $('[data-anbox]', box).innerHTML = analisisHtml(r.analisis, r.analizado_at); historialAsistente(el); }
+          catch (x) { toast(x.message, false); }
+          btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Analizar errores';
+        };
+        $('[data-del]', box).onclick = async () => {
+          if (!(await confirm({ title: '¿Borrar esta conversación?', text: 'No se puede deshacer.', ok: 'Borrar' }))) return;
+          try { await api(`${B}/conversaciones/${encodeURIComponent(b.dataset.hid)}`, { method: 'DELETE' }); mm.hide(); toast('Conversación borrada'); historialAsistente(el); } catch (x) { toast(x.message, false); }
+        };
+      } catch (x) { box.innerHTML = `<p class="text-danger mb-0">${esc(x.message)}</p>`; }
+    };
+  }
+
   async function conversaciones(el) {
     el.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
     let rows, cs;
@@ -264,9 +296,11 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
         <button class="btn btn-primary" data-open><i class="bi bi-chat-dots me-1"></i>Abrir IA Diwilo</button></div>
       <div class="dw-card"><h2 class="h6"><i class="bi bi-diagram-3"></i> Flujos de trabajo</h2><p class="text-body-secondary" style="font-size:13px">Toca uno y la IA lo hace paso a paso (te pide confirmar antes de cambiar datos).</p>
         ${FLUJOS.map((g) => `<div class="mb-2"><div class="small fw-semibold mb-1"><i class="bi ${g.icono} me-1"></i>${g.grupo}</div><div class="d-flex flex-wrap gap-2">${g.items.map((f) => `<button class="btn btn-sm btn-outline-secondary" data-flujo="${esc(f.prompt)}" title="${esc(f.descripcion)}">${esc(f.nombre)}</button>`).join('')}</div></div>`).join('')}</div>
+      ${CAN ? '<div class="dw-card" data-hist style="grid-column:1/-1"><h2 class="h6"><i class="bi bi-journal-text"></i> Conversaciones del equipo</h2><p class="text-body-secondary small mb-2">Todo lo que el equipo conversa con IA Diwilo queda guardado aquí. Ábrelo y pulsa «Analizar» para buscar errores.</p><div data-histlist><p class="text-body-secondary small mb-0">Cargando…</p></div></div>' : ''}
       <div class="dw-card" data-caps style="grid-column:1/-1"><h2 class="h6">Qué puede hacer</h2><p class="text-body-secondary mb-0">Cargando…</p></div></div>`;
     $('[data-open]', el).onclick = () => { const f = fab(); if (f.b) f.b.click(); else toast('El botón de IA Diwilo no está en esta pantalla', false); };
     el.addEventListener('click', (e) => { const b = e.target.closest('[data-flujo]'); if (b) lanzar(b.dataset.flujo); });
+    if (CAN) historialAsistente($('[data-histlist]', el));
     api(`${B}/herramientas`).then((r) => {
       const hs = r.herramientas.filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura'), chip = (t) => `<span class="badge text-bg-light border fw-normal">${esc(etiqueta(t.name).replace(/^[^·]+· /, ''))}</span>`;
       const NOM = { contenido: 'Contenido (blog y videos)' }, grupos = {};

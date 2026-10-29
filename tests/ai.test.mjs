@@ -126,6 +126,19 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('IA: el asistente propone escrituras, no las hace', ase.data.pasos?.[0]?.estado === 'propuesta' && !(await A.app('/api/marketing/contacts?q=Desde el asistente')).data.rows.length);
   check('IA: al aprobar la propuesta del asistente se ejecuta', (await A.app(`${X}/asistente/aprobar`, { method: 'POST', body: { herramienta: 'marketing.crear_contacto', args: { nombre: 'Desde el asistente' } } })).status === 200 && (await A.app('/api/marketing/contacts?q=Desde el asistente')).data.rows.length === 1);
   check('IA: solo se aprueban herramientas de escritura', (await A.app(`${X}/asistente/aprobar`, { method: 'POST', body: { herramienta: 'marketing.resumen', args: {} } })).status === 400);
+  // Historial del asistente: se guarda con el id de la conversación, lo ve solo propietario/admin, se analiza a pedido y no cruza negocios
+  const cid = 'a-prueba-historial-0001';
+  await A.app(`${X}/asistente`, { method: 'POST', body: { conversacion: cid, mensajes: [{ role: 'user', content: GUION(['{"accion":"usar","herramienta":"marketing.resumen","args":{}}', '{"accion":"fin","respuesta":"Tienes datos de marketing."}']) }] } });
+  await A.app(`${X}/asistente/descartar`, { method: 'POST', body: { conversacion: cid, herramienta: 'marketing.crear_contacto' } });
+  const hl = (await A.app(`${X}/asistente/conversaciones`)).data.rows || [];
+  const hd = (await A.app(`${X}/conversaciones/${cid}`)).data;
+  check('IA: el asistente guarda la conversación (pregunta, respuesta con sus herramientas y lo que la persona descartó)', hl.some((v) => v.id === cid && v.msg_count === 3) && hd.mensajes?.length === 3 && hd.mensajes[1].meta?.includes('marketing.resumen') && hd.mensajes[2].rol === 'sistema', JSON.stringify(hd).slice(0, 300));
+  check('IA: el historial del asistente es solo del propietario/administrador (403 al personal)', (await staff.app(`${X}/asistente/conversaciones`)).status === 403 && (await staff.app(`${X}/conversaciones/${cid}`)).status === 403);
+  check('IA: otro negocio no ve ni analiza el historial ajeno', !((await B.app(`${X}/asistente/conversaciones`)).data.rows || []).length && (await B.app(`${X}/asistente/conversaciones/${cid}/analizar`, { method: 'POST', body: {} })).status === 404);
+  const an = await A.app(`${X}/asistente/conversaciones/${cid}/analizar`, { method: 'POST', body: {} });
+  check('IA: analizar la conversación guarda el análisis', an.status === 200 && typeof an.data.analisis === 'string' && an.data.analisis.length > 0 && (await A.app(`${X}/conversaciones/${cid}`)).data.conversacion.analisis === an.data.analisis, JSON.stringify(an.data).slice(0, 200));
+  await B.app(`${X}/asistente`, { method: 'POST', body: { conversacion: cid, mensajes: [{ role: 'user', content: '[prueba] hola' }] } });
+  check('IA: usar el id de otro negocio no escribe en su conversación', (await A.app(`${X}/conversaciones/${cid}`)).data.mensajes?.length === 3 || (await A.app(`${X}/conversaciones/${cid}`)).data.mensajes?.length === 0);
   check('IA: el asistente sin pregunta se rechaza', (await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [] } })).status === 400);
 
   /* ---------- estándar compartido: guías y herramientas propias de la app para el asistente y los agentes ---------- */

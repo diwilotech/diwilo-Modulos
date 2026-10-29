@@ -1,5 +1,10 @@
 # IA (`ai`) — cambios
 
+## 1.9.0 — Historial del asistente
+- IA Diwilo guarda cada conversación del equipo (pregunta, respuesta, herramientas usadas y lo que la persona aprobó o descartó) en IA → IA Diwilo → «Conversaciones del equipo» (solo propietario/administrador).
+- Botón «Analizar errores»: la IA revisa la conversación (cifras dudosas, herramientas con error, propuestas fallidas, preguntas sin respuesta) y guarda el análisis.
+- Migración `0041_ia_asistente_historial.sql`; `window.DwIA.open()` abre el chat flotante.
+
 ## 1.8.1 · 2026-10-26
 - **Aprobar en la misma ventana**: al ejecutar un agente, sus propuestas (p. ej. cada video) salen como tarjetas con su escena, duración y formato y los botones **Aprobar / Descartar** (y «Aprobar todas»); al aprobar se crea al instante y el botón final dice «Listo». Ya no hay que ir al historial. El texto del agente se ve con formato (negritas, listas, separadores) y el paso a paso queda plegado.
 - Arreglo: cuando el modelo dejaba saltos de línea sin escapar dentro de su respuesta JSON, se mostraba el JSON crudo y cortado a 1500 letras. Ahora se repara (y la respuesta final admite hasta 8000 letras).

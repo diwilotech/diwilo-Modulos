@@ -4,7 +4,8 @@
 //   GET   /api/ai/conversaciones?chat=&limite=  conversaciones de los chats · GET /:id mensajes · DELETE /:id
 //   CRUD  /api/ai/agentes · POST /:id/ejecutar · GET /api/ai/ejecuciones?agente= · POST /ejecuciones/:id/aprobar { indice, aprobar }
 //   GET   /api/ai/herramientas                herramientas de IA de los módulos activos del negocio
-//   POST  /api/ai/asistente { mensajes }      asistente del negocio (consulta y propone) · POST /asistente/aprobar { herramienta, args }
+//   GET   /api/ai/asistente/conversaciones · POST /asistente/conversaciones/:id/analizar   historial del asistente y su análisis de errores (propietario/admin)
+//   POST  /api/ai/asistente { mensajes, conversacion? }      asistente del negocio (consulta y propone) · POST /asistente/aprobar { herramienta, args }
 //   GET   /api/ai/uso                         consumo de IA (hoy y últimos 30 días) y tope diario
 //   GET|POST /api/ai/claves · DELETE /:id     claves de la API pública del negocio (/v1/…)
 // Públicos (en el dominio de cada app): /chat/<slug> (chat.js) y /v1/… (publica.js).
@@ -19,6 +20,7 @@ import { flujosEntre } from '../../lib/flujos.js';
 import { STARTERS } from '../../lib/marca.js';
 import { AGENTES_CONTENIDO } from './starters.js';
 import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe } from './agentes.js';
+import { guardarTurno, guardarEvento, listar as listarAsistente, analizar, ID_ASISTENTE } from './historial.js';
 import { webhookValido, dispararWebhook } from './chat.js';
 
 const MOD = 'ai', B = '/api/ai';
@@ -123,7 +125,8 @@ export function routes(r) {
   r.get(`${B}/conversaciones/:id`, `tenant:${MOD}`, async (c) => {
     const v = await one(c.env, 'SELECT * FROM ia_conversaciones WHERE id = ? AND business_id = ?', c.params.id, c.businessId);
     if (!v) throw new HttpError(404, 'Conversación no encontrada');
-    return json({ conversacion: v, mensajes: await all(c.env, 'SELECT rol, contenido, ts FROM ia_mensajes WHERE conversacion_id = ? AND business_id = ? ORDER BY ts, id', c.params.id, c.businessId) });
+    if (v.canal === 'asistente' && !['owner', 'admin'].includes(c.role)) throw new HttpError(403, 'Solo el propietario o el administrador ve el historial del asistente');
+    return json({ conversacion: v, mensajes: await all(c.env, 'SELECT rol, contenido, ts, meta FROM ia_mensajes WHERE conversacion_id = ? AND business_id = ? ORDER BY ts, id', c.params.id, c.businessId) });
   });
   r.delete(`${B}/conversaciones/:id`, `manager:${MOD}`, async (c) => {
     const v = await one(c.env, 'SELECT id FROM ia_conversaciones WHERE id = ? AND business_id = ?', c.params.id, c.businessId);
@@ -162,7 +165,23 @@ export function routes(r) {
     const b = await readJson(c.req), progresoId = /^[\w-]{8,40}$/.test(b.progreso || '') ? b.progreso : null;
     const res = await asistente(c.env, { org: c.businessId, ctx: { ...c.ctx, readOnly: c.readOnly }, mensajes: b.mensajes, progresoId });
     if (res.status !== 200) throw new HttpError(res.status, res.error);
+    if (ID_ASISTENTE.test(b.conversacion || '')) {
+      const pregunta = [...(Array.isArray(b.mensajes) ? b.mensajes : [])].reverse().find((m) => m?.role === 'user')?.content;
+      await guardarTurno(c.env, { org: c.businessId, id: b.conversacion, userId: c.session?.user_id, pregunta: String(pregunta || '').slice(0, 2000), respuesta: res.respuesta, pasos: res.pasos });
+    }
     return json({ respuesta: res.respuesta, pasos: res.pasos });
+  });
+  // Historial del asistente (solo propietario/administrador): lista, análisis de errores y lo que la persona hizo con cada propuesta
+  r.get(`${B}/asistente/conversaciones`, `manager:${MOD}`, async (c) => json({ rows: await listarAsistente(c.env, c.businessId) }));
+  r.post(`${B}/asistente/conversaciones/:id/analizar`, `manager:${MOD}`, async (c) => {
+    const res = await analizar(c.env, { org: c.businessId, id: c.params.id });
+    if (res.status !== 200) throw new HttpError(res.status, res.error);
+    return json({ analisis: res.analisis, analizado_at: res.analizado_at });
+  });
+  r.post(`${B}/asistente/descartar`, `tenant:${MOD}`, async (c) => {
+    const b = await readJson(c.req);
+    await guardarEvento(c.env, { org: c.businessId, id: b.conversacion, texto: `La persona descartó la propuesta: ${String(b.herramienta || '').slice(0, 80)}` });
+    return json({ ok: true });
   });
   // El paso a paso del asistente mientras trabaja (la pantalla lo consulta cada segundo). GET /api/ai/asistente/progreso?id=<el mismo que mandó en POST /asistente>
   r.get(`${B}/asistente/progreso`, `tenant:${MOD}`, async (c) => {
@@ -174,6 +193,7 @@ export function routes(r) {
     if (!t || t.tipo !== 'escritura') throw new HttpError(400, 'Herramienta no válida');
     const res = await ejecutarHerramienta(c.env, c.ctx, t.name, b.args && typeof b.args === 'object' ? b.args : {});
     for (const a of res.audit || []) (c.auditLog ||= []).push(a);
+    await guardarEvento(c.env, { org: c.businessId, id: b.conversacion, texto: `La persona aprobó ${t.name}: ${res.ok ? 'se ejecutó' : `falló (${String(res.error || res.status).slice(0, 200)})`}` });
     if (!res.ok) throw new HttpError(res.status || 500, res.error);
     return json({ ok: true, resultado: res.result });
   });
