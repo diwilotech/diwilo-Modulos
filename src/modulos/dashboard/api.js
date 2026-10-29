@@ -1,6 +1,6 @@
 // Dashboard (módulo base de todas las apps): el inicio del negocio. Junta los indicadores (widgets) de los módulos centrales activos,
 // calcula las alertas que necesitan atención y arma los accesos directos. Ver: todo el equipo. No guarda datos propios.
-//   GET /api/dashboard   { negocio, widgets: [{ modulo, titulo, valor, detalle, icono, ruta }], alertas: [{ id, nivel, icono, texto, ruta }], atajos: [{ nombre, icono, ruta }], agentes: [{ modulo, nombre, icono, ruta, agente: { id, nombre, estado, pendientes, autonomia } | null }], ia_ruta }
+//   GET /api/dashboard   { negocio, widgets: [{ modulo, titulo, valor, detalle, icono, ruta }], alertas: [{ id, nivel, icono, texto, ruta }], atajos: [{ nombre, icono, ruta }], agentes: [{ modulo, nombre, icono, ruta }], ia_ruta }
 // Las apps suman a esto sus propios indicadores (módulos propios) en su pantalla; el módulo solo conoce los centrales.
 import { json } from '../../lib/http.js';
 import { all } from '../../lib/crud.js';
@@ -51,13 +51,8 @@ export async function tablero(c) {
   const orden = { mala: 0, aviso: 1, info: 2 };
   alertas.sort((a, b) => orden[a.nivel] - orden[b.nivel]);
 
-  // Agentes por módulo: el agente activo cuyas herramientas son de ese módulo («finanzas.…»). Sin agente, la tarjeta invita a crearlo.
-  const ags = await ok(() => all(c.env, `SELECT a.id, a.nombre, a.herramientas, a.autonomia, (SELECT estado FROM ia_ejecuciones e WHERE e.agente_id = a.id ORDER BY e.id DESC LIMIT 1) estado, (SELECT COALESCE(SUM(pendientes), 0) FROM ia_ejecuciones e WHERE e.agente_id = a.id AND e.pendientes > 0) pendientes FROM ia_agentes a WHERE a.business_id = ? AND a.activo = 1 ORDER BY a.id`, c.businessId)) || [];
-  const tools = (s) => { try { const a = JSON.parse(s); return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []; } catch { return []; } };
-  const agentes = mods.filter((m) => !m.base && m.menu?.ruta && !m.menu.oculto).map((m) => {
-    const a = ags.find((x) => { const t = tools(x.herramientas); return t.length && t.filter((n) => n.startsWith(`${m.id}.`)).length * 2 > t.length; });
-    return { modulo: m.id, nombre: m.nombre, icono: m.icono, ruta: m.menu.ruta, agente: a ? { id: a.id, nombre: a.nombre, estado: a.estado || null, pendientes: a.pendientes || 0, autonomia: a.autonomia } : null };
-  });
+  // Módulos centrales que pueden tener agente propio (los de la app salen de me.modules en la pantalla)
+  const agentes = mods.filter((m) => !m.base && m.menu?.ruta && !m.menu.oculto).map((m) => ({ modulo: m.id, nombre: m.nombre, icono: m.icono, ruta: m.menu.ruta }));
   const atajos = mods.filter((m) => m.menu?.ruta && !m.menu.oculto).map((m) => ({ nombre: m.nombre, icono: m.icono, ruta: m.menu.ruta }));
   return { negocio: { nombre: c.ctx?.business?.name || null, tema: c.ctx?.business?.tema || null, sede: c.ctx?.sede || null }, hoy: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10), widgets, alertas, atajos, agentes, ia_ruta: REG.manifests?.find((m) => m.id === 'ai')?.menu?.ruta || null };
 }
@@ -72,9 +67,33 @@ export async function figura(c) {
   return { linea, movimientos: filas.reverse(), ultimo };
 }
 
+// Agentes del negocio con su actividad real de los últimos 7 días (ia_ejecuciones). La pantalla los empareja con cada módulo por el prefijo de sus herramientas.
+export async function agentesInicio(c) {
+  const DIA = 86400000, col = (t) => new Date(t - 5 * 3600000).toISOString().slice(0, 10);
+  const hoy = Date.now(), dias = Array.from({ length: 7 }, (_, i) => col(hoy - (6 - i) * DIA));
+  const ags = await all(c.env, 'SELECT id, nombre, herramientas, autonomia, programacion FROM ia_agentes WHERE business_id = ? AND activo = 1 ORDER BY id', c.businessId);
+  const ej = await all(c.env, 'SELECT id, agente_id, estado, resumen, pendientes, pasos, created_at FROM ia_ejecuciones WHERE business_id = ? AND created_at > ? ORDER BY id DESC LIMIT 300', c.businessId, hoy - 7 * DIA);
+  const lista = (x) => { try { const a = JSON.parse(x); return Array.isArray(a) ? a.filter((n) => typeof n === 'string') : []; } catch { return []; } };
+  return {
+    ia_ruta: REG.manifests?.find((m) => m.id === 'ai')?.menu?.ruta || null,
+    agentes: ags.map((a) => {
+      const mias = ej.filter((e) => e.agente_id === a.id), semana = dias.map(() => 0);
+      let hechas = 0;
+      for (const e of mias) {
+        const i = dias.indexOf(col(e.created_at)); if (i >= 0) semana[i]++;
+        try { hechas += JSON.parse(e.pasos || '[]').filter((p) => p.estado === 'hecha').length; } catch { /* paso ilegible */ }
+      }
+      return { id: a.id, nombre: a.nombre, herramientas: lista(a.herramientas), autonomia: a.autonomia, programacion: a.programacion, estado: mias[0]?.estado || null,
+        pendientes: mias.reduce((n, e) => n + (e.pendientes || 0), 0), total: mias.length, hechas, errores: mias.filter((e) => e.estado === 'error').length, semana, dias,
+        recientes: mias.slice(0, 4).map((e) => ({ estado: e.estado, texto: String(e.resumen || '').slice(0, 160), cuando: e.created_at })) };
+    }),
+  };
+}
+
 export const daily = (env) => limpiarInicio(env);   // los movimientos de la figura se guardan 30 días
 
 export function routes(r) {
+  r.get(`${B}/agentes`, `tenant:${MOD}`, async (c) => json(await agentesInicio(c)));
   r.get(`${B}/figura`, `tenant:${MOD}`, async (c) => json(await figura(c)));
   r.get(B, `tenant:${MOD}`, async (c) => json(await tablero(c)));
 }

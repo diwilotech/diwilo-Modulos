@@ -1,7 +1,8 @@
 # Dashboard (`dashboard`) — cambios
 
-## 1.4.0 · 2026-10-29
-- **Agentes por módulo:** franja horizontal arriba del Inicio con un agente por módulo (el agente activo de IA cuyas herramientas son de ese módulo). Cada tarjeta muestra si está activo, trabajando, con propuestas por aprobar, con error, o si falta crearlo; al tocarla abre IA. `GET /api/dashboard` suma `agentes` e `ia_ruta`.
+## 1.5.0 · 2026-10-29
+- **Agentes IA por módulo (reemplaza la franja de 1.4.0):** una tarjeta por módulo del negocio (centrales y de la app). Con agente muestra su actividad real de 7 días (ejecuciones, acciones hechas, por aprobar, errores, gráfico por día y lo último que hizo) y permite «Ejecutar ahora»; sin agente muestra **Crear agente**, que lo crea con las herramientas de ese módulo (propone, tú apruebas). Nada de datos de ejemplo. Nueva ruta `GET /api/dashboard/agentes`.
+- Se quitó el bloque «Ir a» del Inicio (el menú ya lleva a cada módulo). `atajos` se sigue devolviendo por compatibilidad. Lo propio de cada app (p. ej. «Tu academia» con su calendario) no cambia.
 
 ## 1.3.0 · 2026-10-29
 - **«Así funciona tu negocio»:** bloque del Inicio con la figura isométrica de la línea de negocio (educación, propiedad horizontal, servicios), con los números reales de cada etapa, nodos que abren su módulo y paquetes que viajan por la cinta cuando pasa algo (`GET /api/dashboard/figura`, tabla `inicio_eventos`, 30 días, solo el tipo del evento). Código en `/m/inicio.js`; las apps entregan valores propios con `window.DwInicioValores` y anotan movimientos con el RPC `inicioEvento`.

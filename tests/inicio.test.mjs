@@ -15,4 +15,13 @@ export default async function ({ check, newBusiness }) {
   const todas = Object.entries(LINEAS).map(([k, l]) => [k, escena(l)]);
   check('Inicio: las figuras de todas las líneas tienen 10–25 piezas y ninguna se atraviesa', todas.every(([, p]) => p.length >= 10 && p.length <= 25 && auditar(p).length === 0), JSON.stringify(todas.map(([k, p]) => [k, p.length, auditar(p)])));
   check('Inicio: cada flujo de la figura une etapas que existen', Object.values(LINEAS).every((l) => Object.values(l.flujos).every(([d, a]) => l.nodos.some((n) => n.id === d) && l.nodos.some((n) => n.id === a)) && l.nodos.some((n) => n.id === l.luz)));
+  // Agentes por módulo: solo actividad real del negocio, sin datos de ejemplo, y aislada por negocio
+  const g0 = await A.app('/api/dashboard/agentes');
+  check('Inicio: sin agentes la lista sale vacía (nada de ejemplo)', g0.status === 200 && g0.data.agentes.length === 0, JSON.stringify(g0.data).slice(0, 200));
+  const ag = await A.app('/api/ai/agentes', { method: 'POST', body: { nombre: 'Agente de Marketing', instrucciones: 'Resume Marketing.', herramientas: ['marketing.resumen'], programacion: 'manual', autonomia: 'proponer', activo: true } });
+  const g1 = await A.app('/api/dashboard/agentes'), a1 = g1.data.agentes[0];
+  check('Inicio: el agente creado aparece con su semana de 7 días en cero', ag.status === 201 && a1 && a1.herramientas[0] === 'marketing.resumen' && a1.semana.length === 7 && a1.total === 0 && a1.dias.length === 7, JSON.stringify(g1.data).slice(0, 200));
+  check('Inicio: el agente de un negocio no aparece en otro', (await B.app('/api/dashboard/agentes')).data.agentes.length === 0);
+  const t = await A.app('/api/dashboard');
+  check('Inicio: manda la lista de módulos para sus agentes', t.status === 200 && Array.isArray(t.data.agentes) && t.data.agentes.every((m) => m.modulo && !m.agente));
 }

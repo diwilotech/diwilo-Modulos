@@ -26,14 +26,24 @@ DW.ready.then((me) => {
     .dsh-alerta{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid var(--bs-border-color);border-left:4px solid var(--c);background:var(--bs-body-bg);text-align:left;width:100%;color:inherit}
     .dsh-alerta[data-nivel=mala]{--c:#dc3545}.dsh-alerta[data-nivel=aviso]{--c:#f59e0b}.dsh-alerta[data-nivel=info]{--c:var(--dw-p,#6d28d9)}
     .dsh-alerta i.ic{color:var(--c);font-size:1.2rem}.dsh-alerta .x{margin-left:auto;opacity:.55}
-    .dsh-ags{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;margin:0 -2px 14px;scrollbar-width:thin}
-    .dsh-ag{flex:none;display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 14px 8px 10px;border-radius:14px;border:1px solid var(--bs-border-color);background:var(--bs-body-bg);color:inherit;text-align:left;cursor:pointer;transition:transform .12s}
-    .dsh-ag:hover{transform:translateY(-2px)}
-    .dsh-ag .bot{position:relative;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:rgba(var(--bs-body-color-rgb),.06);color:var(--dw-p,#6d28d9);font-size:1.1rem}
-    .dsh-ag .bot::after{content:"";position:absolute;right:-2px;top:-2px;width:10px;height:10px;border-radius:50%;border:2px solid var(--bs-body-bg);background:#34d399}
-    .dsh-ag[data-est=nuevo] .bot::after{background:#9ca3af}.dsh-ag[data-est=pend] .bot::after{background:#f59e0b}.dsh-ag[data-est=error] .bot::after{background:#dc3545}
-    .dsh-ag[data-est=nuevo]{border-style:dashed;opacity:.8}
-    .dsh-ag .n{font-weight:600;font-size:.85rem;line-height:1.2;white-space:nowrap}.dsh-ag .e{font-size:.74rem;color:var(--bs-secondary-color);white-space:nowrap}
+    .dsh-agr{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px}
+    .dsh-ag{--c:var(--dw-p,#6d28d9);display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;padding:12px;border-radius:14px;border:1px solid var(--bs-border-color);background:var(--bs-body-bg);color:inherit;cursor:pointer;transition:transform .12s,border-color .12s}
+    .dsh-ag:hover{transform:translateY(-2px);border-color:var(--c)}.dsh-ag.on{border-color:var(--c);box-shadow:0 0 0 1px var(--c)}
+    .dsh-agr.sel .dsh-ag:not(.on){opacity:.55}
+    .dsh-ag .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+    .dsh-ag .bot{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:1.15rem;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
+    .dsh-ag .pt{width:9px;height:9px;border-radius:50%;background:#34d399;margin-top:4px}.dsh-ag .pt.pend{background:#f59e0b}.dsh-ag .pt.error{background:#dc3545}
+    .dsh-ag .n{font-weight:600;font-size:.9rem}.dsh-ag .e{font-size:.76rem;color:var(--bs-secondary-color)}
+    .dsh-ag .m{font-size:.76rem;margin-top:6px;color:var(--c);font-weight:600}
+    .dsh-ag.nuevo{border-style:dashed;cursor:default}.dsh-ag.nuevo:hover{transform:none;border-color:var(--bs-border-color)}.dsh-ag.nuevo .bot{color:var(--bs-secondary-color);background:rgba(var(--bs-body-color-rgb),.06)}
+    .dsh-ag.nuevo .btn{margin-top:8px}
+    .dsh-agd{margin-top:12px;--c:var(--dw-p,#6d28d9)}
+    .dsh-agd .kp{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+    .dsh-agd .kp b{display:block;font-size:1.35rem;line-height:1.1}.dsh-agd .kp span{font-size:.75rem;color:var(--bs-secondary-color)}
+    .dsh-agd .sem{display:flex;align-items:flex-end;gap:8px;height:96px}
+    .dsh-agd .sem div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:3px;font-size:.7rem;color:var(--bs-secondary-color)}
+    .dsh-agd .sem i{display:block;width:100%;max-width:34px;border-radius:6px 6px 3px 3px;background:var(--c);min-height:3px}
+    .dsh-agd .rec{list-style:none;padding:0;margin:12px 0 0;display:grid;gap:8px;font-size:.85rem}.dsh-agd .rec small{color:var(--bs-secondary-color)}
     .dsh-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
     .dsh-kpi{display:block;text-decoration:none;color:inherit;text-align:left;width:100%;transition:transform .12s,box-shadow .12s}
     .dsh-kpi[data-ruta]:hover{transform:translateY(-2px);box-shadow:var(--bs-box-shadow)}.dsh-kpi[data-ruta]{cursor:pointer}
@@ -46,7 +56,7 @@ DW.ready.then((me) => {
     .dsh-atajo:hover{border-color:var(--dw-p,#6d28d9)}.dsh-atajo i{font-size:1.4rem;color:var(--dw-p,#6d28d9)}
     .dsh-h{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--bs-secondary-color);margin:22px 0 10px}
     @media(max-width:575.98px){.dsh-hero h1{font-size:1.15rem}.dsh-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.dsh-kpi .v{font-size:1.25rem}}
-    @media(prefers-reduced-motion:reduce){.dsh-sk{animation:none}.dsh-kpi{transition:none}}`;
+    @media(prefers-reduced-motion:reduce){.dsh-sk{animation:none}.dsh-kpi,.dsh-ag{transition:none}}`;
   document.head.appendChild(style);
 
   // Ir a una pantalla: dentro de Diwilo Admin cambia la pestaña del panel; en una app, abre la página del módulo
@@ -99,13 +109,43 @@ DW.ready.then((me) => {
     } catch (x) { console.warn('inicio', x.message); host.closest('.dw-card')?.remove(); }
   }
 
-  // Agentes por módulo (franja de arriba): un agente propio por módulo; sin agente, invita a crearlo en IA.
-  const agentesFranja = (T) => {
-    const L = (T.agentes || []).filter((a) => !me.modules || me.modules.some((m) => m.id === a.modulo));
-    if (!L.length) return '';
-    const est = (a) => !a.agente ? ['nuevo', 'Crear agente'] : a.agente.pendientes ? ['pend', `${a.agente.pendientes} por aprobar`] : a.agente.estado === 'error' ? ['error', 'Falló la última vez'] : a.agente.estado === 'en_curso' ? ['ok', 'Trabajando…'] : ['ok', a.agente.autonomia === 'ejecutar' ? 'Activo · solo' : 'Activo'];
-    return `<div class="dsh-ags" role="list" aria-label="Agentes por módulo">${L.map((a) => { const [k, t] = est(a); return `<button type="button" role="listitem" class="dsh-ag" data-est="${k}" data-ruta="${esc(T.ia_ruta || a.ruta)}" title="${esc(a.agente ? a.agente.nombre : 'Aún no tiene agente: créalo en IA')}"><span class="bot"><i class="bi bi-robot"></i></span><span><div class="n">${esc(a.nombre)}</div><div class="e">${esc(t)}</div></span></button>`; }).join('')}</div>`;
-  };
+  // Agentes IA por módulo: una tarjeta por módulo; con agente muestra su actividad real de 7 días, sin agente ofrece crearlo.
+  const COLORES = ['#22D3EE', '#A78BFA', '#34D399', '#FBBF24', '#F472B6', '#FB7185', '#60A5FA', '#A3E635'];
+  const BASES = new Set(['dashboard', 'inicio', 'ai', 'marca']);
+  const hace = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} d`; };
+  const puedeCrear = me.role === 'owner' || me.role === 'admin';
+  let AG = null, AGSEL = null;
+  async function agentes(T) {
+    const host = $('[data-agentes]', view);
+    if (!host) return;
+    try {
+      const D = await api('/api/dashboard/agentes');
+      const mods = (me.modules ? me.modules.filter((m) => m.ruta && !m.oculto && !BASES.has(m.id)).map((m) => ({ modulo: m.id, nombre: m.nombre, icono: m.icono, ruta: m.ruta })) : T.agentes || []).filter((m) => !BASES.has(m.modulo));
+      if (!mods.length) { host.closest('section').remove(); return; }
+      const de = (m) => D.agentes.find((a) => a.herramientas.length && a.herramientas.filter((n) => n.startsWith(`${m.modulo}.`)).length * 2 > a.herramientas.length) || null;
+      AG = { D, ia: D.ia_ruta || T.ia_ruta, items: mods.map((m, i) => ({ ...m, color: COLORES[i % COLORES.length], agente: de(m) })) };
+      dibujarAgentes();
+    } catch (x) { console.warn('agentes', x.message); host.closest('section')?.remove(); }
+  }
+  function dibujarAgentes() {
+    const host = $('[data-agentes]', view), { items, ia } = AG;
+    const conAg = items.filter((i) => i.agente).length, cur = items.find((i) => i.modulo === AGSEL && i.agente);
+    const tarjeta = (i) => {
+      const a = i.agente, est = !a ? '' : a.pendientes ? 'pend' : a.estado === 'error' ? 'error' : '';
+      return a ? `<button type="button" class="dsh-ag ${cur === i ? 'on' : ''}" style="--c:${i.color}" data-sel="${esc(i.modulo)}" aria-pressed="${cur === i}"><div class="top"><span class="bot"><i class="bi ${esc(i.icono || 'bi-grid')}"></i></span><span class="pt ${est}" title="Activo"></span></div><div class="n">${esc(i.nombre)}</div><div class="e">${esc(a.nombre)}</div><div class="m"><i class="bi bi-lightning-charge-fill"></i> ${a.total} ${a.total === 1 ? 'tarea' : 'tareas'} · 7 días${a.pendientes ? ` · ${a.pendientes} por aprobar` : ''}</div></button>`
+        : `<div class="dsh-ag nuevo" style="--c:${i.color}"><div class="top"><span class="bot"><i class="bi ${esc(i.icono || 'bi-grid')}"></i></span></div><div class="n">${esc(i.nombre)}</div><div class="e">Aún sin agente</div>${puedeCrear ? `<button type="button" class="btn btn-sm btn-outline-primary" data-crear="${esc(i.modulo)}"><i class="bi bi-plus-lg"></i> Crear agente</button>` : ''}</div>`;
+    };
+    const detalle = () => {
+      const a = cur.agente, max = Math.max(...a.semana, 1);
+      return `<div class="dw-card dsh-agd" style="--c:${cur.color}"><div class="d-flex flex-wrap align-items-center gap-2"><div class="flex-grow-1"><div class="fw-semibold">${esc(a.nombre)}</div><div class="small text-body-secondary">Agente de ${esc(cur.nombre)} · ${a.autonomia === 'ejecutar' ? 'actúa solo' : 'tú apruebas'}${a.programacion !== 'manual' ? ` · ${a.programacion}` : ''}</div></div>
+        <button type="button" class="btn btn-sm btn-primary" data-correr="${a.id}"><i class="bi bi-play-fill"></i> Ejecutar ahora</button>${ia ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-ruta="${esc(ia)}">Abrir en IA</button>` : ''}</div>
+        <div class="kp"><div><b>${a.total}</b><span>Ejecuciones</span></div><div><b>${a.hechas}</b><span>Acciones hechas</span></div><div><b>${a.pendientes}</b><span>Por aprobar</span></div><div><b>${a.errores}</b><span>Con error</span></div></div>
+        <div class="sem" role="img" aria-label="Ejecuciones por día">${a.semana.map((v, k) => `<div title="${v}"><span>${v || ''}</span><i style="height:${Math.max(3, v / max * 62)}px"></i><span>${['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date(a.dias[k] + 'T12:00:00Z').getUTCDay()]}</span></div>`).join('')}</div>
+        ${a.recientes.length ? `<ul class="rec">${a.recientes.map((r) => `<li><div>${esc(r.texto || (r.estado === 'error' ? 'No pudo terminar' : r.estado === 'en_curso' ? 'Trabajando…' : 'Terminó sin novedades'))}</div><small>${hace(r.cuando)}</small></li>`).join('')}</ul>` : '<div class="small text-body-secondary mt-3">Aún no ha trabajado esta semana. Pulsa «Ejecutar ahora».</div>'}</div>`;
+    };
+    host.innerHTML = `<div class="small text-body-secondary mb-2">${conAg} de ${items.length} módulos con agente</div>
+      <div class="dsh-agr ${cur ? 'sel' : ''}">${ia ? `<button type="button" class="dsh-ag" style="--c:#A78BFA" data-ruta="${esc(ia)}"><div class="top"><span class="bot"><i class="bi bi-cpu"></i></span></div><div class="n">Asistente IA</div><div class="e">Pregúntale por todos tus módulos</div></button>` : ''}${items.map(tarjeta).join('')}</div>${cur ? detalle() : ''}`;
+  }
   async function pintar(primera) {
     if (primera) view.innerHTML = `<div class="dsh-sk" style="height:72px;margin-bottom:18px"></div><div class="dsh-grid">${'<div class="dsh-sk"></div>'.repeat(4)}</div>`;
     let T, M, F = { linea: null }, SEDES = [];
@@ -118,19 +158,39 @@ DW.ready.then((me) => {
         <div class="flex-grow-1"><h1>${saludo()}${primerNombre() ? `, ${esc(primerNombre())}` : ''}</h1><p class="text-body-secondary">${esc(M.nombre)}${M.lema ? ` · ${esc(M.lema)}` : ''}</p></div>
         ${AMB() && SEDES.length ? selectorSede(AMB(), SEDES) : ''}
         <button type="button" class="btn btn-outline-secondary btn-sm" data-refrescar aria-label="Actualizar"><i class="bi bi-arrow-clockwise"></i><span class="d-none d-sm-inline ms-1">Actualizar</span></button></div>
-      ${agentesFranja(T)}
       ${alertas.length ? `<div class="dsh-alertas" role="region" aria-label="Alertas">${alertas.map((a) => `<div class="dsh-alerta" data-nivel="${esc(a.nivel)}" ${a.ruta ? `data-ruta="${esc(a.ruta)}" role="button" tabindex="0" style="cursor:pointer"` : ''}><i class="bi ${esc(a.icono)} ic"></i><span>${esc(a.texto)}</span><button type="button" class="btn-close x" data-ocultar="${esc(a.id)}" aria-label="Ocultar alerta"></button></div>`).join('')}</div>` : ''}
       ${AMB() && !AMB().actual() && SEDES.length ? `<div class="dsh-h">Tus ${esc(String(AMB().plural || AMB().etiqueta).toLowerCase())}</div><div class="dsh-grid">${SEDES.map(tarjetaSede).join('')}</div>` : ''}
       <div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
       ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}
       ${F.linea ? '<div class="dsh-h">Así funciona tu negocio</div><div class="dw-card" data-inicio></div>' : ''}
       ${extras.map((e) => `<div class="dsh-h">${esc(e.titulo)}</div><div data-extra="${esc(e.id)}"></div>`).join('')}
-      ${T.atajos.length ? `<div class="dsh-h">Ir a</div><div class="dsh-atajos">${T.atajos.map((a) => `<a class="dsh-atajo" href="${esc(a.ruta)}" data-ruta="${esc(a.ruta)}"><i class="bi ${esc(a.icono)}"></i>${esc(a.nombre)}</a>`).join('')}</div>` : ''}`;
+      <section><div class="dsh-h">Agentes IA</div><div data-agentes><div class="dsh-sk" style="height:96px"></div></div></section>`;
     if (F.linea) figura(F, T);
+    agentes(T);
     for (const e of extras) {
       const host = $(`[data-extra="${e.id}"]`, view);
       Promise.resolve().then(() => e.mount(host, { me, sede: AMB()?.actual() || null })).catch((x) => { host.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
     }
+  }
+
+  // Crea el agente del módulo con las herramientas de ESE módulo (el negocio lo afina después en IA). Propone y espera aprobación.
+  async function crearAgente(btn) {
+    const it = AG.items.find((i) => i.modulo === btn.dataset.crear);
+    btn.disabled = true;
+    try {
+      const { herramientas } = await api('/api/ai/herramientas');
+      const h = herramientas.filter((t) => t.modulo === it.modulo).map((t) => t.name);
+      if (!h.length) throw new Error('Este módulo aún no tiene herramientas para un agente');
+      await api('/api/ai/agentes', { method: 'POST', body: { nombre: `Agente de ${it.nombre}`.slice(0, 80), instrucciones: `Eres el agente de ${it.nombre}. Revisa ${it.nombre} del negocio con las herramientas de este módulo, resume lo importante y propón las acciones que haya que tomar. No inventes cifras. Si no hay nada por hacer, dilo en una línea.`, herramientas: h, programacion: 'manual', autonomia: 'proponer', activo: true } });
+      window.App.toast?.(`Agente de ${it.nombre} creado`);
+      AGSEL = it.modulo;
+      await agentes({ agentes: AG.items, ia_ruta: AG.ia });
+    } catch (x) { btn.disabled = false; window.App.toast?.(x.message, false); }
+  }
+  async function correrAgente(btn) {
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Trabajando…';
+    try { await api(`/api/ai/agentes/${btn.dataset.correr}/ejecutar`, { method: 'POST', body: {} }); } catch (x) { window.App.toast?.(x.message, false); }
+    await agentes({ agentes: AG.items, ia_ruta: AG.ia });
   }
 
   view.addEventListener('click', (e) => {
@@ -139,6 +199,12 @@ DW.ready.then((me) => {
     if (e.target.closest('[data-refrescar]')) return pintar(false);
     const sd = e.target.closest('[data-sede]');
     if (sd && AMB()) { AMB().elegir(sd.dataset.sede || null); return pintar(false); }
+    const sa = e.target.closest('[data-sel]');
+    if (sa && AG) { AGSEL = AGSEL === sa.dataset.sel ? null : sa.dataset.sel; return dibujarAgentes(); }
+    const cr = e.target.closest('[data-crear]');
+    if (cr && AG) return crearAgente(cr);
+    const co = e.target.closest('[data-correr]');
+    if (co) return correrAgente(co);
     const r = e.target.closest('[data-ruta]');
     if (r) { if (r.tagName === 'A') e.preventDefault(); ir(r.dataset.ruta); }
   });
