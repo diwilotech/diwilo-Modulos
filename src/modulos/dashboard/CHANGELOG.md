@@ -1,5 +1,9 @@
 # Dashboard (`dashboard`) — cambios
 
+## 1.6.0 · 2026-10-29
+- **Librerías comunes para todas las apps:** `/m/calendario.js` (`DwCalendario.semana`: el calendario de la semana de Cursos, por Mañana/Tarde/Noche más «Todo el día») y `/m/datatable.js` (tablas con orden, búsqueda y paginación para `table.dw-table`). Traen sus estilos: se cargan con un `<script>` en cualquier app o panel.
+- **Inicio por módulos** (`/m/iniciomods.js`, Diwilo Admin o `window.DwInicioModulos = true`): IA grande + tarjetas de módulos con agente, indicadores, gráficas y tabla de próximos 45 días; calendario de la semana con tareas, cobros/pagos y Nómina. Opciones `DwSinFigura`, `DwSinComoVa`, `DwSinAgentes`.
+
 ## 1.5.0 · 2026-10-29
 - **Agentes IA por módulo (reemplaza la franja de 1.4.0):** una tarjeta por módulo del negocio (centrales y de la app). Con agente muestra su actividad real de 7 días (ejecuciones, acciones hechas, por aprobar, errores, gráfico por día y lo último que hizo) y permite «Ejecutar ahora»; sin agente muestra **Crear agente**, que lo crea con las herramientas de ese módulo (propone, tú apruebas). Nada de datos de ejemplo. Nueva ruta `GET /api/dashboard/agentes`.
 - Se quitó el bloque «Ir a» del Inicio (el menú ya lleva a cada módulo). `atajos` se sigue devolviendo por compatibilidad. Lo propio de cada app (p. ej. «Tu academia» con su calendario) no cambia.

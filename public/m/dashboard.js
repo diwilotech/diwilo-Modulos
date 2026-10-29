@@ -174,7 +174,7 @@ DW.ready.then((me) => {
       ${window.DwSinAgentes || MODS() ? '' : '<section><div class="dsh-h">Agentes IA</div><div data-agentes><div class="dsh-sk" style="height:96px"></div></div></section>'}`;
     if (F.linea && !window.DwSinFigura && !MODS()) figura(F, T);
     if (!window.DwSinAgentes && !MODS()) agentes(T);
-    if (MODS()) import(`${enPanel ? '/admin/m/' : '/m/'}iniciomods.js`).then((K) => K.montar($('[data-modulos]', view), { api, esc, T, ir, puedeCrear })).catch((x) => { console.warn('iniciomods', x.message); });
+    if (MODS()) import(`${enPanel ? '/admin/m/' : '/m/'}iniciomods.js`).then((K) => K.montar($('[data-modulos]', view), { api, esc, T, ir, puedeCrear, base: enPanel ? '/admin/m/' : '/m/' })).catch((x) => { console.warn('iniciomods', x.message); });
     for (const e of extras) {
       const host = $(`[data-extra="${e.id}"]`, view);
       Promise.resolve().then(() => e.mount(host, { me, sede: AMB()?.actual() || null })).catch((x) => { host.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });

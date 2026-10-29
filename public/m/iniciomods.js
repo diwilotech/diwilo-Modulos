@@ -2,7 +2,10 @@
 // al tocar un módulo se ven su agente (funcionando o «Crear agente»), sus indicadores y sus gráficas; abajo el calendario de la semana
 // con lo que vence o toca esa semana (tareas de Marketing, cuentas por cobrar/pagar de Finanzas y pagos/obligaciones de Nómina).
 // Lo monta dashboard.js cuando corre dentro del panel de Diwilo Admin (o con window.DwInicioModulos = true).
-export function montar(host, { api, esc, T, ir, puedeCrear }) {
+export function montar(host, { api, esc, T, ir, puedeCrear, base = '/m/' }) {
+  // Librerías comunes de las apps Diwilo: el calendario de la semana (el de Cursos) y las tablas con orden, búsqueda y paginación
+  const cargarJs = (src) => new Promise((ok) => { const s = document.createElement('script'); s.src = src; s.onload = s.onerror = () => ok(); document.head.appendChild(s); });
+  const libs = Promise.all([cargarJs(`${base}calendario.js`), cargarJs(`${base}datatable.js`)]);
   const COLORES = ['#22D3EE', '#A78BFA', '#34D399', '#FBBF24', '#F472B6', '#FB7185', '#60A5FA', '#A3E635'];
   const mods = (T.agentes || []).map((m, i) => ({ ...m, color: COLORES[i % COLORES.length] }));
   const peso = (v) => `$${Math.round(v || 0).toLocaleString('es-CO')}`;
@@ -12,7 +15,7 @@ export function montar(host, { api, esc, T, ir, puedeCrear }) {
   const DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   const mas = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
   const lunesDe = (iso) => mas(iso, -((new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7));
-  let sel = null, AG = { agentes: [] }, graf = {}, desde = lunesDe(T.hoy);
+  let sel = null, AG = { agentes: [] }, graf = {}, agenda = null;
 
   host.innerHTML = `<style>
       .im-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px}
@@ -35,17 +38,12 @@ export function montar(host, { api, esc, T, ir, puedeCrear }) {
       .im-rk{margin-bottom:8px}.im-rk .progress{height:5px}.im-rk .progress-bar{background:var(--c)}
       .im-ag{padding:14px;border-radius:14px;border:1px solid var(--bs-border-color);background:color-mix(in srgb,var(--c) 6%,transparent)}
       .im-ag .pt{width:9px;height:9px;border-radius:50%;background:#34D399;display:inline-block}.im-ag .pt.pend{background:#f59e0b}.im-ag .pt.error{background:#dc3545}
-      .im-sem{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
-      @media (max-width:991.98px){.im-sem{grid-template-columns:minmax(0,1fr)}}
-      .im-dia{border:1px solid var(--bs-border-color);border-radius:12px;padding:8px;min-height:90px}.im-dia.hoy{border-color:var(--dw-p,#6d28d9);box-shadow:0 0 0 1px var(--dw-p,#6d28d9)}
-      .im-dia h3{font-size:.78rem;margin:0 0 6px;color:var(--bs-secondary-color);font-weight:600}
-      .im-ev{display:block;width:100%;text-align:left;border:0;border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 10%,transparent);color:inherit;border-radius:6px;padding:4px 6px;margin-bottom:4px;font-size:.75rem;line-height:1.3}
       @media (prefers-reduced-motion:reduce){.im-core,.im-mod{transition:none}}
     </style>
     <div class="im-grid" data-mods><button type="button" class="im-core" data-ia><span class="ic"><i class="bi bi-cpu"></i></span><span><span class="d-block small fw-bold" style="color:var(--c);letter-spacing:.12em">ASISTENTE IA</span><span class="d-block h4 fw-bold mb-1">Pregúntale a tu negocio</span><span class="d-block text-body-secondary small">Abre el chat: te responde con los datos de todos tus módulos y hace tareas por ti.</span></span><span class="mt-auto small fw-semibold" style="color:var(--c)">Abrir el chat <i class="bi bi-arrow-right"></i></span></button></div>
     <div data-det></div>
     <div class="dsh-h">Esta semana</div>
-    <div class="dw-card"><div class="d-flex align-items-center gap-2 mb-3"><button class="btn btn-light btn-sm" data-prev aria-label="Semana anterior"><i class="bi bi-chevron-left"></i></button><b class="flex-grow-1 text-center" data-rango></b><button class="btn btn-light btn-sm" data-hoy>Hoy</button><button class="btn btn-light btn-sm" data-next aria-label="Semana siguiente"><i class="bi bi-chevron-right"></i></button></div><div data-semana></div></div>`;
+    <div class="dw-card"><div data-semana></div></div>`;
   const $ = (s) => host.querySelector(s);
 
   /* ---------- tarjetas y agentes ---------- */
@@ -96,23 +94,31 @@ export function montar(host, { api, esc, T, ir, puedeCrear }) {
     det.innerHTML = `<div class="dw-card im-det" style="--c:${sel.color}"><div class="d-flex flex-wrap align-items-center gap-2 mb-3"><h2 class="h6 mb-0 flex-grow-1">Estadísticas · <span style="color:var(--c)">${esc(sel.nombre)}</span></h2><button type="button" class="btn btn-sm btn-outline-secondary" data-ruta="${esc(sel.ruta)}">Abrir módulo <i class="bi bi-arrow-right"></i></button></div>
       ${agenteHtml(sel)}
       ${ws.length ? `<div class="im-kpis">${ws.map(kpi).join('')}</div>` : '<div class="text-body-secondary small">Este módulo aún no tiene indicadores en el Inicio.</div>'}
-      ${graficas(sel)}</div>`;
+      ${graficas(sel)}
+      ${['marketing', 'finanzas', 'nomina'].includes(sel.modulo) ? '<h3 class="h6 mt-4 mb-2">Próximos 45 días</h3><div data-prox><div class="small text-body-secondary">Cargando…</div></div>' : ''}</div>`;
     cargarGraficas(sel);
+    const px = det.querySelector('[data-prox]'); if (px) libs.then(() => tablaProximos(sel, px));
   }
 
-  /* ---------- calendario de la semana ---------- */
-  async function semana() {
-    const hasta = mas(desde, 6), hoy = T.hoy;
-    $('[data-rango]').textContent = `${new Date(`${desde}T12:00:00Z`).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'UTC' })} – ${new Date(`${hasta}T12:00:00Z`).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`;
-    const ev = [], activos = new Set(mods.map((m) => m.modulo));
-    const enSemana = (f) => f && f >= desde && f <= hasta;
+  /* ---------- agenda: lo que vence o toca (alimenta el calendario y la tabla de cada módulo) ---------- */
+  const traer = async (desde, hasta) => {
+    const ev = [], activos = new Set(mods.map((m) => m.modulo)), en = (f) => f && f >= desde && f <= hasta;
     await Promise.all([
-      activos.has('marketing') && api('/api/marketing/tasks?limit=300').then((r) => (r.rows || []).forEach((t) => { if (!t.done && enSemana(t.due_date)) ev.push({ f: t.due_date, c: '#A78BFA', ic: 'bi-check2-square', t: t.title, ruta: '/staff/marketing.html' }); })).catch(() => {}),
-      activos.has('finanzas') && api('/api/finanzas/invoices?limit=300').then((r) => (r.rows || []).forEach((i) => { if (i.status === 'pendiente' && enSemana(i.due_date)) ev.push({ f: i.due_date, c: i.kind === 'emitida' ? '#34D399' : '#FB7185', ic: i.kind === 'emitida' ? 'bi-arrow-down-left' : 'bi-arrow-up-right', t: `${i.kind === 'emitida' ? 'Cobrar' : 'Pagar'} ${peso(i.total - (i.paid || 0))} · ${i.counterparty || i.number || ''}`, ruta: '/staff/finanzas.html' }); })).catch(() => {}),
-      activos.has('nomina') && Promise.all([...new Set([desde.slice(0, 7), hasta.slice(0, 7)])].map((p) => api(`/api/nomina/calendario?period=${p}`).catch(() => null))).then((rs) => rs.forEach((r) => (r?.eventos || []).forEach((e) => { if (enSemana(e.fecha)) ev.push({ f: e.fecha, c: '#FBBF24', ic: 'bi-cash-coin', t: `${e.titulo}${e.valor ? ` · ${peso(e.valor)}` : ''}`, ruta: '/staff/nomina.html' }); }))),
+      activos.has('marketing') && api('/api/marketing/tasks?limit=300').then((r) => (r.rows || []).forEach((t) => { if (!t.done && en(t.due_date)) ev.push({ modulo: 'marketing', fecha: t.due_date, color: '#A78BFA', icono: 'bi-check2-square', titulo: t.title, detalle: 'Tarea', ruta: '/staff/marketing.html' }); })).catch(() => {}),
+      activos.has('finanzas') && api('/api/finanzas/invoices?limit=300').then((r) => (r.rows || []).forEach((i) => { if (i.status === 'pendiente' && en(i.due_date)) ev.push({ modulo: 'finanzas', fecha: i.due_date, color: i.kind === 'emitida' ? '#34D399' : '#FB7185', icono: i.kind === 'emitida' ? 'bi-arrow-down-left' : 'bi-arrow-up-right', titulo: `${i.kind === 'emitida' ? 'Cobrar' : 'Pagar'} ${peso(i.total - (i.paid || 0))}`, detalle: i.counterparty || i.number || '', valor: i.total - (i.paid || 0), ruta: '/staff/finanzas.html' }); })).catch(() => {}),
+      activos.has('nomina') && Promise.all([...new Set([desde.slice(0, 7), hasta.slice(0, 7)])].map((p) => api(`/api/nomina/calendario?period=${p}`).catch(() => null))).then((rs) => rs.forEach((r) => (r?.eventos || []).forEach((e) => { if (en(e.fecha)) ev.push({ modulo: 'nomina', fecha: e.fecha, color: '#FBBF24', icono: 'bi-cash-coin', titulo: e.titulo, detalle: e.valor ? peso(e.valor) : (e.detalle || ''), valor: e.valor || 0, ruta: '/staff/nomina.html' }); }))),
     ].filter(Boolean));
-    const dias = Array.from({ length: 7 }, (_, i) => mas(desde, i));
-    $('[data-semana]').innerHTML = `<div class="im-sem">${dias.map((f) => `<div class="im-dia ${f === hoy ? 'hoy' : ''}"><h3>${DIAS[new Date(`${f}T12:00:00Z`).getUTCDay()]} ${f.slice(8)}</h3>${ev.filter((e) => e.f === f).map((e) => `<button type="button" class="im-ev" style="--c:${e.c}" data-ruta="${esc(e.ruta)}" title="${esc(e.t)}"><i class="bi ${e.ic} me-1"></i>${esc(String(e.t).slice(0, 70))}</button>`).join('')}</div>`).join('')}</div>${ev.length ? '' : '<div class="small text-body-secondary mt-2">No hay tareas, cobros ni pagos programados esta semana.</div>'}`;
+    return ev.sort((a, b) => a.fecha.localeCompare(b.fecha));
+  };
+  // Calendario común de la semana (calendario.js)
+  libs.then(() => window.DwCalendario?.semana($('[data-semana]'), { hoy: T.hoy, cargar: traer, abrir: ir, vacio: 'No hay tareas, cobros ni pagos programados esta semana.' }));
+  // Tabla del módulo elegido: próximos 45 días, con orden, búsqueda y paginación (datatable.js)
+  const proximos = () => (agenda ||= traer(T.hoy, mas(T.hoy, 45)));
+  async function tablaProximos(m, box) {
+    const rows = (await proximos()).filter((e) => e.modulo === m.modulo);
+    if (sel !== m) return;
+    box.innerHTML = rows.length ? `<div class="table-responsive-md"><table class="table dw-table align-middle mb-0"><thead><tr><th>Fecha</th><th>Qué</th><th>Detalle</th>${m.modulo === 'marketing' ? '' : '<th class="text-end">Valor</th>'}</tr></thead>
+      <tbody>${rows.map((e) => `<tr><td data-label="Fecha" data-order="${Date.parse(e.fecha)}">${new Date(`${e.fecha}T12:00:00Z`).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</td><td data-label="Qué" class="dw-td-main"><button type="button" class="btn btn-link p-0 text-start" data-ruta="${esc(e.ruta)}"><i class="bi ${esc(e.icono)} me-1"></i>${esc(e.titulo)}</button></td><td data-label="Detalle">${esc(e.detalle || '')}</td>${m.modulo === 'marketing' ? '' : `<td data-label="Valor" class="text-end" data-order="${e.valor || 0}">${e.valor ? esc(peso(e.valor)) : '—'}</td>`}</tr>`).join('')}</tbody></table></div>` : '<div class="small text-body-secondary">Nada programado en los próximos 45 días.</div>';
   }
 
   /* ---------- acciones ---------- */
@@ -143,15 +149,11 @@ export function montar(host, { api, esc, T, ir, puedeCrear }) {
     const cr = e.target.closest('[data-crear]'); if (cr) return crearAgente(cr);
     const co = e.target.closest('[data-correr]'); if (co) return correrAgente(co);
     const r = e.target.closest('[data-ruta]'); if (r) return ir(r.dataset.ruta);
-    if (e.target.closest('[data-prev]')) { desde = mas(desde, -7); return semana(); }
-    if (e.target.closest('[data-next]')) { desde = mas(desde, 7); return semana(); }
-    if (e.target.closest('[data-hoy]')) { desde = lunesDe(T.hoy); return semana(); }
     const b = e.target.closest('[data-mod]'); if (!b) return;
     const m = mods.find((x) => x.modulo === b.dataset.mod);
     sel = sel === m ? null : m; pintar();
   });
 
   pintar();
-  semana();
   cargarAgentes().then(pintar);
 }
