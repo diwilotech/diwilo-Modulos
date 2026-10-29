@@ -2,6 +2,7 @@
 // Web y celular (cuadrícula que se adapta), se actualiza solo cada 90 s mientras la pestaña está a la vista, y sus alertas
 // se mandan a la campana del panel/app (window.parent.postMessage). Dentro de Diwilo Admin los enlaces cambian de pestaña del panel.
 // Cada app suma sus propios indicadores con window.DwDashboard.push({ id, titulo, mount(host, { me, sede }) }) antes de cargar este archivo.
+// window.DwSinFigura = true oculta «Así funciona tu negocio» (la app trae su propio Inicio).
 // Apps con varias sedes (conjuntos, edificios, sucursales) declaran el ÁMBITO con window.DwDashboardAmbito = { etiqueta: 'Conjunto', plural: 'Conjuntos',
 //   items: async () => [{ id, nombre, detalle?, kpis?: [{ valor, titulo }] }], actual: () => id | null, elegir: (id | null) => void }.
 //   Sin sede elegida el Inicio es el del portafolio (tarjetas de cada sede + lo de toda la empresa: alertas, Finanzas, Marketing…); con una elegida
@@ -162,10 +163,10 @@ DW.ready.then((me) => {
       ${AMB() && !AMB().actual() && SEDES.length ? `<div class="dsh-h">Tus ${esc(String(AMB().plural || AMB().etiqueta).toLowerCase())}</div><div class="dsh-grid">${SEDES.map(tarjetaSede).join('')}</div>` : ''}
       <div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
       ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}
-      ${F.linea ? '<div class="dsh-h">Así funciona tu negocio</div><div class="dw-card" data-inicio></div>' : ''}
+      ${F.linea && !window.DwSinFigura ? '<div class="dsh-h">Así funciona tu negocio</div><div class="dw-card" data-inicio></div>' : ''}
       ${extras.map((e) => `<div class="dsh-h">${esc(e.titulo)}</div><div data-extra="${esc(e.id)}"></div>`).join('')}
       <section><div class="dsh-h">Agentes IA</div><div data-agentes><div class="dsh-sk" style="height:96px"></div></div></section>`;
-    if (F.linea) figura(F, T);
+    if (F.linea && !window.DwSinFigura) figura(F, T);
     agentes(T);
     for (const e of extras) {
       const host = $(`[data-extra="${e.id}"]`, view);
