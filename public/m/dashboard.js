@@ -2,6 +2,7 @@
 // Web y celular (cuadrícula que se adapta), se actualiza solo cada 90 s mientras la pestaña está a la vista, y sus alertas
 // se mandan a la campana del panel/app (window.parent.postMessage). Dentro de Diwilo Admin los enlaces cambian de pestaña del panel.
 // Cada app suma sus propios indicadores con window.DwDashboard.push({ id, titulo, mount(host, { me, sede }) }) antes de cargar este archivo.
+// window.DwInicioModulos = true (o estar en Diwilo Admin) pinta el Inicio por módulos (iniciomods.js) en lugar de figura, «Cómo va» y agentes.
 // window.DwSinComoVa = true oculta las tarjetas de «Cómo va».
 // window.DwSinAgentes = true oculta la sección «Agentes IA» (la app pinta su propia versión).
 // window.DwSinFigura = true oculta «Así funciona tu negocio» (la app trae su propio Inicio).
@@ -16,6 +17,8 @@ DW.ready.then((me) => {
   const $ = (s, el = document) => el.querySelector(s);
   const view = $('[data-view]');
   const enPanel = location.pathname.startsWith('/admin/m/');
+  // Dentro de Diwilo Admin (o con window.DwInicioModulos = true) el Inicio es el de módulos: IA grande + una tarjeta por módulo con agente, estadísticas y calendario
+  const MODS = () => enPanel || !!window.DwInicioModulos;
   const PANEL = { ai: 'ia' };   // id de la pestaña del panel cuando difiere del módulo
   const VISTAS = new Set(JSON.parse(sessionStorage.getItem('dw_dash_ocultas') || '[]'));
   let timer = null, fig = null, figTimer = null, figUltimo = 0;
@@ -163,13 +166,15 @@ DW.ready.then((me) => {
         <button type="button" class="btn btn-outline-secondary btn-sm" data-refrescar aria-label="Actualizar"><i class="bi bi-arrow-clockwise"></i><span class="d-none d-sm-inline ms-1">Actualizar</span></button></div>
       ${alertas.length ? `<div class="dsh-alertas" role="region" aria-label="Alertas">${alertas.map((a) => `<div class="dsh-alerta" data-nivel="${esc(a.nivel)}" ${a.ruta ? `data-ruta="${esc(a.ruta)}" role="button" tabindex="0" style="cursor:pointer"` : ''}><i class="bi ${esc(a.icono)} ic"></i><span>${esc(a.texto)}</span><button type="button" class="btn-close x" data-ocultar="${esc(a.id)}" aria-label="Ocultar alerta"></button></div>`).join('')}</div>` : ''}
       ${AMB() && !AMB().actual() && SEDES.length ? `<div class="dsh-h">Tus ${esc(String(AMB().plural || AMB().etiqueta).toLowerCase())}</div><div class="dsh-grid">${SEDES.map(tarjetaSede).join('')}</div>` : ''}
-      ${window.DwSinComoVa ? '' : `<div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
+      ${window.DwSinComoVa || MODS() ? '' : `<div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
       ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}`}
-      ${F.linea && !window.DwSinFigura ? '<div class="dsh-h">Así funciona tu negocio</div><div class="dw-card" data-inicio></div>' : ''}
+      ${F.linea && !window.DwSinFigura && !MODS() ? '<div class="dsh-h">Así funciona tu negocio</div><div class="dw-card" data-inicio></div>' : ''}
+      ${MODS() ? '<div data-modulos></div>' : ''}
       ${extras.map((e) => `<div class="dsh-h">${esc(e.titulo)}</div><div data-extra="${esc(e.id)}"></div>`).join('')}
-      ${window.DwSinAgentes ? '' : '<section><div class="dsh-h">Agentes IA</div><div data-agentes><div class="dsh-sk" style="height:96px"></div></div></section>'}`;
-    if (F.linea && !window.DwSinFigura) figura(F, T);
-    if (!window.DwSinAgentes) agentes(T);
+      ${window.DwSinAgentes || MODS() ? '' : '<section><div class="dsh-h">Agentes IA</div><div data-agentes><div class="dsh-sk" style="height:96px"></div></div></section>'}`;
+    if (F.linea && !window.DwSinFigura && !MODS()) figura(F, T);
+    if (!window.DwSinAgentes && !MODS()) agentes(T);
+    if (MODS()) import(`${enPanel ? '/admin/m/' : '/m/'}iniciomods.js`).then((K) => K.montar($('[data-modulos]', view), { api, esc, T, ir, puedeCrear })).catch((x) => { console.warn('iniciomods', x.message); });
     for (const e of extras) {
       const host = $(`[data-extra="${e.id}"]`, view);
       Promise.resolve().then(() => e.mount(host, { me, sede: AMB()?.actual() || null })).catch((x) => { host.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
