@@ -5,6 +5,7 @@ import { AGENTE_EN, guardarMensaje, tocarChat } from './webhook.js';
 import { enviarTexto } from './canales.js';
 import { cancelarCita } from './google.js';
 import { all, one } from '../../lib/crud.js';
+import { guardarArchivo, listarArchivos } from './media.js';
 
 const S = (props, required = []) => ({ type: 'object', properties: props, ...(required.length ? { required } : {}), additionalProperties: false });
 const vista = ({ id, nombre, canal, telefono, activo, tiene_clave, webhook_url }) => ({ id, nombre, canal, telefono, activo: !!activo, tiene_clave, webhook_url });
@@ -115,5 +116,17 @@ export default [
     description: 'Crea un agente de IA (que sirve en las bandejas de `bandejas`, o en todas si va vacía). Pide los datos de contacto indicados en `pedir` (correo, telefono, empresa, tipo, ciudad, interes) y los guarda en Marketing.',
     inputSchema: S({ bandejas: { type: 'array', items: { type: 'number' }, description: 'Ids de las bandejas donde sirve; vacío = todas' }, nombre: { type: 'string' }, instrucciones: { type: 'string', description: 'Qué sabe y cómo responde (máx. 4000 letras)' }, pedir: { type: 'array', items: { type: 'string' }, description: 'Datos de contacto que pide además del nombre' } }, ['nombre']),
     run: async (c, a) => ({ creado: await api.create(c, 'agentes', { bandejas: JSON.stringify(Array.isArray(a.bandejas) ? a.bandejas.map(Number) : []), nombre: a.nombre, instrucciones: a.instrucciones, campos: JSON.stringify({ campos: Array.isArray(a.pedir) ? a.pedir : ['correo'], extras: [] }) }) }),
+  },
+  {
+    name: 'whatsapp.guardar_archivo', modulo: 'whatsapp', rol: 'admin', tipo: 'escritura',
+    description: 'Guarda en la biblioteca de Mensajes («Archivos») una foto, video, audio o documento que llegó en un chat (por el id del mensaje, de leer_conversacion). Con contact_id lo deja también anotado en ese contacto de Marketing.',
+    inputSchema: S({ mensaje_id: { type: 'number' }, nombre: { type: 'string', description: 'Nombre para el archivo (opcional)' }, contact_id: { type: 'number', description: 'Contacto de Marketing al que se adjunta (opcional)' } }, ['mensaje_id']),
+    run: async (c, a) => ({ guardado: await guardarArchivo(c.env, c.businessId, { mensajeId: a.mensaje_id, nombre: a.nombre, contactId: a.contact_id, por: c.session?.email || 'asistente' }) }),
+  },
+  {
+    name: 'whatsapp.ver_archivos', modulo: 'whatsapp', rol: 'staff', tipo: 'lectura',
+    description: 'Los archivos guardados en la biblioteca de Mensajes (nombre, tipo, contacto, y lo que la IA entendió de ellos).',
+    inputSchema: S({}),
+    run: async (c) => ({ archivos: await listarArchivos(c.env, c.businessId) }),
   },
 ];

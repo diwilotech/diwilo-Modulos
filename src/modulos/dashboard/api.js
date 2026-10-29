@@ -36,6 +36,11 @@ export async function tablero(c) {
     if (s?.receivable?.overdue) alertas.push({ id: 'cartera', nivel: 'mala', icono: 'bi-cash-coin', texto: `${peso(s.receivable.overdue)} vencidos por cobrar`, ruta: '/staff/finanzas.html' });
     if (s?.payable?.overdue) alertas.push({ id: 'pagos', nivel: 'aviso', icono: 'bi-receipt', texto: `${peso(s.payable.overdue)} vencidos por pagar`, ruta: '/staff/finanzas.html' });
   }
+  if (ids.has('whatsapp')) {
+    const s = await ok(() => llamar(c, 'GET', '/api/whatsapp/resumen'));
+    if (s?.rojos) alertas.push({ id: 'mensajes-rojo', nivel: 'mala', icono: 'bi-chat-dots', texto: `${s.rojos} chat${s.rojos === 1 ? '' : 's'} en Mensajes necesita${s.rojos === 1 ? '' : 'n'} a una persona`, ruta: '/staff/whatsapp.html' });
+    else if (s?.sin_responder) alertas.push({ id: 'mensajes-pend', nivel: 'info', icono: 'bi-chat-left-text', texto: `${s.sin_responder} chat${s.sin_responder === 1 ? '' : 's'} sin responder hoy en Mensajes`, ruta: '/staff/whatsapp.html' });
+  }
   const marca = await ok(() => brandOf(c.env, c.businessId));
   if (marca && (!marca.tiene_logo || !marca.descripcion)) alertas.push({ id: 'marca', nivel: 'info', icono: 'bi-palette', texto: !marca.tiene_logo ? 'Sube el logo de tu marca: sale en el menú, en la bienvenida y en el kit' : 'Cuenta en una frase qué hace tu negocio: la IA la usa para hablar de él', ruta: '/staff/marca.html' });
   const ia = await ok(async () => { const [aj, hoy] = await Promise.all([ajustesDe(c.env, c.businessId), usoDelDia(c.env, c.businessId)]); return { tope: aj.tope_tokens, usados: (hoy.tin || 0) + (hoy.tout || 0) }; });

@@ -35,6 +35,7 @@ import { guiasDe } from './lib/guias.js';
 import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
 import { manejarWhatsapp, registrarWeb, responder } from './modulos/whatsapp/webhook.js';
+import { servirMedia } from './modulos/whatsapp/media.js';
 import { recibirCorreo, sincronizarCorreos } from './modulos/whatsapp/correo.js';
 import { completarConexion, GoogleError } from './modulos/whatsapp/google.js';
 
@@ -82,6 +83,12 @@ export class Modulos extends WorkerEntrypoint {
       const res = await route.handler(c);
       return { ...(await asText(res)), audit: c.auditLog || [] };
     } catch (err) { return { ...fail(err), audit: [] }; }
+  }
+
+  // Foto, video, audio o documento de un chat de Mensajes (la app ya comprobó sesión y módulo). Devuelve una Response con soporte de Range.
+  async media(ctx, id, rango = null) {
+    checkCtx(ctx);
+    return servirMedia(this.env, { businessId: orgId(ctx.app, ctx.business.id) }, id, rango);
   }
 
   // Guías de uso de los módulos (estándar «guía de módulo v1») para el MCP de la app: las centrales y las propias que mande en ctx.propias

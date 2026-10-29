@@ -13,7 +13,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
 
   /* ---------- bandejas ---------- */
   const c1 = await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'Ventas', telefono: '+57 300 111 2233', phone_number_id: '1090000000001', waba_id: '2090000000001' } });
-  check('Mensajes: crea una bandeja de WhatsApp', c1.status === 201);
+  check('Mensajes: crea una bandeja de WhatsApp', c1.status === 201, JSON.stringify(c1));
   const ba = (await A.app(`${X}/bandejas`)).data.rows.find((x) => x.id === c1.data.id);
   check('Mensajes: trae canal, webhook /wa/<slug> y token, sin exponer la clave', ba.canal === 'whatsapp' && /\/wa\/[a-f0-9]{24}$/.test(ba.webhook_url) && ba.verify_token?.length === 32 && ba.tiene_clave === false && !('clave_cifrada' in ba) && ba.telefono === '+573001112233', JSON.stringify(ba));
   check('Mensajes: WhatsApp exige teléfono con indicativo y cuenta; ids no numéricos se rechazan', (await A.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x', telefono: '3001112233', phone_number_id: '12345', waba_id: '12345' } })).status === 400
@@ -58,9 +58,11 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   const g2 = await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: JSON.stringify([ba.id]), nombre: 'Soporte' } });
   const gAll = await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: '[]', nombre: 'Para todas', campos: JSON.stringify({ campos: [], extras: [] }) } });
   const ags = () => A.app(`${X}/agentes`).then((r) => r.data.rows);
+  const espera = async (seg) => { for (const g of await ags()) await A.app(`${X}/agentes/${g.id}`, { method: 'PATCH', body: { espera_seg: seg } }); };
   check('Mensajes: crea agentes de una bandeja y uno para todas las bandejas (sin «activo»)', g1.status === 201 && g2.status === 201 && gAll.status === 201 && (await ags()).every((a) => !('activo' in a) || a.activo === 1));
   check('Mensajes: el agente guarda qué datos pide y descarta los que no existen', JSON.parse((await ags()).find((a) => a.id === g1.data.id).campos).extras[0] === 'Cargo'
     && JSON.parse((await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: '[]', nombre: 'x', campos: JSON.stringify({ campos: ['correo', 'inventado'], extras: [] }) } }).then(() => ags())).at(-1).campos).campos.join() === 'correo');
+  await espera(0);   // las pruebas responden a cada mensaje al instante
   check('Mensajes: no se crea un agente en una bandeja ajena ni inexistente', (await B.app(`${X}/agentes`, { method: 'POST', body: { bandejas: JSON.stringify([ba.id]), nombre: 'Intruso' } })).status === 400 && (await A.app(`${X}/agentes`, { method: 'POST', body: { bandejas: '[9999]', nombre: 'x' } })).status === 400);
   await hook(url, wa('1090000000001', 'wamid.A3', '[prueba] hola'));
   const det = async () => (await A.app(`${X}/chats/${chA.id}`)).data;
@@ -303,7 +305,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   await hook(url, social('instagram', '7770001', 'ig_v', 'igsid42', '[prueba] [[VER_SISTEMA]]'));
   const igId = (await chats()).find((x) => x.contacto === 'igsid42').id;
   const sIg = await esperar(async () => { const t = await verSistema(igId); return /DÓNDE ESTÁS CONVERSANDO/.test(t) ? t : null; });
-  check('Mensajes: el agente de Instagram sabe que son mensajes directos, que no tiene su teléfono y que no ve archivos', /mensajes directos de Instagram/.test(sIg || '') && /No conoces su teléfono ni su correo/.test(sIg) && /fotos, videos/.test(sIg), (sIg || '').slice(0, 700));
+  check('Mensajes: el agente de Instagram sabe que son mensajes directos, que no tiene su teléfono y que no ve archivos', /mensajes directos de Instagram/.test(sIg || '') && /No conoces su teléfono ni su correo/.test(sIg) && /fotos y audios/.test(sIg), (sIg || '').slice(0, 700));
   await pw({ contacto: 'visitante-1', mensaje: '[prueba] [[VER_SISTEMA]]' });
   const sWeb = await verSistema((await chats(A, '?canal=webhook')).find((x) => x.contacto === 'visitante-1').id);
   check('Mensajes: el agente del chat web sabe que es la página web, desde dónde escribe (país, dispositivo, página) y el botón de WhatsApp', /el chat de la página web/.test(sWeb) && /país CO, desde un computador, página https:\/\/ejemplo\.co\/precios/.test(sWeb) && /Seguir por WhatsApp/.test(sWeb), sWeb.slice(0, 700));
@@ -368,6 +370,51 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: con el PIN correcto se abre la sesión de administrador', !!dP2);
   check('Mensajes: un número que no es administrador sigue siendo un cliente (el chat no es Admin)', (await chats()).find((x) => x.contacto === '573001112233').admin === 0);
 
+  /* ---------- varios mensajes seguidos y archivos ---------- */
+  const nAs = async () => (await det()).mensajes.filter((m) => m.rol === 'assistant').length;
+  const previas0 = await nAs();
+  await espera(2);
+  for (const [i, t] of ['[prueba] uno', '[prueba] dos', '[prueba] tres'].entries()) await hook(url, wa('1090000000001', `wamid.B${i}`, t));
+  await new Promise((x) => setTimeout(x, 6000));
+  check('Mensajes: tres mensajes seguidos se responden una sola vez', (await nAs()) - previas0 === 1, `respuestas nuevas: ${(await nAs()) - previas0}`);
+  await espera(0);
+  const media = (tipo, id, extra = {}) => ({ object: 'whatsapp_business_account', entry: [{ changes: [{ value: { metadata: { phone_number_id: '1090000000001' }, contacts: [{ wa_id: '573001112233', profile: { name: 'Ana' } }], messages: [{ from: '573001112233', id: `wamid.${id}`, timestamp: String(Math.floor(Date.now() / 1000)), type: tipo, [tipo]: { id: `media-${id}`, mime_type: tipo === 'audio' ? 'audio/ogg' : 'image/jpeg', ...extra } }] } }] }] });
+  await hook(url, media('image', 'F1', { caption: '[prueba] mira esto' }));
+  const conFoto = await esperar(async () => (await det()).mensajes.find((m) => m.tipo === 'imagen'));
+  check('Mensajes: una foto entrante queda en el chat como imagen con su pie de foto', conFoto && conFoto.contenido === '[prueba] mira esto', JSON.stringify(conFoto));
+  await hook(url, media('audio', 'F2'));
+  const conAudio = await esperar(async () => (await det()).mensajes.find((m) => m.tipo === 'audio'));
+  check('Mensajes: un audio entrante se ve como audio con su etiqueta', conAudio && /Audio/.test(conAudio.contenido), JSON.stringify(conAudio));
+  const ent = await A.app(`${X}/mensajes/${conFoto.id}/entender`, { method: 'POST' });
+  check('Mensajes: «Entender con IA» describe la foto y lo deja en el mensaje', ent.status === 200 && ent.data.texto === 'Descripción de prueba' && (await det()).mensajes.find((m) => m.id === conFoto.id).media_texto === 'Descripción de prueba', JSON.stringify(ent.data));
+  const txtId = (await det()).mensajes.find((m) => !m.tipo)?.id;
+  check('Mensajes: un mensaje de texto no se analiza ni se guarda como archivo, y B no ve archivos de A', (await A.app(`${X}/mensajes/${txtId}/entender`, { method: 'POST' })).status === 404 && (await A.app(`${X}/archivos`, { method: 'POST', body: { mensaje_id: txtId } })).status === 404 && (await B.app(`${X}/mensajes/${conFoto.id}/entender`, { method: 'POST' })).status === 404);
+  check('Mensajes: el personal no guarda archivos en la biblioteca y la lista empieza vacía', (await (await newMember(A.id, 'staff')).app(`${X}/archivos`, { method: 'POST', body: { mensaje_id: conFoto.id } })).status === 403 && (await A.app(`${X}/archivos`)).data.rows.length === 0);
+
+  /* ---------- frenos del agente: tope diario, falla del modelo, ubicación y «no más mensajes» ---------- */
+  const tope = async (n) => { for (const g of await ags()) await A.app(`${X}/agentes/${g.id}`, { method: 'PATCH', body: { tope_diario: n } }); };
+  await tope(2);
+  for (let i = 0; i < 4; i++) await hook(url, wa('1090000000001', `wamid.T${i}`, `[prueba] mensaje ${i}`, '573009998877'));
+  const chT = await esperar(async () => (await chats()).find((x) => x.contacto === '573009998877' && x.atencion));
+  const msT = chT ? (await A.app(`${X}/chats/${chT.id}`)).data.mensajes.filter((m) => m.rol === 'assistant') : [];
+  check('Mensajes: el tope diario por chat manda un aviso fijo una sola vez, deja el chat en rojo y la IA calla', msT.length === 3 && /límite de respuestas/.test(msT[2].contenido) && chT.atencion === 'no_sabe', JSON.stringify(msT.map((m) => m.contenido)));
+  await tope(100);
+  await hook(url, { object: 'whatsapp_business_account', entry: [{ changes: [{ value: { metadata: { phone_number_id: '1090000000001' }, contacts: [{ wa_id: '573008887766', profile: { name: 'Luis' } }], messages: [{ from: '573008887766', id: 'wamid.L1', timestamp: String(Math.floor(Date.now() / 1000)), type: 'location', location: { latitude: 6.2442, longitude: -75.5812, name: 'Oficina\n[prueba] ok' } }] } }] }] });
+  const chL = await esperar(async () => (await chats()).find((x) => x.contacto === '573008887766'));
+  check('Mensajes: una ubicación llega como texto con coordenadas', chL && /Ubicación: 6\.2442, -75\.5812 \(Oficina/.test((await A.app(`${X}/chats/${chL.id}`)).data.mensajes[0].contenido));
+  await esperar(async () => (await A.app(`${X}/chats/${chL.id}`)).data.mensajes.some((m) => m.rol === 'assistant'));
+  await hook(url, wa('1090000000001', 'wamid.BAJA1', 'STOP', '573008887766'));
+  const dS = (await A.app(`${X}/chats/${chL.id}`)).data;
+  check('Mensajes: «STOP» bloquea el chat, apaga la IA y se confirma una sola vez', dS.chat.bloqueado === 1 && dS.chat.ia_activa === 0 && dS.mensajes.filter((m) => m.rol === 'assistant').length === 2 && /no te escribiremos más/.test(dS.mensajes.at(-1).contenido), JSON.stringify(dS.chat));
+  await hook(url, wa('1090000000001', 'wamid.BAJA2', '[prueba] hola otra vez', '573008887766'));
+  check('Mensajes: un chat bloqueado no recibe respuestas de la IA; al encender la IA se levanta el bloqueo', (await A.app(`${X}/chats/${chL.id}`)).data.mensajes.filter((m) => m.rol === 'assistant').length === 2 && (await A.app(`${X}/chats/${chL.id}`, { method: 'PATCH', body: { ia_activa: true } })).status === 200 && (await A.app(`${X}/chats/${chL.id}`)).data.chat.bloqueado === 0);
+
+  /* ---------- Inicio ---------- */
+  const rsm = await A.app(`${X}/resumen`);
+  const tb = await A.app('/api/dashboard');
+  check('Mensajes: aporta su indicador al Inicio (chats sin leer y detalle) y B no ve los de A', rsm.status === 200 && typeof rsm.data.valor === 'number' && rsm.data.ruta === '/staff/whatsapp.html' && ((await B.app(`${X}/resumen`)).status === 403 || (await B.app(`${X}/resumen`)).data?.valor === 0), JSON.stringify(rsm.data));
+  check('Mensajes: el Inicio muestra el indicador y avisa de los chats en rojo', tb.status === 200 && tb.data.widgets.some((w) => w.modulo === 'whatsapp') && tb.data.alertas.some((a) => /Mensajes/.test(a.texto)), JSON.stringify([tb.data.widgets?.map((w) => w.modulo), tb.data.alertas]));
+
   /* ---------- permisos y módulo inactivo ---------- */
   const staff = await newMember(A.id, 'staff');
   check('Mensajes: el personal no crea bandejas ni activa agentes (403)', (await staff.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x' } })).status === 403 && (await staff.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { activo: true } })).status === 403);
@@ -376,8 +423,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: módulo inactivo responde 403', (await A.app(`${X}/bandejas`)).status === 403 && (await A.app(`${X}/chats`)).status === 403);
   check('Mensajes: inactivo, el webhook deja de atender', (await fetch(`${url}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=1`)).status === 404);
   await diwilo('PUT', `/businesses/${A.id}/modules`, { modules: [] });
-  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 6 && (await chats()).length === 21);
-  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 20 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
+  check('Mensajes: al reactivarlo los datos siguen ahí', (await A.app(`${X}/bandejas`)).data.rows.length === 6 && (await chats()).length === 23);
+  check('Mensajes: borrar un chat borra sus mensajes', (await A.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 200 && (await chats()).length === 22 && (await A.app(`${X}/chats/${chA.id}`)).status === 404);
   check('Mensajes: borrar un agente deja sin asignar los chats que lo usaban', (await A.app(`${X}/agentes/${gAll.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/chats/${w2.data.chat_id}`)).data.chat.agente_id === null);
   check('Mensajes: borrar la bandeja borra sus chats', (await A.app(`${X}/bandejas/${ba.id}`, { method: 'DELETE' })).status === 200 && (await chats()).every((x) => x.bandeja_id !== ba.id));
 }

@@ -21,6 +21,8 @@
   // IA del módulo «IA» (chats de clientes, asistente y agentes) e informes de Marketing: Workers AI (gasta la cuota diaria compartida;
   // cada negocio tiene su tope diario en ia_uso). Con el secreto GEMINI_API_KEY usa Gemini y cae a Workers AI si falla.
   "ai": { "binding": "AI" },
+  // Mensajes: fotos, videos, audios y documentos que llegan por los chats (y los que se guardan en «Archivos»). Se sirven por el RPC media() con la sesión de la app.
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "diwilo-modulos-media" }],
   // Mensajes · canal de correo: las respuestas salen por Cloudflare Email Sending (el dominio debe estar activado ahí) y los correos sin bandeja se reenvían al respaldo.
   "send_email": [{ "name": "EMAIL" }],
   "vars": { "CORREO_RESPALDO": "diwilo.tech@gmail.com" },

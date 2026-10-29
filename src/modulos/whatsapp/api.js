@@ -28,6 +28,7 @@ import { marketingActivo, contactoPorId, guardarContacto, normalizarCampos, limp
 import { paisDeTelefono } from './lugar.js';
 import { sincronizarSiToca } from './correo.js';
 import { hashPin } from './admin.js';
+import { entenderMensaje, guardarArchivo, listarArchivos } from './media.js';
 import { cancelarCita, estadoGoogle, guardarCredenciales, leerCredenciales, urlConexion, desconectar, asignarUsos, enviarGmail, cuentaPara, listarDirecciones, gapi, normalizarAgenda, huecosLibres, filaGoogle, conectado, GoogleError } from './google.js';
 
 const MOD = 'whatsapp', B = '/api/whatsapp', MAX_BANDEJAS = 10, MAX_AGENTES = 5, MAX_ENVIO = 50;
@@ -113,7 +114,7 @@ export const ENTITIES = {
   agentes: {
     table: 'wa_agentes', label: 'el agente', title: 'nombre', search: ['nombre'], order: 'created_at',
     // bandejas = JSON [ids de bandeja donde puede servir]; vacío = todas. `campos` = JSON { campos, extras } con los datos de contacto que pide.
-    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', alerta_asesor: 'bool+', insistir: 'bool+', agendar: 'bool', bienvenida: 'long', bienvenida_conocido: 'long', usar_conocido: 'bool+', campos: 'long' },
+    fields: { nombre: 'text!', bandejas: 'long', instrucciones: 'long', usar_marca: 'bool+', alerta_asesor: 'bool+', insistir: 'bool+', agendar: 'bool', bienvenida: 'long', bienvenida_conocido: 'long', usar_conocido: 'bool+', campos: 'long', espera_seg: 'int', tope_diario: 'int' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     async beforeCreate(c, row) {
       textoLargo(row); await fijarBandejas(c, row, true);
@@ -189,7 +190,7 @@ export const chats = async (c, { bandeja, canal, q, limite = 200 } = {}) => {
   return (await all(c.env, `SELECT c.id, c.bandeja_id, b.nombre bandeja, b.canal, c.contacto, c.nombre, c.ia_activa, c.agente_id, ag.nombre agente, c.contact_id, c.atencion, c.asunto, c.via_correo, c.admin, c.no_leidos, c.ultimo_ts, c.ultimo_texto, c.ultimo_rol, c.pais, c.dispositivo, c.pagina
     FROM wa_conversaciones c JOIN wa_bandejas b ON b.id = c.bandeja_id LEFT JOIN wa_agentes ag ON ag.id = c.agente_id WHERE ${donde.join(' AND ')} ORDER BY c.ultimo_ts DESC LIMIT ${Math.min(200, Number(limite) || 200)}`, ...args)).map(conLugar);
 };
-export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
+export const mensajesDe = (c, chat) => all(c.env, 'SELECT id, ts, rol, contenido, estado, tipo, media_mime, media_nombre, media_bytes, media_estado, media_texto, (media_key IS NOT NULL) media_lista, (SELECT COUNT(*) FROM wa_archivos a WHERE a.mensaje_id = wa_mensajes.id) guardado FROM wa_mensajes WHERE business_id = ? AND bandeja_id = ? AND contacto = ? ORDER BY ts, id LIMIT 300', c.businessId, chat.bandeja_id, chat.contacto);
 const intentosPerfil = new Map();
 export async function chatCompleto(c, id) {
   const chat = await chatDe(c, id);
@@ -237,9 +238,38 @@ export function routes(r) {
     return json(res);
   });
 
+  // Widget de Inicio: chats sin leer, chats en rojo (necesitan a una persona) y sin responder
+  r.get(`${B}/resumen`, `tenant:${MOD}`, async (c) => {
+    const f = await one(c.env, "SELECT COALESCE(SUM(CASE WHEN no_leidos > 0 THEN 1 ELSE 0 END), 0) sin_leer, COALESCE(SUM(CASE WHEN atencion IS NOT NULL THEN 1 ELSE 0 END), 0) rojos, COALESCE(SUM(CASE WHEN ultimo_rol = 'user' AND ultimo_ts > ? THEN 1 ELSE 0 END), 0) sin_responder FROM wa_conversaciones WHERE business_id = ? AND admin = 0", Date.now() - 86400000, c.businessId);
+    const detalle = [f.rojos ? `${f.rojos} necesita${f.rojos === 1 ? '' : 'n'} a una persona` : '', f.sin_responder ? `${f.sin_responder} sin responder hoy` : ''].filter(Boolean).join(' · ') || 'Todo al día';
+    return json({ titulo: 'Chats sin leer', valor: f.sin_leer, detalle, icono: 'bi-chat-dots', ruta: '/staff/whatsapp.html', rojos: f.rojos, sin_responder: f.sin_responder });
+  });
+
   /* chats */
   r.get(`${B}/chats`, `tenant:${MOD}`, async (c) => { sincronizarSiToca(c.env, c.businessId, c.waitUntil); return json({ rows: await chats(c, { bandeja: c.url.searchParams.get('bandeja'), canal: c.url.searchParams.get('canal'), q: (c.url.searchParams.get('q') || '').trim().slice(0, 60) }) }); });
   r.get(`${B}/chats/:id`, `tenant:${MOD}`, async (c) => json(await chatCompleto(c, c.params.id)));
+  // Archivos de los chats: la IA los entiende (botón «Entender con IA») y el equipo puede guardarlos en la biblioteca
+  r.post(`${B}/mensajes/:id/entender`, `tenant:${MOD}`, async (c) => {
+    const m = await one(c.env, 'SELECT m.*, b.canal FROM wa_mensajes m JOIN wa_bandejas b ON b.id = m.bandeja_id WHERE m.id = ? AND m.business_id = ?', Number(c.params.id), c.businessId);
+    if (!m || !m.tipo) throw new HttpError(404, 'Ese mensaje no tiene un archivo');
+    const b = await one(c.env, 'SELECT * FROM wa_bandejas WHERE id = ?', m.bandeja_id);
+    return json({ texto: await entenderMensaje(c.env, b, m) });
+  });
+  r.get(`${B}/archivos`, `tenant:${MOD}`, async (c) => json({ rows: await listarArchivos(c.env, c.businessId) }));
+  r.post(`${B}/archivos`, `manager:${MOD}`, async (c) => {
+    const body = await readJson(c.req), contactId = body.contact_id ? Number(body.contact_id) : null;
+    if (contactId && !(await contactoPorId(c.env, c.businessId, contactId))) throw new HttpError(404, 'Ese contacto no existe en Marketing');
+    const a = await guardarArchivo(c.env, c.businessId, { mensajeId: body.mensaje_id, nombre: body.nombre, contactId, por: c.session.email });
+    await audit(c, `Guardó el archivo «${a.nombre}» en la biblioteca de Mensajes`, { modulo: MOD });
+    return json(a, 201);
+  });
+  r.delete(`${B}/archivos/:id`, `manager:${MOD}`, async (c) => {
+    const a = await one(c.env, 'SELECT * FROM wa_archivos WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
+    if (!a) throw new HttpError(404, 'No encontrado');
+    await c.env.DB.prepare('DELETE FROM wa_archivos WHERE id = ?').bind(a.id).run();
+    await audit(c, `Quitó el archivo «${a.nombre}» de la biblioteca de Mensajes`, { modulo: MOD });
+    return json({ ok: true });
+  });
   r.post(`${B}/chats/:id/leer`, `tenant:${MOD}`, async (c) => {
     const ch = await chatDe(c, c.params.id);
     await c.env.DB.prepare('UPDATE wa_conversaciones SET no_leidos = 0 WHERE id = ? AND business_id = ?').bind(ch.id, c.businessId).run();
@@ -249,7 +279,7 @@ export function routes(r) {
     const ch = await chatDe(c, c.params.id), body = await readJson(c.req), set = [], args = [], quien = `${ch.nombre || ch.contacto} (${ch.bandeja})`;
     if (body.ia_activa !== undefined) {
       if (typeof body.ia_activa !== 'boolean') throw new HttpError(400, 'ia_activa debe ser true o false');
-      set.push('ia_activa = ?'); args.push(body.ia_activa ? 1 : 0);
+      set.push('ia_activa = ?'); args.push(body.ia_activa ? 1 : 0); if (body.ia_activa) set.push('bloqueado = 0');   // reactivar la IA también levanta el «no más mensajes»
       await audit(c, `${body.ia_activa ? 'Activó' : 'Desactivó'} la IA en el chat de ${quien}`, { modulo: MOD });
     }
     if (body.atencion === false) { set.push('atencion = NULL', 'atencion_ts = NULL'); await audit(c, `Marcó como atendido el chat de ${quien}`, { modulo: MOD }); }
@@ -478,7 +508,9 @@ export function routes(r) {
     if (!tpl || !tpl.soportada) throw new HttpError(400, tpl?.aviso || 'Esa plantilla no existe o no se puede enviar desde aquí (debe estar aprobada por Meta)');
     if (vars.length < tpl.variables) throw new HttpError(400, `La plantilla necesita ${tpl.variables} variable${tpl.variables === 1 ? '' : 's'}`);
     const enviados = [], fallidos = [];
+    const bloqueados = new Set((await all(c.env, 'SELECT contacto FROM wa_conversaciones WHERE business_id = ? AND bandeja_id = ? AND bloqueado = 1', c.businessId, b.id)).map((x) => x.contacto));
     for (const [para, k] of dest) {
+      if (bloqueados.has(para)) { fallidos.push({ para, nombre: k.nombre, error: 'Pidió no recibir más mensajes' }); continue; }
       const v = vars.slice(0, tpl.variables).map((x) => x.replace(/\{nombre\}/gi, (k.nombre || '').split(' ')[0] || 'cliente'));
       const { estado, error } = await enviarPlantilla(c.env, b, para, tpl.nombre, tpl.idioma, v);
       if (estado !== 'enviado') { fallidos.push({ para, nombre: k.nombre, error: estado === 'sin_clave' ? 'La bandeja no tiene clave API' : error }); continue; }

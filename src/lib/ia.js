@@ -94,12 +94,13 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
   await revisarTope(env, org, limite);
   const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content || '';
   const todo = system + '\n' + history.map((m) => m.content).join('\n');
-  if (/^\s*\[prueba\]/.test(lastUser) || /^\s*\[prueba\]/.test(system) || /\[\[GUION\]\]/.test(todo)) {
+  if (/^\s*\[prueba\]/m.test(lastUser) || /^\s*\[prueba\]/.test(system) || /\[\[GUION\]\]/.test(todo)) {
     const g = /\[\[GUION\]\]([\s\S]*?)\[\[\/GUION\]\]/.exec(todo);
     await registrarUso(env, org, { fuente, proveedor: 'prueba' });
     if (g) { const salidas = g[1].trim().split(/\n---\n/); const paso = history.filter((m) => m.role === 'assistant').length; return (salidas[paso] ?? '{"accion":"fin","respuesta":"Listo."}').trim(); }
     if (/\[\[VER_SISTEMA\]\]/.test(lastUser)) return system;   // solo pruebas: devuelve las instrucciones que recibe el agente
-    return `Respuesta de prueba: ${lastUser.replace(/^\s*\[prueba\]\s*/, '')}`;
+    const ult = [...lastUser.matchAll(/^\s*\[prueba\]\s*/gm)].pop();   // varios mensajes seguidos van juntos: contesta al último de prueba
+    return `Respuesta de prueba: ${ult ? lastUser.slice(ult.index + ult[0].length) : lastUser}`;
   }
   const plat = await plataformaIA(env), orden = ordenIA(env, plat);
   for (const p of orden) {
@@ -136,4 +137,32 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
   if (!text) throw new HttpError(502, 'La IA no respondió');
   await registrarUso(env, org, { fuente, proveedor: 'workers-ai', tin: out?.usage?.prompt_tokens ?? est(system) + history.reduce((n, m) => n + est(m.content), 0), tout: out?.usage?.completion_tokens ?? est(text) });
   return text;
+}
+
+// Entiende un archivo: transcribe un audio, describe una foto (leyendo el texto que tenga) o resume un PDF. Gemini lee los tres; sin Gemini, Workers AI (Whisper para audio y LLaVA para fotos).
+// bytes: Uint8Array · tipo: 'audio' | 'imagen' | 'documento'. Cuenta el consumo del negocio y respeta el tope diario.
+const aBase64 = (u8) => { let bin = ''; for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(bin); };
+export async function entenderArchivo(env, org, { bytes, mime, tipo, fuente = 'media' }) {
+  await revisarTope(env, org);
+  const consigna = tipo === 'audio' ? 'Transcribe este audio en español, tal como se dice, sin comentarios. Si no hay voz, responde «(sin voz)».'
+    : tipo === 'imagen' ? 'Describe esta imagen en español en máximo 3 frases e incluye cualquier texto que se lea (precios, nombres, números, comprobantes de pago). Sé objetivo y no inventes.'
+    : 'Resume este documento en español en máximo 5 frases y destaca los datos clave (montos, fechas, nombres). No inventes.';
+  const plat = await plataformaIA(env);
+  for (const clave of clavesDe(env, plat, 'gemini')) {
+    try {
+      const model = modeloDe(env, plat, 'gemini');
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: consigna }, { inline_data: { mime_type: mime, data: aBase64(bytes) } }] }], generationConfig: { maxOutputTokens: 500, temperature: 0.2, ...(/flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } }) });
+      if (r.ok) { const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((x) => x.text).join('').trim(); if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: d.usageMetadata?.promptTokenCount ?? Math.ceil(bytes.length / 1000) + 100, tout: d.usageMetadata?.candidatesTokenCount ?? est(text) }); return text; } }
+    } catch (e) { console.error('gemini media', e.message); }
+  }
+  if (!env.AI) throw new HttpError(503, 'La IA no está configurada');
+  try {
+    if (tipo === 'audio') { const o = await env.AI.run('@cf/openai/whisper', { audio: [...bytes] }); const text = String(o?.text || '').trim(); if (!text) throw new HttpError(502, 'No se entendió el audio'); await registrarUso(env, org, { fuente, proveedor: 'workers-ai', tin: Math.ceil(bytes.length / 1000), tout: est(text) }); return text; }
+    if (tipo === 'imagen') { const o = await env.AI.run('@cf/llava-hf/llava-1.5-7b-hf', { image: [...bytes], prompt: consigna, max_tokens: 300 }); const text = String(o?.description || o?.response || '').trim(); if (!text) throw new HttpError(502, 'No se pudo describir la imagen'); await registrarUso(env, org, { fuente, proveedor: 'workers-ai', tin: Math.ceil(bytes.length / 1000) + 100, tout: est(text) }); return text; }
+  } catch (e) {
+    if (/4006|daily free allocation/i.test(e.message)) throw new HttpError(429, 'La IA de Diwilo llegó a su cuota diaria. Intenta de nuevo más tarde.', 'IA_CUOTA');
+    throw e;
+  }
+  throw new HttpError(422, 'Los documentos solo se leen con Gemini (no está configurado)');
 }

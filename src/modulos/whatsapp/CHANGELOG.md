@@ -1,5 +1,24 @@
 # WhatsApp — cambios
 
+## 3.11.0 · 2026-10-29
+- **Inicio:** Mensajes aporta su indicador (chats sin leer, con el detalle de cuántos necesitan a una persona o están sin responder, `GET /api/whatsapp/resumen`) y una alerta en el Inicio cuando hay chats en rojo.
+
+## 3.10.0 · 2026-10-29
+Frenos de producción del agente (guía `agente-whatsapp.md` de la fábrica de apps):
+- **Tope diario por chat:** cada agente tiene «Tope de respuestas por chat al día» (100 por defecto, 0 = sin tope). Al llegar manda un aviso fijo una sola vez, deja el chat en rojo y la IA calla hasta el día siguiente.
+- **Falla del modelo:** el cliente recibe un aviso neutro (nunca el error, y no más de uno por hora), el chat queda en rojo y el error se anota en `wa_errores`.
+- **«No más mensajes»:** si la persona escribe STOP, «baja» o «no más mensajes», el chat queda bloqueado (sin IA ni plantillas), se le confirma una vez y se avisa en el chat; encender la IA levanta el bloqueo.
+- **Ubicación** compartida por WhatsApp llega como texto con coordenadas y enlace al mapa; el mensaje se marca como leído y muestra «escribiendo…» mientras el agente prepara la respuesta; la memoria sube a los últimos 20 mensajes.
+- Migración `0039_frenos_agente.sql`. Guía MCP actualizada (archivos, espera, tope, baja).
+- Pendiente (de la guía): aviso por correo al operador cuando el modelo falla (por ahora solo el chat en rojo y `wa_errores`).
+
+## 3.9.0 · 2026-10-29
+- **Fotos, videos, audios y documentos en el chat:** llegan de WhatsApp, Instagram y Messenger, se guardan en R2 (hasta 25 MB) y se ven y reproducen en la conversación.
+- **La IA los entiende:** si la IA del chat está activa, antes de responder transcribe los audios, describe las fotos y resume los PDF (Gemini; Workers AI de respaldo). Con la IA apagada, botón «Entender con IA» en cada archivo.
+- **Responde una sola vez a varios mensajes seguidos:** cada agente tiene «Espera» (segundos, 5 por defecto, 0 = responde a cada mensaje); el agente aguarda a que la persona termine y contesta todo junto. En el historial los mensajes seguidos se juntan en uno.
+- **Guardar archivos:** el propietario o un administrador puede guardar un archivo recibido en la biblioteca «Archivos» (con opción de anotarlo en un contacto de Marketing). El administrador por WhatsApp puede mandar una foto o documento y pedir que se guarde. Herramientas `guardar_archivo` y `ver_archivos`.
+- Migración `0038_multimedia.sql` y bucket R2 `MEDIA`.
+
 ## 3.8.0 · 2026-10-28
 - **La bandeja de correo es una cuenta de Google:** en Ajustes se elige la cuenta (la de diwilo.com o la de gmail.com, las que vinculaste). Recibe **todo lo que llega a esa cuenta y a sus alias** (p. ej. lo que llega a hola@ y se ve en diwilo.tech@gmail.com), sin pestañas de promociones ni redes, avisos automáticos ni copias de lo que enviamos.
 - **Responde desde la dirección a la que escribieron:** cada chat recuerda a qué dirección (la cuenta o un alias) escribió la persona y se le responde desde ahí; si Gmail no tiene ese alias verificado como «Enviar como», sale desde la cuenta con Reply-To a esa dirección. Opción «Siempre desde la cuenta». El chat muestra «vía hola@…».

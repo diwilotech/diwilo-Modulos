@@ -10,7 +10,7 @@ export const soloDigitos = (s) => String(s || '').replace(/\D/g, '');
 export const errMeta = async (r) => { try { const d = await r.json(); return `${d.error?.message || 'Error'}${d.error?.code ? ` (código ${d.error.code})` : ''}`.slice(0, 300); } catch { return `Meta respondió ${r.status}`; } };
 
 // Llamada a Graph con el token de la bandeja (8 s de espera). Lanza Error('sin_clave') si no la tiene.
-async function graph(env, bandeja, url, init = {}, ms = 8000, token = null) {
+export async function graph(env, bandeja, url, init = {}, ms = 8000, token = null) {
   if (!bandeja.clave_cifrada) throw new Error('sin_clave');
   const clave = token || await descifrarClave(env, bandeja.clave_cifrada), ac = new AbortController(), t = setTimeout(() => ac.abort(), ms);
   try { return await fetch(url, { ...init, signal: ac.signal, headers: { authorization: `Bearer ${clave}`, 'content-type': 'application/json' } }); } finally { clearTimeout(t); }

@@ -7,7 +7,7 @@ DW.ready.then((me) => {
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
-  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
+  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['archivos', 'Archivos'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
   let view = (location.hash || '#chats').slice(1), timers = [], abrirId = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'chats';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
@@ -59,8 +59,39 @@ DW.ready.then((me) => {
     el.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; nav(); render(); };
   }
-  function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
+  function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, archivos: archivosView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
   const cada = (ms, f) => timers.push(setInterval(() => { if (!document.hidden) f(); }, ms));
+
+  /* ---------- archivos ---------- */
+  // Guarda una foto, video, audio o documento recibido en la biblioteca (y, si el chat tiene contacto en Marketing, lo deja anotado ahí)
+  function guardarArchivo(mensajeId, det, listo) {
+    const m = det.mensajes.find((x) => x.id === mensajeId), c = det.contact;
+    const { el: mo, m: mm } = modal(`${cab('Guardar archivo')}<form class="modal-body d-grid gap-3">
+      ${campo('nombre', 'Nombre del archivo', '', `maxlength="80" placeholder="${esc((m?.media_nombre || m?.contenido || 'Archivo').slice(0, 60))}"`)}
+      ${c ? `<div class="form-check"><input class="form-check-input" type="checkbox" name="anotar" id="waan" checked><label class="form-check-label small" for="waan">Anotarlo en el contacto <b>${esc(c.name || c.email || c.phone || 'de Marketing')}</b></label></div>` : '<div class="small text-body-secondary">Queda en la pestaña <b>Archivos</b> de Mensajes.</div>'}
+      <button class="btn btn-primary">Guardar</button></form>`);
+    mo.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
+      try { await api(`${B}/archivos`, { method: 'POST', body: { mensaje_id: mensajeId, nombre: f.nombre.value.trim() || undefined, contact_id: c && f.anotar?.checked ? c.id : undefined } }); mm.hide(); toast('Archivo guardado'); listo && listo(); }
+      catch (x) { toast(x.message, false); btn.disabled = false; }
+    };
+  }
+  async function archivosView(el) {
+    let rows = []; try { rows = (await api(`${B}/archivos`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const IC = { imagen: 'bi-image', video: 'bi-camera-video', audio: 'bi-mic', documento: 'bi-file-earmark-text', sticker: 'bi-emoji-smile' };
+    el.innerHTML = `<div class="small text-body-secondary mb-2">Fotos, videos, audios y documentos que el equipo guardó desde un chat (botón «Guardar archivo» debajo de cada archivo recibido). También se pueden guardar mandándole el archivo al administrador por WhatsApp.</div>
+      <div class="row g-2">${rows.length ? rows.map((r) => `<div class="col-md-6 col-xl-4"><div class="dw-card h-100" data-id="${r.id}">
+        ${r.tipo === 'imagen' ? `<a href="${B}/media/${r.mensaje_id}" target="_blank" rel="noopener"><img src="${B}/media/${r.mensaje_id}" alt="${esc(r.nombre)}" loading="lazy" style="width:100%;max-height:170px;object-fit:cover;border-radius:10px;margin-bottom:8px"></a>` : ''}
+        <div class="d-flex gap-2 align-items-start"><i class="bi ${IC[r.tipo] || 'bi-file-earmark'}"></i><b class="flex-grow-1" style="word-break:break-word">${esc(r.nombre)}</b></div>
+        <div class="small text-body-secondary">${esc(horaLarga(r.created_at))}${r.contacto ? ` · ${esc(r.contacto)}` : ''}${r.media_bytes ? ` · ${r.media_bytes > 1048576 ? (r.media_bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(r.media_bytes / 1024)) + ' KB'}` : ''}</div>
+        ${r.media_texto ? `<div class="small mt-1" style="white-space:pre-wrap"><i class="bi bi-stars me-1"></i>${esc(r.media_texto.slice(0, 220))}</div>` : ''}
+        <div class="d-flex gap-1 mt-2"><a class="btn btn-sm btn-outline-primary" href="${B}/media/${r.mensaje_id}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right me-1"></i>Abrir</a>${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash"></i></button>' : ''}</div></div></div>`).join('') : `<div class="col-12">${empty('bi-folder2-open', 'Aún no hay archivos guardados.')}</div>`}</div>`;
+    el.onclick = async (e) => {
+      const card = e.target.closest('[data-id]'); if (!card || !e.target.closest('[data-del]')) return;
+      if (!(await confirm({ title: '¿Quitar este archivo de la biblioteca?', text: 'Sigue en el chat; solo sale de «Archivos».', ok: 'Quitar' }))) return;
+      try { await api(`${B}/archivos/${card.dataset.id}`, { method: 'DELETE' }); toast('Archivo quitado'); archivosView(el); } catch (x) { toast(x.message, false); }
+    };
+  }
 
   /* ---------- chats ---------- */
   async function chatsView(el) {
@@ -128,12 +159,27 @@ DW.ready.then((me) => {
       const av = $('[data-aviso]', cont);
       const rojo = c.atencion ? `<div class="alert alert-danger small m-2 py-2 d-flex flex-wrap gap-2 align-items-center"><span><i class="bi bi-exclamation-triangle-fill me-1"></i><b>${c.atencion === 'no_sabe' ? 'El agente no supo responder.' : 'El cliente pidió hablar con un asesor.'}</b> Una persona debe atender este chat.</span>${RO ? '' : '<button class="btn btn-sm btn-outline-danger ms-auto" data-ok>Ya lo atendí</button>'}</div>` : '';
       const cita = c.cita ? `<div class="alert alert-info small m-2 py-2 d-flex flex-wrap gap-2 align-items-center"><span><i class="bi bi-calendar-check me-1"></i><b>Cita agendada:</b> ${esc(c.cita.etiqueta)} (hora de Colombia)${c.cita.link ? ` · <a href="${esc(c.cita.link)}" target="_blank" rel="noopener">Enlace de Meet</a>` : ''}</span>${RO ? '' : '<button class="btn btn-sm btn-outline-danger ms-auto" data-cancel-cita>Cancelar cita</button>'}</div>` : '';
-      av.innerHTML = rojo + cita + (!det.ventana_abierta ? `<div class="alert alert-warning small m-2 py-2">Pasaron más de 24 h desde el último mensaje de esta persona. ${c.canal === 'whatsapp' ? 'Solo puedes escribirle con una <b>plantilla</b>.' : 'Meta ya no deja escribirle en este canal hasta que ella escriba.'}</div>`
+      av.innerHTML = rojo + (c.bloqueado ? '<div class="alert alert-secondary small m-2 py-2"><i class="bi bi-slash-circle me-1"></i>Esta persona pidió <b>no recibir más mensajes</b>: la IA y las plantillas están bloqueadas. Si enciendes la IA de nuevo, se levanta el bloqueo.</div>' : '') + cita + (!det.ventana_abierta ? `<div class="alert alert-warning small m-2 py-2">Pasaron más de 24 h desde el último mensaje de esta persona. ${c.canal === 'whatsapp' ? 'Solo puedes escribirle con una <b>plantilla</b>.' : 'Meta ya no deja escribirle en este canal hasta que ella escriba.'}</div>`
         : (c.ia_activa && !det.agente ? '<div class="alert alert-light border small m-2 py-2">Este chat no tiene agente: nadie responde solo. Elígelo con el botón del agente.</div>' : ''));
     }
+    // Foto, video, audio o documento dentro de la burbuja, con lo que entendió la IA y los botones «Entender con IA» / «Guardar archivo»
+    const ETQ = ['📷 Foto', '🎥 Video', '🎤 Audio', '📎 Documento', '🙂 Sticker'];
+    const medio = (m) => {
+      const u = `${B}/media/${m.id}`, ok = m.media_estado !== 'error' && m.media_estado !== 'grande';
+      const cuerpo = !ok ? `<i class="small text-body-secondary">${esc(m.contenido)} · ${m.media_estado === 'grande' ? 'archivo muy grande (más de 25 MB)' : 'no se pudo descargar de Meta'}</i>`
+        : m.tipo === 'imagen' || m.tipo === 'sticker' ? `<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="${esc(m.contenido)}" loading="lazy" style="max-width:100%;max-height:280px;border-radius:10px;display:block"></a>`
+        : m.tipo === 'video' ? `<video src="${u}" controls preload="metadata" style="max-width:100%;max-height:280px;border-radius:10px;display:block"></video>`
+        : m.tipo === 'audio' ? `<audio src="${u}" controls preload="none" style="max-width:100%"></audio>`
+        : `<a class="btn btn-sm btn-outline-secondary" href="${u}" target="_blank" rel="noopener"><i class="bi bi-file-earmark me-1"></i>${esc(m.media_nombre || 'Documento')}</a>`;
+      const pie = m.contenido && !ETQ.includes(m.contenido) ? `<div class="mt-1">${esc(m.contenido)}</div>` : '';
+      const ia = m.media_texto ? `<div class="small mt-1 ps-2 border-start border-2" style="white-space:pre-wrap"><i class="bi bi-stars me-1"></i>${esc(m.media_texto)}</div>`
+        : ok && !RO && m.rol === 'user' && ['imagen', 'audio', 'documento'].includes(m.tipo) ? `<button class="btn btn-sm btn-link p-0 mt-1" data-ent="${m.id}"><i class="bi bi-stars me-1"></i>Entender con IA</button>` : '';
+      const gu = ok && CAN && m.rol === 'user' ? (m.guardado ? '<span class="small text-success ms-2"><i class="bi bi-check2"></i> Guardado</span>' : `<button class="btn btn-sm btn-link p-0 mt-1 ms-2" data-gua="${m.id}"><i class="bi bi-bookmark-plus me-1"></i>Guardar archivo</button>`) : '';
+      return `${cuerpo}${pie}${ia}${gu ? `<div>${gu}</div>` : ''}`;
+    };
     function pintarMensajes(baja) {
       const log = $('[data-log]', cont), abajo = baja || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-      log.innerHTML = det.mensajes.map((m) => `<div class="wa-m ${m.rol === 'humano' ? 'me' : m.rol === 'assistant' ? 'ia' : ''}">${esc(m.contenido)}<small>${m.rol === 'assistant' ? 'Agente IA · ' : m.rol === 'humano' ? 'Equipo · ' : ''}${esc(horaLarga(m.ts))}${m.estado && m.estado !== 'enviado' ? ` · ${m.estado === 'sin_clave' ? 'sin clave API' : 'no se envió'}` : ''}</small></div>`).join('') || '<div class="wa-vacio">Sin mensajes.</div>';
+      log.innerHTML = det.mensajes.map((m) => `<div class="wa-m ${m.rol === 'humano' ? 'me' : m.rol === 'assistant' ? 'ia' : ''}">${m.tipo ? medio(m) : esc(m.contenido)}<small>${m.rol === 'assistant' ? 'Agente IA · ' : m.rol === 'humano' ? 'Equipo · ' : ''}${esc(horaLarga(m.ts))}${m.estado && m.estado !== 'enviado' ? ` · ${m.estado === 'sin_clave' ? 'sin clave API' : 'no se envió'}` : ''}</small></div>`).join('') || '<div class="wa-vacio">Sin mensajes.</div>';
       if (abajo) log.scrollTop = log.scrollHeight;
     }
     const movil = () => matchMedia('(max-width:767px)').matches;
@@ -179,6 +225,10 @@ DW.ready.then((me) => {
     $('[data-fil]', el).onclick = (e) => { const b = e.target.closest('[data-f]'); if (!b) return; filtro = b.dataset.f; el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('active', x === b)); cargarLista(); };
     cont.onclick = async (e) => {
       if (e.target.closest('[data-back]')) { box.classList.remove('abierto'); cabeza(false); return; }
+      const bEnt = e.target.closest('[data-ent]');
+      if (bEnt) { bEnt.disabled = true; bEnt.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Analizando…'; try { await api(`${B}/mensajes/${bEnt.dataset.ent}/entender`, { method: 'POST', body: {} }); await cargarChat(true); } catch (x) { toast(x.message, false); bEnt.disabled = false; bEnt.textContent = 'Entender con IA'; } return; }
+      const bGua = e.target.closest('[data-gua]');
+      if (bGua) return guardarArchivo(+bGua.dataset.gua, det, () => cargarChat(true));
       if (e.target.closest('[data-sug]')) {
         const b = e.target.closest('[data-sug]'); b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         try { const r = await api(`${B}/chats/${sel}/sugerir`, { method: 'POST', body: {} }); const ta = $('[name=texto]', cont); if (ta) { ta.value = r.sugerencia; ta.focus(); } toast('Sugerencia lista: revísala y envíala'); } catch (x) { toast(x.message, false); }
@@ -712,13 +762,15 @@ DW.ready.then((me) => {
           <label class="small text-body-secondary d-grid gap-1 mt-2">Preguntas propias (una por línea, máximo 5)<textarea class="form-control" name="extras" rows="2" placeholder="Cargo&#10;Cuántas personas tiene su equipo">${esc(cd.extras.join('\n'))}</textarea></label></fieldset>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="usar_marca" id="wam" ${!a || a.usar_marca ? 'checked' : ''}><label class="form-check-label small" for="wam">Usar el tono de la marca</label></div>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="agendar" id="waag" ${a?.agendar ? 'checked' : ''}><label class="form-check-label small" for="waag">Puede <b>agendar citas</b> con Google Meet (ofrece horarios libres de tu Calendar; requiere conectar Google)</label></div>
+        <label class="small text-body-secondary d-grid gap-1">Esperar antes de responder (segundos)<input class="form-control" type="number" name="espera_seg" min="0" max="20" value="${a ? a.espera_seg : 5}"><span class="text-body-tertiary">Si la persona manda varios mensajes seguidos, el agente espera a que termine y responde todo en uno. 0 = responde a cada mensaje.</span></label>
+        <label class="small text-body-secondary d-grid gap-1">Tope de respuestas por chat al día<input class="form-control" type="number" name="tope_diario" min="0" max="1000" value="${a ? a.tope_diario : 100}"><span class="text-body-tertiary">Al llegar al tope manda un aviso fijo una vez, deja el chat en rojo y la IA calla hasta el día siguiente. 0 = sin tope.</span></label>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="insistir" id="wains" ${!a || a.insistir ? 'checked' : ''}><label class="form-check-label small" for="wains">Insistir con amabilidad hasta tener el nombre y el contacto (hasta 2 veces)</label></div>
         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="alerta_asesor" id="waas" ${!a || a.alerta_asesor ? 'checked' : ''}><label class="form-check-label small" for="waas">Avisar en <b class="text-danger">rojo</b> cuando no sepa responder o pidan un asesor</label></div>
         <button class="btn btn-primary">${a ? 'Guardar' : 'Crear agente'}</button></form>`);
       mo.querySelector('form').onsubmit = async (e) => {
         e.preventDefault(); const f = e.target, btn = f.querySelector('button.btn-primary'); btn.disabled = true;
         const campos = JSON.stringify({ campos: Object.keys(DATOS).filter((k) => f[`c_${k}`].checked), extras: f.extras.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 5) });
-        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, alerta_asesor: f.alerta_asesor.checked, insistir: f.insistir.checked, agendar: f.agendar.checked, bienvenida: f.bienvenida.value.trim(), usar_conocido: f.usar_conocido.checked, bienvenida_conocido: f.bienvenida_conocido.value.trim(), campos };
+        const body = { nombre: f.nombre.value.trim(), bandejas: JSON.stringify(bands.filter((b) => f[`b_${b.id}`]?.checked).map((b) => b.id)), instrucciones: f.instrucciones.value, usar_marca: f.usar_marca.checked, alerta_asesor: f.alerta_asesor.checked, insistir: f.insistir.checked, agendar: f.agendar.checked, tope_diario: Math.min(1000, Math.max(0, +f.tope_diario.value || 0)), espera_seg: Math.min(20, Math.max(0, +f.espera_seg.value || 0)), bienvenida: f.bienvenida.value.trim(), usar_conocido: f.usar_conocido.checked, bienvenida_conocido: f.bienvenida_conocido.value.trim(), campos };
         try { if (a) await api(`${B}/agentes/${a.id}`, { method: 'PATCH', body }); else await api(`${B}/agentes`, { method: 'POST', body }); mm.hide(); toast('Agente guardado'); render(); }
         catch (x) { toast(x.message, false); btn.disabled = false; }
       };
