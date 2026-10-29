@@ -3,6 +3,8 @@
 //   GET /api/dashboard   { negocio, widgets: [{ modulo, titulo, valor, detalle, icono, ruta }], alertas: [{ id, nivel, icono, texto, ruta }], atajos: [{ nombre, icono, ruta }] }
 // Las apps suman a esto sus propios indicadores (módulos propios) en su pantalla; el módulo solo conoce los centrales.
 import { json } from '../../lib/http.js';
+import { all } from '../../lib/crud.js';
+import { limpiarInicio } from '../../lib/inicio.js';
 import { REG } from '../../lib/registro.js';
 import { llamar } from '../../lib/interno.js';
 import { brandOf } from '../../lib/marca.js';
@@ -53,6 +55,19 @@ export async function tablero(c) {
   return { negocio: { nombre: c.ctx?.business?.name || null, tema: c.ctx?.business?.tema || null, sede: c.ctx?.sede || null }, hoy: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10), widgets, alertas, atajos };
 }
 
+// Línea de negocio de cada app (figura de «Así funciona tu negocio»). Sin línea, el Inicio no muestra el bloque.
+const LINEA_DE = { cdacademia: 'educacion', cdresidentes: 'propiedad', diwilo: 'servicios' };
+export async function figura(c) {
+  const linea = LINEA_DE[c.ctx?.app] || null;
+  const desde = Number(c.url.searchParams.get('desde')) || 0;
+  const filas = linea ? await all(c.env, 'SELECT id, tipo, creado_en FROM inicio_eventos WHERE business_id = ? AND id > ? ORDER BY id DESC LIMIT 20', c.businessId, desde) : [];
+  const ultimo = filas.length ? filas[0].id : desde;
+  return { linea, movimientos: filas.reverse(), ultimo };
+}
+
+export const daily = (env) => limpiarInicio(env);   // los movimientos de la figura se guardan 30 días
+
 export function routes(r) {
+  r.get(`${B}/figura`, `tenant:${MOD}`, async (c) => json(await figura(c)));
   r.get(B, `tenant:${MOD}`, async (c) => json(await tablero(c)));
 }

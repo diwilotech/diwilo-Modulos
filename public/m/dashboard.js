@@ -15,7 +15,7 @@ DW.ready.then((me) => {
   const enPanel = location.pathname.startsWith('/admin/m/');
   const PANEL = { ai: 'ia' };   // id de la pestaña del panel cuando difiere del módulo
   const VISTAS = new Set(JSON.parse(sessionStorage.getItem('dw_dash_ocultas') || '[]'));
-  let timer = null;
+  let timer = null, fig = null, figTimer = null, figUltimo = 0;
 
   const style = document.createElement('style');
   style.textContent = `.dsh-hero{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
@@ -63,10 +63,38 @@ DW.ready.then((me) => {
   const tarjetaSede = (i) => `<button type="button" class="dw-card dsh-kpi" data-sede="${esc(i.id)}"><div class="ico"><i class="bi bi-building"></i></div><div class="t fw-semibold" style="font-size:1rem;color:inherit">${esc(i.nombre)}</div>${i.detalle ? `<div class="d">${esc(i.detalle)}</div>` : ''}${(i.kpis || []).length ? `<div class="d-flex gap-3 mt-2 flex-wrap">${i.kpis.map((k) => `<div><div class="v" style="font-size:1.15rem">${esc(k.valor)}</div><div class="d mt-0">${esc(k.titulo)}</div></div>`).join('')}</div>` : ''}</button>`;
   const kpi = (w) => `<${w.ruta ? 'button type="button"' : 'div'} class="dw-card dsh-kpi" ${w.ruta ? `data-ruta="${esc(w.ruta)}"` : ''}><div class="ico"><i class="bi ${esc(w.icono || 'bi-grid')}"></i></div><div class="v">${esc(w.valor)}</div><div class="t">${esc(w.titulo)}</div>${w.detalle ? `<div class="d">${esc(w.detalle)}</div>` : ''}</${w.ruta ? 'button' : 'div'}>`;
 
+  // «Así funciona tu negocio»: figura isométrica de la línea con los números reales y los movimientos (skill inicio-isometrico). Si algo falla, el Inicio sigue igual.
+  async function figura(F, T) {
+    const host = $('[data-inicio]', view);
+    if (!host) return;
+    try {
+      const K = await import(`${enPanel ? '/admin/m/' : '/m/'}inicio.js`), def = K.LINEAS[F.linea];
+      if (!def) { host.closest('.dw-card').remove(); return; }
+      const mods = me.modules ? new Set(me.modules.map((m) => m.id)) : null, valores = {}, activos = new Set();
+      const propios = typeof window.DwInicioValores === 'function' ? await Promise.resolve(window.DwInicioValores()).catch(() => ({})) : {};
+      await Promise.all(def.nodos.map(async (n) => {
+        if (n.widget) { const w = T.widgets.find((x) => x.modulo === n.widget); if (w) { activos.add(n.id); valores[n.id] = w.valor; } }
+        else if (n.api) { if (mods && !mods.has(n.modulo)) return; try { const d = await api(n.api); activos.add(n.id); valores[n.id] = d.valor; } catch { /* módulo apagado o sin permiso */ } }
+        else if (n.valor && propios && propios[n.id] != null) { activos.add(n.id); valores[n.id] = propios[n.id]; }
+      }));
+      fig = K.montar(host, { linea: F.linea, valores, activos, ir });
+      if (!fig) { host.closest('.dw-card').remove(); return; }
+      figUltimo = Math.max(figUltimo, F.ultimo || 0);
+      clearInterval(figTimer);
+      figTimer = setInterval(async () => {
+        if (document.hidden || !fig) return;
+        const r = await api(`/api/dashboard/figura?desde=${figUltimo}`).catch(() => null);
+        if (!r) return;
+        figUltimo = Math.max(figUltimo, r.ultimo || 0);
+        r.movimientos.forEach((m, i) => { const f = fig.flujo(m.tipo); if (f) setTimeout(() => fig && fig.mover(f[0], f[1]), i * 700); });
+      }, 30000);
+    } catch (x) { console.warn('inicio', x.message); host.closest('.dw-card')?.remove(); }
+  }
+
   async function pintar(primera) {
     if (primera) view.innerHTML = `<div class="dsh-sk" style="height:72px;margin-bottom:18px"></div><div class="dsh-grid">${'<div class="dsh-sk"></div>'.repeat(4)}</div>`;
-    let T, M, SEDES = [];
-    try { [T, M] = await Promise.all([api('/api/dashboard'), marca()]); if (AMB()) SEDES = await AMB().items().catch(() => []); } catch (x) { view.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; return; }
+    let T, M, F = { linea: null }, SEDES = [];
+    try { [T, M, F] = await Promise.all([api('/api/dashboard'), marca(), api('/api/dashboard/figura').catch(() => ({ linea: null }))]); if (AMB()) SEDES = await AMB().items().catch(() => []); } catch (x) { view.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; return; }
     const porSede = !AMB() || !!AMB().actual();   // sin sede elegida, lo propio de la app (por sede) no se muestra
     const alertas = T.alertas.filter((a) => !VISTAS.has(a.id)), extras = porSede ? window.DwDashboard || [] : [];
     // La campana del panel/app junta estas alertas con sus avisos
@@ -79,8 +107,10 @@ DW.ready.then((me) => {
       ${AMB() && !AMB().actual() && SEDES.length ? `<div class="dsh-h">Tus ${esc(String(AMB().plural || AMB().etiqueta).toLowerCase())}</div><div class="dsh-grid">${SEDES.map(tarjetaSede).join('')}</div>` : ''}
       <div class="dsh-h">${AMB() ? 'De toda la empresa' : 'Cómo va'}</div>
       ${T.widgets.length ? `<div class="dsh-grid">${T.widgets.map(kpi).join('')}</div>` : '<div class="dw-card text-body-secondary">Aún no hay indicadores: activa Finanzas, Marketing o Nómina para verlos aquí.</div>'}
+      ${F.linea ? '<div class="dsh-h">Así funciona tu negocio</div><div class="dw-card" data-inicio></div>' : ''}
       ${extras.map((e) => `<div class="dsh-h">${esc(e.titulo)}</div><div data-extra="${esc(e.id)}"></div>`).join('')}
       ${T.atajos.length ? `<div class="dsh-h">Ir a</div><div class="dsh-atajos">${T.atajos.map((a) => `<a class="dsh-atajo" href="${esc(a.ruta)}" data-ruta="${esc(a.ruta)}"><i class="bi ${esc(a.icono)}"></i>${esc(a.nombre)}</a>`).join('')}</div>` : ''}`;
+    if (F.linea) figura(F, T);
     for (const e of extras) {
       const host = $(`[data-extra="${e.id}"]`, view);
       Promise.resolve().then(() => e.mount(host, { me, sede: AMB()?.actual() || null })).catch((x) => { host.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });

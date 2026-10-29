@@ -12,6 +12,7 @@
 // Automatizaciones: «llega un lead nuevo» corre al instante; «sin contacto», «presupuesto de campaña», «factura vencida»
 // (si el negocio usa Finanzas) y «semanal» (lunes), cada día (daily). «informe_ia» deja la tarea de pedir el informe al
 // asistente o, si la app tiene Workers AI (binding AI), lo escribe solo.
+import { emitirInicio } from '../../lib/inicio.js';
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, today, now, addDays, all, one, DATE } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
@@ -62,6 +63,7 @@ async function addSteps(env, a, fallback, vars, link, key) {
 const bump = (env, a) => env.DB.prepare('UPDATE mk_automations SET runs = runs + 1, last_run_at = ? WHERE id = ?').bind(now(), a.id).run();
 
 async function onNewContact(env, biz, contact) {
+  await emitirInicio(env, biz, 'lead.nuevo');
   const autos = await all(env, "SELECT * FROM mk_automations WHERE business_id = ? AND active = 1 AND trigger = 'lead_nuevo'", biz);
   for (const a of autos) {
     const vars = { nombre: contact.name || 'el lead' };

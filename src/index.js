@@ -35,6 +35,7 @@ import { guiasDe } from './lib/guias.js';
 import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
 import { manejarWhatsapp, registrarWeb, responder } from './modulos/whatsapp/webhook.js';
+import { emitirInicio } from './lib/inicio.js';
 import { servirMedia } from './modulos/whatsapp/media.js';
 import { recibirCorreo, sincronizarCorreos } from './modulos/whatsapp/correo.js';
 import { completarConexion, GoogleError } from './modulos/whatsapp/google.js';
@@ -83,6 +84,13 @@ export class Modulos extends WorkerEntrypoint {
       const res = await route.handler(c);
       return { ...(await asText(res)), audit: c.auditLog || [] };
     } catch (err) { return { ...fail(err), audit: [] }; }
+  }
+
+  // Las apps anotan un movimiento de la figura del Inicio (p. ej. 'matricula.creada', 'pago.recibido'): solo el tipo, nunca datos de la persona.
+  async inicioEvento(app, negocio, tipo) {
+    if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '') || !/^[A-Za-z0-9_-]{1,64}$/.test(negocio || '')) throw new HttpError(400, 'App o negocio no válido');
+    await emitirInicio(this.env, orgId(app, negocio), String(tipo || ''));
+    return { ok: true };
   }
 
   // Foto, video, audio o documento de un chat de Mensajes (la app ya comprobó sesión y módulo). Devuelve una Response con soporte de Range.

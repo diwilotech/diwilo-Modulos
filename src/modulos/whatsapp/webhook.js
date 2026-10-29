@@ -14,6 +14,7 @@ import { paisDeTelefono, paisValido, dispositivoDe } from './lugar.js';
 import { registrarCorreo } from './correo.js';
 import { huecosLibres, crearCita, cancelarCita, moverCita, etiquetaHora, conectado as googleConectado } from './google.js';
 import { adminDe, procesarAdmin } from './admin.js';
+import { emitirInicio } from '../../lib/inicio.js';
 import { descargarMedia, entenderMensaje, entenderRecientes, paraIA, ETIQUETA } from './media.js';
 
 const texto = (status, body, extra = {}) => ({ status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...extra }, body });
@@ -421,6 +422,7 @@ export async function manejarWhatsapp(env, { app, rest, method, query = '', body
     }
     const primera = !(await one(env, 'SELECT 1 FROM wa_conversaciones WHERE bandeja_id = ? AND contacto = ?', bandeja.id, ev.contacto));
     const conv = await tocarChat(env, { org, bandeja, contacto: ev.contacto, nombre, rol: 'user', contenido, ts: ev.ts, leido: false, pais: ev.canal === 'whatsapp' ? paisDeTelefono(ev.contacto) : null });
+    if (primera) await emitirInicio(env, org, 'chat.nuevo');
     // Si el contacto ya está en Marketing (mismo teléfono), el chat queda enlazado desde el primer mensaje
     if (ev.canal === 'whatsapp' && !conv.contact_id && (await marketingActivo(env, org))) {
       const c = await contactoPorTelefono(env, org, `+${ev.contacto}`);

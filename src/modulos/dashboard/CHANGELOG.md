@@ -1,5 +1,9 @@
 # Dashboard (`dashboard`) — cambios
 
+## 1.3.0 · 2026-10-29
+- **«Así funciona tu negocio»:** bloque del Inicio con la figura isométrica de la línea de negocio (educación, propiedad horizontal, servicios), con los números reales de cada etapa, nodos que abren su módulo y paquetes que viajan por la cinta cuando pasa algo (`GET /api/dashboard/figura`, tabla `inicio_eventos`, 30 días, solo el tipo del evento). Código en `/m/inicio.js`; las apps entregan valores propios con `window.DwInicioValores` y anotan movimientos con el RPC `inicioEvento`.
+- Migración `0040_inicio_eventos.sql`.
+
 ## 1.2.0 · 2026-10-26
 - **Apps con varias sedes** (conjuntos, edificios, sucursales; p. ej. Residentes): la app declara `window.DwDashboardAmbito = { etiqueta, plural, items(), actual(), elegir(id) }`. Aparece un selector junto al saludo; sin sede elegida el Inicio es el del **portafolio** (una tarjeta por sede con sus indicadores, más lo de toda la empresa: alertas, Finanzas, Marketing…); con una sede elegida se muestran sus indicadores propios (`mount(host, { me, sede })`). Los módulos centrales son de la empresa, no de cada sede. `ctx.sede` opcional se devuelve en `negocio.sede`.
 

@@ -1,7 +1,7 @@
 {
   "id": "dashboard",
   "nombre": "Inicio",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "descripcion": "El inicio de todas las apps: saluda con la marca del negocio, junta los indicadores de los módulos activos, avisa lo que necesita atención (alertas) y deja accesos directos. Se ve igual en web y celular, se actualiza solo y manda sus alertas a la campana de notificaciones.",
   "icono": "bi-speedometer2",
   "menu": {
