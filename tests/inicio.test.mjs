@@ -17,11 +17,18 @@ export default async function ({ check, newBusiness }) {
   check('Inicio: cada flujo de la figura une etapas que existen', Object.values(LINEAS).every((l) => Object.values(l.flujos).every(([d, a]) => l.nodos.some((n) => n.id === d) && l.nodos.some((n) => n.id === a)) && l.nodos.some((n) => n.id === l.luz)));
   // Agentes por módulo: solo actividad real del negocio, sin datos de ejemplo, y aislada por negocio
   const g0 = await A.app('/api/dashboard/agentes');
-  check('Inicio: sin agentes la lista sale vacía (nada de ejemplo)', g0.status === 200 && g0.data.agentes.length === 0, JSON.stringify(g0.data).slice(0, 200));
+  check('Inicio: solo hay los agentes automáticos de módulo, sin actividad (nada de ejemplo)', g0.status === 200 && g0.data.agentes.length > 0 && g0.data.agentes.every((a) => a.auto && a.modulo && a.total === 0), JSON.stringify(g0.data).slice(0, 200));
   const ag = await A.app('/api/ai/agentes', { method: 'POST', body: { nombre: 'Agente de Marketing', instrucciones: 'Resume Marketing.', herramientas: ['marketing.resumen'], programacion: 'manual', autonomia: 'proponer', activo: true } });
-  const g1 = await A.app('/api/dashboard/agentes'), a1 = g1.data.agentes[0];
+  const g1 = await A.app('/api/dashboard/agentes'), a1 = g1.data.agentes.find((a) => !a.auto);
   check('Inicio: el agente creado aparece con su semana de 7 días en cero', ag.status === 201 && a1 && a1.herramientas[0] === 'marketing.resumen' && a1.semana.length === 7 && a1.total === 0 && a1.dias.length === 7, JSON.stringify(g1.data).slice(0, 200));
-  check('Inicio: el agente de un negocio no aparece en otro', (await B.app('/api/dashboard/agentes')).data.agentes.length === 0);
+  check('Inicio: el agente de un negocio no aparece en otro', !(await B.app('/api/dashboard/agentes')).data.agentes.some((a) => a.id === ag.data.id));
   const t = await A.app('/api/dashboard');
   check('Inicio: manda la lista de módulos para sus agentes', t.status === 200 && Array.isArray(t.data.agentes) && t.data.agentes.every((m) => m.modulo && !m.agente));
+  // Inicio pasivo: lee lo que los módulos empujaron (dashboard_estado); una escritura en el módulo actualiza su estado sin que Inicio lo busque
+  check('Inicio: antes de la tarea vencida no hay alerta de tareas', !t.data.alertas.some((x) => x.id === 'tareas'));
+  const tv = await A.app('/api/marketing/tasks', { method: 'POST', body: { title: 'Llamar al lead', due_date: '2020-01-01' } });
+  await new Promise((r) => setTimeout(r, 300));   // el módulo se recalcula en segundo plano
+  const t2 = await A.app('/api/dashboard');
+  check('Inicio: la tarea vencida de Marketing aparece como alerta (empujada por el módulo)', tv.status === 201 && t2.data.alertas.some((x) => x.id === 'tareas' && x.nivel === 'mala'), JSON.stringify(t2.data.alertas));
+  check('Inicio: otro negocio no ve esa alerta (aislamiento del estado empujado)', !(await B.app('/api/dashboard')).data.alertas.some((x) => x.id === 'tareas'));
 }

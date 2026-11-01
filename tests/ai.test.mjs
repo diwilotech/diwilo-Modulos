@@ -90,7 +90,17 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const ag = await A.app(`${X}/agentes`, { method: 'POST', body: { nombre: 'Revisor', herramientas: JSON.stringify(['marketing.resumen', 'marketing.crear_contacto']), autonomia: 'proponer',
     instrucciones: GUION(['{"accion":"usar","herramienta":"marketing.resumen","args":{}}', '{"accion":"usar","herramienta":"marketing.crear_contacto","args":{"nombre":"Lead del agente","telefono":"3009998877"}}', '{"accion":"fin","respuesta":"Revisé el resumen y propuse un lead."}']) } });
   check('IA: crea un agente', ag.status === 201);
-  check('IA: B no ve los agentes de A', (await B.app(`${X}/agentes`)).data.rows.length === 0 && (await B.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST' })).status === 404);
+  check('IA: B no ve los agentes de A', !(await B.app(`${X}/agentes`)).data.rows.some((r) => r.id === ag.data.id || !r.auto) && (await B.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST' })).status === 404);
+  // Agente automático por módulo: existe sin crearlo, solo se edita su Estrategia, no se borra y no cuenta para el tope
+  const listaAg = (await A.app(`${X}/agentes`)).data.rows, mk = listaAg.find((r) => r.modulo === 'marketing');
+  check('IA: cada módulo activo tiene su agente automático (auto=1) sin crearlo a mano', !!mk && mk.auto === 1 && mk.instrucciones === '' && mk.herramientas.includes('marketing.resumen') && !listaAg.some((r) => r.modulo === 'ai' || r.modulo === 'dashboard'));
+  check('IA: listar de nuevo no duplica los agentes de módulo', (await A.app(`${X}/agentes`)).data.rows.filter((r) => r.modulo === 'marketing').length === 1);
+  check('IA: la Estrategia del agente de módulo se edita y su nombre/herramientas no cambian', (await A.app(`${X}/agentes/${mk.id}`, { method: 'PATCH', body: { instrucciones: 'Prioriza leads de la última semana', nombre: 'Otro', herramientas: JSON.stringify([]) } })).status === 200
+    && (await A.app(`${X}/agentes`)).data.rows.find((r) => r.id === mk.id).instrucciones === 'Prioriza leads de la última semana' && (await A.app(`${X}/agentes`)).data.rows.find((r) => r.id === mk.id).nombre === mk.nombre);
+  check('IA: el agente de módulo no se borra (400) y se puede vaciar su Estrategia', (await A.app(`${X}/agentes/${mk.id}`, { method: 'DELETE' })).status === 400 && (await A.app(`${X}/agentes/${mk.id}`, { method: 'PATCH', body: { instrucciones: '' } })).status === 200);
+  check('IA: un agente libre sigue exigiendo instrucciones', (await A.app(`${X}/agentes`, { method: 'POST', body: { nombre: 'Sin texto', herramientas: JSON.stringify(['marketing.resumen']) } })).status === 400);
+  const gest = await A.app('/api/ai/herramientas');   // la lista para agentes libres no ofrece escrituras del módulo ai
+  check('IA: los agentes libres no pueden gestionar otros agentes', !gest.data.herramientas.some((t) => t.name === 'ai.gestionar_agente_modulo'));
   check('IA: el personal no ejecuta agentes (403)', (await staff.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST' })).status === 403);
   const run = await A.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST', body: { progreso: 'prueba-agente-0001', pedido: 'solo esta semana' } });
   const progA = (await A.app(`${X}/asistente/progreso?id=prueba-agente-0001`)).data;
@@ -189,6 +199,10 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('IA: la IA externa lee conversaciones', (await T('ai_ver_conversaciones', {})).structuredContent?.conversaciones?.length >= 2 && (await T('ai_leer_conversacion', { id: cv[0].id })).structuredContent?.mensajes?.length === 2);
   check('IA: la IA externa ve el consumo', (await T('ai_resumen_uso', {})).structuredContent?.tope_dia === 200);
   check('IA: la IA externa crea un chat', !(await T('ai_crear_chat', { nombre: 'Desde MCP', saludo: 'Hola' })).isError && (await A.app(`${X}/chats`)).data.rows.some((x) => x.nombre === 'Desde MCP'));
+  const ges = await T('ai_gestionar_agente_modulo', { modulo: 'marketing', instrucciones: 'Vigila los leads sin tarea', programacion: 'semanal', autonomia: 'proponer' });
+  const mk2 = (await A.app(`${X}/agentes`)).data.rows.find((r) => r.modulo === 'marketing');
+  check('IA: gestionar_agente_modulo cambia Estrategia y programación del agente del módulo (solo lo enviado)', !ges.isError && mk2.instrucciones === 'Vigila los leads sin tarea' && mk2.programacion === 'semanal' && mk2.activo === 1 && mk2.nombre === 'Agente de Marketing', JSON.stringify(ges).slice(0, 200));
+  check('IA: gestionar_agente_modulo rechaza un módulo inexistente y una programación inválida', (await T('ai_gestionar_agente_modulo', { modulo: 'nada', instrucciones: 'x' })).isError && (await T('ai_gestionar_agente_modulo', { modulo: 'marketing', programacion: 'cada_hora' })).isError);
 
   /* ---------- borrar y módulo base ---------- */
   check('IA: borrar un chat borra sus conversaciones y lo quita de la tarjeta', (await A.app(`${X}/chats/${ch.id}`, { method: 'DELETE' })).status === 200 && (await A.app(`${X}/conversaciones`)).data.rows.every((v) => v.chat_id !== ch.id)

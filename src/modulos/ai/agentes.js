@@ -18,11 +18,14 @@ const wire = (n) => String(n).replace(/\./g, '_');
 // Resumen de las guías de los módulos que usa (el estándar de src/lib/guias.js): qué hace cada uno y sus flujos; la guía completa se pide con la acción «guia»
 const guiasResumen = (guias) => (guias.length ? `\nMÓDULOS (cada uno tiene su guía de uso; léela con {"accion":"guia","modulo":"<id>"} antes de usarlo si no lo conoces bien):\n${guias.map((g) => `- ${g.modulo} (${g.nombre}): ${g.guia.slice(0, 220)}${g.guia.length > 220 ? '…' : ''}${g.flujos.length ? ` · flujos: ${g.flujos.map((f) => f.id).join(', ')}` : ''}`).join('\n')}\n` : '');
 
-export function sistemaDeHerramientas({ maxPasos = MAX_PASOS, flujos = [], rol, instrucciones, negocio, herramientas, autonomia, extra = '', guias = [] }) {
+// Las «Estrategias»: lo que la persona dejó dicho en el agente de cada módulo. El asistente las respeta cuando trabaja en ese módulo.
+const estrategiasResumen = (est) => (est.length ? `\nESTRATEGIAS DEL NEGOCIO (lo que la persona pidió para cada módulo; respétalo cuando trabajes en él):\n${est.map((e) => `- ${e.modulo}: ${String(e.instrucciones).replace(/\s+/g, ' ').slice(0, 400)}`).join('\n')}\n` : '');
+
+export function sistemaDeHerramientas({ maxPasos = MAX_PASOS, flujos = [], rol, instrucciones, negocio, herramientas, autonomia, extra = '', guias = [], estrategias = [] }) {
   return `${rol}
 
 Trabajas para el negocio «${negocio}». Hoy es ${today()}.
-${instrucciones ? `\nINSTRUCCIONES\n${instrucciones}\n` : ''}${extra}${guiasResumen(guias)}${flujosEnTexto(flujos)}
+${instrucciones ? `\nINSTRUCCIONES\n${instrucciones}\n` : ''}${extra}${estrategiasResumen(estrategias)}${guiasResumen(guias)}${flujosEnTexto(flujos)}
 HERRAMIENTAS (usa solo estas; * = obligatorio):
 ${herramientas.map((t) => `- ${t.name} [${t.tipo}] ${t.description} · args: { ${resumenArgs(t.inputSchema)} }`).join('\n') || '(ninguna)'}
 
@@ -119,7 +122,7 @@ export async function correrAgente(env, { org, agente, disparador = 'manual', ct
     const disp = herramientasDe(ctx), elegidas = parseList(agente.herramientas);
     const herr = disp.filter((t) => elegidas.includes(t.name));
     const guias = guiasDe(ctx).filter((g) => herr.some((t) => t.modulo === g.modulo));
-    const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias, extra: TRABAJO_COMPLETO });
+    const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones || (agente.auto ? 'Revisa cómo va este módulo con las herramientas de consulta y propón lo más útil que se pueda mejorar o atender hoy.' : ''), negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias, extra: TRABAJO_COMPLETO });
     const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: pedido ? `Empieza tu trabajo. Pedido puntual para esta vez: ${String(pedido).slice(0, 500)}` : 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias, maxPasos: MAX_PASOS_AGENTE, topeTokens: aj.tope_ejecucion, maxTokens: 3000,
       progreso: escribir ? (info) => escribir('trabajando', info) : null });
     resumen = r.respuesta; pasos = r.pasos;
@@ -139,6 +142,44 @@ export async function agentesDelDia(env) {
   const due = await all(env, `SELECT a.* FROM ia_agentes a JOIN orgs o ON o.id = a.business_id WHERE a.activo = 1 AND a.business_id != 'diwilo:diwilo' AND COALESCE(o.solo_lectura, 0) = 0
     AND (a.programacion = 'diario' ${lunes ? "OR a.programacion = 'semanal'" : ''}) AND COALESCE(a.ultima_ejecucion, 0) < ? ORDER BY a.id LIMIT 25`, desde);
   for (const a of due) { try { await correrAgente(env, { org: a.business_id, agente: a, disparador: 'programado' }); } catch (e) { console.error('agente', a.id, e.message); } }
+}
+
+
+/* ---------- agente automático por módulo ---------- */
+// Cada módulo activo (central o propio de la app) con herramientas tiene SIEMPRE su agente (auto = 1): sin crearlo a mano. Lo único que escribe la persona es su «Estrategia»
+// (el campo instrucciones). Es autocorrectivo: se llama antes de listar agentes y antes del asistente. Nunca toca la Estrategia de uno que ya existe.
+const SIN_AGENTE = new Set(['ai', 'dashboard']);
+const nombreDeModulo = (id) => REG.manifests?.find((m) => m.id === id)?.nombre || id.charAt(0).toUpperCase() + id.slice(1);
+export async function asegurarAgentesDeModulo(env, ctx, org) {
+  const porModulo = new Map();
+  for (const t of herramientasDe({ ...ctx, role: 'owner' })) if (t.modulo && !SIN_AGENTE.has(t.modulo)) (porModulo.get(t.modulo) || porModulo.set(t.modulo, []).get(t.modulo)).push(t.name);
+  if (!porModulo.size) return;
+  const hay = new Map((await all(env, 'SELECT modulo, herramientas FROM ia_agentes WHERE business_id = ? AND modulo IS NOT NULL', org)).map((r) => [r.modulo, r.herramientas]));
+  const t = now(), lote = [];
+  for (const [modulo, nombres] of porModulo) {
+    const herr = JSON.stringify(nombres);
+    if (!hay.has(modulo)) lote.push(env.DB.prepare("INSERT OR IGNORE INTO ia_agentes (business_id, nombre, instrucciones, herramientas, programacion, autonomia, activo, modulo, auto, created_at, updated_at) VALUES (?, ?, '', ?, 'manual', 'proponer', 1, ?, 1, ?, ?)").bind(org, `Agente de ${nombreDeModulo(modulo)}`, herr, modulo, t, t));
+    else if (hay.get(modulo) !== herr) lote.push(env.DB.prepare('UPDATE ia_agentes SET herramientas = ?, updated_at = ? WHERE business_id = ? AND modulo = ? AND auto = 1').bind(herr, t, org, modulo));
+  }
+  if (lote.length) await env.DB.batch(lote);
+}
+
+export const estrategiasDe = (env, org) => all(env, "SELECT modulo, instrucciones FROM ia_agentes WHERE business_id = ? AND activo = 1 AND modulo IS NOT NULL AND TRIM(instrucciones) != '' ORDER BY modulo", org);
+
+// Lo usa la herramienta ai.gestionar_agente_modulo: IA Diwilo cambia la Estrategia, si está activo, cuándo corre y si propone o actúa solo. Solo toca los campos que lleguen.
+export async function editarAgenteDeModulo(env, ctx, org, { modulo, instrucciones, activo, programacion, autonomia }) {
+  await asegurarAgentesDeModulo(env, ctx, org);
+  const a = await one(env, 'SELECT * FROM ia_agentes WHERE business_id = ? AND modulo = ?', org, String(modulo || ''));
+  if (!a) throw new HttpError(404, `No hay agente para el módulo «${modulo}». Usa el id de un módulo activo.`);
+  const set = [], val = [];
+  if (instrucciones !== undefined) { const v = String(instrucciones).trim(); if (v.length > 4000) throw new HttpError(400, 'La Estrategia es muy larga (máximo 4000 letras)'); set.push('instrucciones = ?'); val.push(v); }
+  if (activo !== undefined) { set.push('activo = ?'); val.push(activo === true || activo === 1 || activo === 'true' ? 1 : 0); }
+  if (programacion !== undefined) { if (!['manual', 'diario', 'semanal'].includes(programacion)) throw new HttpError(400, 'programacion: manual, diario o semanal'); set.push('programacion = ?'); val.push(programacion); }
+  if (autonomia !== undefined) { if (!['proponer', 'ejecutar'].includes(autonomia)) throw new HttpError(400, 'autonomia: proponer o ejecutar'); set.push('autonomia = ?'); val.push(autonomia); }
+  if (!set.length) throw new HttpError(400, 'No hay nada que cambiar');
+  await env.DB.prepare(`UPDATE ia_agentes SET ${set.join(', ')}, updated_at = ? WHERE id = ? AND business_id = ?`).bind(...val, now(), a.id, org).run();
+  const n = await one(env, 'SELECT id, nombre, modulo, instrucciones, activo, programacion, autonomia FROM ia_agentes WHERE id = ?', a.id);
+  return { agente: { ...n, estrategia: n.instrucciones, activo: !!n.activo } };
 }
 
 // Aprobar o rechazar una propuesta de una ejecución. `ctx` es el de la persona que aprueba (su rol manda).
@@ -180,9 +221,11 @@ const ESTILO = `ESTILO DE RESPUESTA
 export async function asistente(env, { org, ctx, mensajes, progresoId = null }) {
   const hist = (Array.isArray(mensajes) ? mensajes : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
   if (!hist.length || hist[hist.length - 1].role !== 'user') return { status: 400, error: 'Escribe tu pregunta' };
-  const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura');
+  await asegurarAgentesDeModulo(env, ctx, org).catch((e) => console.error('agentes de módulo', e.message));
+  const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura' || t.name === 'ai.gestionar_agente_modulo');   // IA Diwilo SÍ puede gestionar los agentes de módulo (siempre como propuesta)
   const guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai');
-  const system = sistemaDeHerramientas({ guias, flujos: flujosEntre(herr), rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: `Responde en español. Para preguntas sobre el negocio consulta con herramientas antes de contestar.\n\n${ESTILO}`, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
+  const estrategias = await estrategiasDe(env, org).catch(() => []);
+  const system = sistemaDeHerramientas({ guias, estrategias, flujos: flujosEntre(herr), rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: `Responde en español. Para preguntas sobre el negocio consulta con herramientas antes de contestar.\n\n${ESTILO}`, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
   const escribir = escritor(env, org, progresoId);
   if (escribir) await env.DB.prepare('DELETE FROM ia_progreso WHERE updated_at < ?').bind(now() - 86400000).run().catch(() => {});
   try {

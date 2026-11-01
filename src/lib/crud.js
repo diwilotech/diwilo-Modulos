@@ -12,7 +12,7 @@
 //   «!» = obligatorio (text!) · «+» en bool = sí por defecto (bool+)
 // Entidad: { table, label, title (campo que la nombra), search: [...], order, fields, readOnly?, prepareBody(body)?,
 //            refs: { campo: 'tabla' } (el id referido debe ser del mismo negocio),
-//            leer?, crear?, borrar? (nivel: 'tenant' | 'manager'), beforeCreate(c,row,body), afterCreate(c,id,row),
+//            leer?, crear?, borrar? (nivel: 'tenant' | 'manager'), beforeList(c), beforeCreate(c,row,body), afterCreate(c,id,row),
 //            beforeUpdate(c,row,before), afterUpdate(c,id,row,before), beforeDelete(c,before), afterDelete(c,before), decorate(c,rows) }
 // Las tablas llevan: id INTEGER PRIMARY KEY AUTOINCREMENT, business_id TEXT NOT NULL, created_at INTEGER, updated_at INTEGER.
 import { json, readJson, HttpError } from './http.js';
@@ -102,6 +102,7 @@ export function crud(r, { base, modulo, entities }) {
 
   async function list(c, name, params = new URLSearchParams()) {
     const def = entities[name];
+    if (def.beforeList) await def.beforeList(c);   // p. ej. crear lo que debe existir antes de listar
     const q = (params.get('q') || '').trim();
     const limit = Math.min(1000, Math.max(1, Number(params.get('limit')) || 500));
     const where = ['business_id = ?'], args = [c.businessId];

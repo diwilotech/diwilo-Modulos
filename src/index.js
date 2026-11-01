@@ -23,7 +23,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Router } from './router.js';
 import { HttpError } from './lib/http.js';
-import { authorize, checkCtx, syncOrg, orgId } from './lib/contexto.js';
+import { authorize, checkCtx, syncOrg, orgId, ctxDeOrg } from './lib/contexto.js';
 import { MODULOS } from './modulos/index.js';
 import { importarEquipo } from './modulos/nomina/api.js';
 import { linkBySlug, countClick, registrarLead, marcarMatriculado } from './modulos/marketing/api.js';
@@ -36,6 +36,7 @@ import { manejarChat } from './modulos/ai/chat.js';
 import { apiPublica } from './modulos/ai/publica.js';
 import { manejarWhatsapp, registrarWeb, responder } from './modulos/whatsapp/webhook.js';
 import { emitirInicio } from './lib/inicio.js';
+import { empujarTablero, refrescarTablero, moduloDeRuta } from './lib/tablero.js';
 import { servirMedia } from './modulos/whatsapp/media.js';
 import { recibirCorreo, sincronizarCorreos } from './modulos/whatsapp/correo.js';
 import { completarConexion, GoogleError } from './modulos/whatsapp/google.js';
@@ -45,6 +46,7 @@ for (const m of MODULOS) m.api.routes(router);
 const TOOLS = MODULOS.flatMap((m) => m.tools);
 REG.tools = TOOLS;
 REG.manifests = MODULOS.map((m) => m.manifest);
+REG.tras = (env, ctx, modulo) => refrescarTablero(env, ctx, modulo);
 const TABLA = /^[a-z][a-z0-9_]{1,40}$/;
 
 const asText = async (res) => ({ status: res.status, headers: Object.fromEntries([...res.headers].filter(([k]) => ['content-type', 'content-disposition', 'cache-control', 'location'].includes(k))), body: await res.text() });
@@ -82,8 +84,17 @@ export class Modulos extends WorkerEntrypoint {
       const c = { req, env: this.env, ctx, url, params, waitUntil: (p) => this.ctx.waitUntil(p) };
       authorize(c, route.auth);
       const res = await route.handler(c);
+      if (method !== 'GET' && method !== 'HEAD' && res.status < 400) { const m = moduloDeRuta(path); if (m) this.ctx.waitUntil(refrescarTablero(this.env, ctx, m)); }   // el módulo empuja su estado al Inicio
       return { ...(await asText(res)), audit: c.auditLog || [] };
     } catch (err) { return { ...fail(err), audit: [] }; }
+  }
+
+  // Un módulo PROPIO de la app empuja su estado al Inicio (indicadores y alertas), igual que los centrales: { widgets: [{titulo, valor, detalle, icono, ruta}], alertas: [{id, nivel: mala|aviso|info, icono, texto, ruta}] }
+  async empujarTablero(ctx, modulo, estado = {}) {
+    checkCtx(ctx);
+    if (!/^[a-z][a-z0-9_]{1,30}$/.test(modulo || '') || MODULOS.some((m) => m.manifest.id === modulo)) throw new HttpError(400, 'Módulo no válido: usa el id de un módulo propio de la app');
+    await empujarTablero(this.env, orgId(ctx.app, ctx.business.id), modulo, estado || {});
+    return { ok: true };
   }
 
   // Las apps anotan un movimiento de la figura del Inicio (p. ej. 'matricula.creada', 'pago.recibido'): solo el tipo, nunca datos de la persona.
@@ -144,17 +155,24 @@ export class Modulos extends WorkerEntrypoint {
   }
 
   // Webhook de WhatsApp: la app lo llama desde /wa/<slug> con { method, query, body (texto crudo), sig (X-Hub-Signature-256) } y entrega la respuesta tal cual
-  whatsapp(app, rest, opts = {}) {
+  async whatsapp(app, rest, opts = {}) {
     if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '')) return { status: 404, headers: {}, body: 'No encontrado' };
-    return manejarWhatsapp(this.env, { app, rest, ...opts, waitUntil: (p) => this.ctx.waitUntil(p) });
+    const r = await manejarWhatsapp(this.env, { app, rest, ...opts, waitUntil: (p) => this.ctx.waitUntil(p) });
+    if (r?.business_id && r.status < 400 && opts.method !== 'GET') this.#empujarMensajes(orgId(app, r.business_id));   // los chats nuevos cambian las alertas de Inicio
+    return r;
   }
+
+  // Mensajes recalcula su estado del Inicio cuando entra un chat (no pasa por una escritura de la API)
+  #empujarMensajes(org) { this.ctx.waitUntil(ctxDeOrg(this.env, org, { role: 'admin' }).then((c) => c && refrescarTablero(this.env, c, 'whatsapp')).catch(() => {})); }
 
   // Un sistema de confianza (el chat del sitio de Diwilo, otra app) deja en Mensajes lo que pasó en un chat web: { ref, nombre, contacto, nombreContacto?, mensajes: [{ id, rol, contenido, ts }], pais?, dispositivo?, pagina? }
   async mensajesRegistrar(app, negocio, datos = {}) {
     if (!/^[a-z][a-z0-9]{1,30}$/.test(app || '') || !/^[A-Za-z0-9_-]{1,64}$/.test(negocio || '')) throw new HttpError(400, 'App o negocio no válido');
     if (!/^[a-z0-9:_-]{1,40}$/.test(datos.ref || '') || !/^[A-Za-z0-9_.:@+-]{1,120}$/.test(datos.contacto || '')) throw new HttpError(400, 'ref o contacto no válido');
     const mensajes = (Array.isArray(datos.mensajes) ? datos.mensajes : []).slice(0, 50).filter((m) => m && typeof m.contenido === 'string' && m.contenido.trim()).map((m) => ({ ...m, contenido: m.contenido.slice(0, 4000) }));
-    return registrarWeb(this.env, { ...datos, mensajes, org: orgId(app, negocio) });
+    const reg = await registrarWeb(this.env, { ...datos, mensajes, org: orgId(app, negocio) });
+    if (reg?.ok) this.#empujarMensajes(orgId(app, negocio));
+    return reg;
   }
 
   // El chat web de una app (el sitio de Diwilo) le pasa el mensaje de un visitante al agente de su bandeja en Mensajes y recibe la respuesta: { ok, respuesta, chat_id }.
@@ -170,6 +188,7 @@ export class Modulos extends WorkerEntrypoint {
     if (!reg.nuevo) return { ok: true, duplicado: true, respuesta: null, chat_id: reg.chat_id };
     const bandeja = await this.env.DB.prepare('SELECT * FROM wa_bandejas WHERE id = ?').bind(reg.bandeja_id).first(), conv = await this.env.DB.prepare('SELECT * FROM wa_conversaciones WHERE id = ?').bind(reg.chat_id).first();
     const respuesta = await responder(this.env, { bandeja, conv, entregar: false, contexto: String(datos.contexto || '').slice(0, 8000) });
+    this.#empujarMensajes(org);
     return { ok: true, respuesta, chat_id: reg.chat_id };
   }
 

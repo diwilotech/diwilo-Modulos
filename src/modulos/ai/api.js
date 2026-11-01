@@ -19,7 +19,7 @@ import { guiasDe } from '../../lib/guias.js';
 import { flujosEntre } from '../../lib/flujos.js';
 import { STARTERS } from '../../lib/marca.js';
 import { AGENTES_CONTENIDO } from './starters.js';
-import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe } from './agentes.js';
+import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe, asegurarAgentesDeModulo } from './agentes.js';
 import { guardarTurno, guardarEvento, listar as listarAsistente, analizar, ID_ASISTENTE } from './historial.js';
 import { webhookValido, dispararWebhook } from './chat.js';
 
@@ -69,14 +69,22 @@ export const ENTITIES = {
   },
   agentes: {
     table: 'ia_agentes', label: 'el agente', title: 'nombre', search: ['nombre'], order: 'created_at',
-    fields: { nombre: 'text!', instrucciones: 'long!', herramientas: 'long', programacion: ['manual', 'diario', 'semanal'], autonomia: ['proponer', 'ejecutar'], activo: 'bool+' },
+    fields: { nombre: 'text!', instrucciones: 'long', herramientas: 'long', programacion: ['manual', 'diario', 'semanal'], autonomia: ['proponer', 'ejecutar'], activo: 'bool+' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',
     prepareBody(b) { return { ...b, herramientas: Array.isArray(b.herramientas) ? JSON.stringify(b.herramientas) : b.herramientas }; },
+    // Cada módulo activo tiene su agente automático (auto = 1): se crea solo y su «Estrategia» (instrucciones) es lo único que la persona escribe
+    beforeList: (c) => asegurarAgentesDeModulo(c.env, { ...c.ctx, role: 'owner' }, c.businessId),
     async beforeCreate(c, row) {
+      if (!row.instrucciones) throw new HttpError(400, 'Falta instrucciones');
       await revisarAgente(c, row);
-      if ((await one(c.env, 'SELECT COUNT(*) n FROM ia_agentes WHERE business_id = ?', c.businessId)).n >= MAX_AGENTES) throw new HttpError(400, `Ya tienes ${MAX_AGENTES} agentes`);
+      if ((await one(c.env, 'SELECT COUNT(*) n FROM ia_agentes WHERE business_id = ? AND auto = 0', c.businessId)).n >= MAX_AGENTES) throw new HttpError(400, `Ya tienes ${MAX_AGENTES} agentes`);
     },
-    beforeUpdate(c, row) { return revisarAgente(c, row); },
+    beforeUpdate(c, row, before) {
+      if (before.auto) { delete row.nombre; delete row.herramientas; if (row.instrucciones === null) row.instrucciones = ''; }   // el agente de módulo: solo Estrategia, activo, programación y autonomía
+      else if ('instrucciones' in row && !row.instrucciones) throw new HttpError(400, 'Falta instrucciones');
+      return revisarAgente(c, row);
+    },
+    beforeDelete(c, before) { if (before.auto) throw new HttpError(400, 'El agente de un módulo no se borra: desactívalo si no lo quieres'); },
     async afterDelete(c, before) { await c.env.DB.prepare('DELETE FROM ia_ejecuciones WHERE agente_id = ? AND business_id = ?').bind(before.id, c.businessId).run(); },
     async decorate(c, rows) {
       const ult = Object.fromEntries((await all(c.env, `SELECT agente_id, estado, resumen, pendientes, created_at FROM ia_ejecuciones e WHERE business_id = ? AND id = (SELECT MAX(id) FROM ia_ejecuciones WHERE agente_id = e.agente_id)`, c.businessId)).map((r) => [r.agente_id, r]));

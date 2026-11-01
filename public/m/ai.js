@@ -327,14 +327,29 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
       ${rows.length ? `<div class="agrid">${rows.map((a) => `<article class="dw-card acard ${a.activo ? '' : 'off'}" data-id="${a.id}">
           <div class="dw-row" style="gap:10px"><span class="aico"><i class="bi ${ICON(a)}"></i></span><div style="flex:1;min-width:0"><b>${esc(a.nombre)}</b><br><span class="text-body-secondary" style="font-size:12px">${a.herramientas.length} herramienta${a.herramientas.length === 1 ? '' : 's'}</span></div>
             ${a.ultima?.pendientes ? `<span class="badge text-bg-primary" title="Ejecuciones con acciones por aprobar">${a.ultima.pendientes}</span>` : ''}</div>
-          <p class="text-body-secondary aitext">${esc(a.instrucciones.slice(0, 160))}${a.instrucciones.length > 160 ? '…' : ''}</p>
+          ${a.auto ? `<p class="text-body-secondary aitext"><b class="small text-uppercase" style="font-size:.68rem;letter-spacing:.04em">Estrategia</b><br>${a.instrucciones ? `${esc(a.instrucciones.slice(0, 160))}${a.instrucciones.length > 160 ? '…' : ''}` : 'Sin estrategia todavía: cuéntale qué debe vigilar y proponer en este módulo.'}</p>`
+            : `<p class="text-body-secondary aitext">${esc(a.instrucciones.slice(0, 160))}${a.instrucciones.length > 160 ? '…' : ''}</p>`}
           <div class="dw-row" style="gap:6px;flex-wrap:wrap"><span class="st ${a.activo ? 'ok' : 'free'}">${a.activo ? PROG[a.programacion] : 'Pausado'}</span><span class="st ${a.autonomia === 'ejecutar' ? 'ok' : 'soon'}">${AUTO[a.autonomia]}</span></div>
           <span class="text-body-secondary" style="font-size:12px">${a.ultima ? `Última vez: ${esc(ago(a.ultima.created_at))}${a.ultima.estado === 'error' ? ' · con error' : ''}` : 'Aún no ha trabajado'}</span>
-          <div class="dw-row" style="gap:6px">${CAN ? '<button class="btn btn-sm btn-primary" data-run><i class="bi bi-play-fill"></i> Ejecutar ahora</button>' : ''}<button class="btn btn-sm btn-outline-secondary" data-hist>Historial</button>${CAN ? '<button class="btn btn-sm btn-outline-secondary" data-edit>Editar</button>' : ''}</div>
-        </article>`).join('')}</div>`
+          <div class="dw-row" style="gap:6px">${CAN ? '<button class="btn btn-sm btn-primary" data-run><i class="bi bi-play-fill"></i> Ejecutar ahora</button>' : ''}<button class="btn btn-sm btn-outline-secondary" data-hist>Historial</button>${CAN ? `<button class="btn btn-sm btn-outline-secondary" data-edit>${a.auto ? 'Estrategia' : 'Editar'}</button>` : ''}</div>
+        </article>`).join('')}</div>${CAN && !rows.some((a) => !a.auto) ? `<div class="dw-card mt-3"><h2 class="h6">¿Necesitas un agente distinto?</h2><p class="small text-body-secondary">Cada módulo ya tiene el suyo. Si quieres otro con un rol propio, empieza con una plantilla.</p><div class="tplgrid">${st.map((t, i) => `<button class="tplbtn" data-st="${i}"><i class="bi ${ICON(t)}"></i><b>${esc(t.nombre)}</b><span>${esc(String(t.instrucciones || '').split('\n')[0].slice(0, 110))}</span></button>`).join('')}<button class="tplbtn" data-blank><i class="bi bi-plus-circle"></i><b>En blanco</b><span>Defines el rol, las herramientas y cuándo trabaja.</span></button></div></div>` : ''}`
       : `<div class="dw-card"><h2 class="h6">Empieza con una plantilla</h2>${CAN ? `<div class="tplgrid">${st.map((t, i) => `<button class="tplbtn" data-st="${i}"><i class="bi ${ICON(t)}"></i><b>${esc(t.nombre)}</b><span>${esc(String(t.instrucciones || '').split('\n')[0].slice(0, 110))}</span></button>`).join('')}<button class="tplbtn" data-blank><i class="bi bi-plus-circle"></i><b>En blanco</b><span>Defines el rol, las herramientas y cuándo trabaja.</span></button></div>` : '<p class="text-body-secondary mb-0">Aún no hay agentes.</p>'}</div>`}`;
     const grupos = Object.entries(herr.reduce((g, t) => { (g[t.modulo] ||= []).push(t); return g; }, {}));
+    const estrategia = (a) => {   // el agente automático de un módulo: solo se escribe su Estrategia (y se activa o pausa)
+      const { el: m, m: mm } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Estrategia · ${esc(a.nombre)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body"><label class="form-label small mb-1">¿Qué debe vigilar y proponer este agente?</label>
+          <textarea class="form-control" name="instrucciones" rows="7" maxlength="4000" placeholder="Ej.: Cada semana revisa lo vencido, prioriza lo más urgente y propón mensajes de cobro amables.">${esc(a.instrucciones || '')}</textarea>
+          <div class="form-text">IA Diwilo también la tiene en cuenta cuando trabaja en este módulo. Si tu estrategia pide cambios, el agente los <b>propone</b> y tú los apruebas. Para cambiar cuándo corre o si actúa solo, pídeselo a IA Diwilo.</div>
+          <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="activo" id="agAct2" ${a.activo ? 'checked' : ''}><label class="form-check-label" for="agAct2">Activo</label></div>
+          <div class="small text-danger mt-2" data-err></div></div>
+        <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button> <button class="btn btn-primary">Guardar</button></div></form>`, { size: 'modal-lg' });
+      $('form', m).onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target;
+        try { await api(`${B}/agentes/${a.id}`, { method: 'PATCH', body: { instrucciones: f.instrucciones.value.trim(), activo: f.activo.checked } }); mm.hide(); toast('Estrategia guardada'); agentes(el); } catch (x) { $('[data-err]', m).textContent = x.message; }
+      };
+    };
     const editar = (a, base) => {
+      if (a?.auto) return estrategia(a);
       const d = a || base || { programacion: 'manual', autonomia: 'proponer', activo: 1, herramientas: [] };
       const { el: m, m: mm } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${a ? 'Editar agente' : 'Nuevo agente'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
         <div class="modal-body"><div class="row g-2"><div class="col-md-8"><label class="form-label small mb-1">Nombre</label><input class="form-control" name="nombre" value="${esc(d.nombre || '')}" required maxlength="80"></div>
@@ -372,7 +387,7 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
       pintar();
     };
     el.onclick = async (e) => {
-      if (e.target.closest('[data-new]')) return editar(null);
+      if (e.target.closest('[data-new],[data-blank]')) return editar(null);
       const s = e.target.closest('[data-st]'); if (s) return editar(null, { ...st[+s.dataset.st], programacion: 'manual', autonomia: 'proponer', activo: 1, herramientas: [] });
       const fl = e.target.closest('[data-fl]');
       if (fl) { // un flujo de un módulo (el mismo estándar del MCP): su prompt y sus herramientas

@@ -3,6 +3,7 @@ import { crud, all, one } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { usoDelDia, TOPE_DIA, dayCo } from '../../lib/ia.js';
 import { ENTITIES } from './api.js';
+import { editarAgenteDeModulo } from './agentes.js';
 
 const api = crud({ get() {}, post() {}, patch() {}, delete() {} }, { base: '/ia/ia', modulo: 'ai', entities: ENTITIES });
 const S = (props, required = []) => ({ type: 'object', properties: props, ...(required.length ? { required } : {}), additionalProperties: false });
@@ -44,6 +45,16 @@ export default [
     run: async (c, a) => {
       const r = await api.create(c, 'chats', { nombre: a.nombre, saludo: a.saludo, instrucciones: a.instrucciones, whatsapp: a.whatsapp, activo: true });
       await audit(c, `Creó el chat «${String(a.nombre).slice(0, 60)}»`, { modulo: 'ai', origen: c.origin });
+      return r;
+    },
+  },
+  {
+    name: 'ai.gestionar_agente_modulo', modulo: 'ai', rol: 'admin', tipo: 'escritura',
+    description: 'Cambia el agente de un módulo (cada módulo activo tiene el suyo): su Estrategia (lo que debe vigilar y proponer), si está activo, cuándo corre y si propone o actúa solo. Solo cambia lo que envíes.',
+    inputSchema: S({ modulo: { type: 'string', description: 'Id del módulo, p. ej. finanzas, marketing, whatsapp' }, instrucciones: { type: 'string', description: 'La Estrategia: texto libre, máximo 4000 letras' }, activo: { type: 'boolean' }, programacion: { type: 'string', enum: ['manual', 'diario', 'semanal'] }, autonomia: { type: 'string', enum: ['proponer', 'ejecutar'] } }, ['modulo']),
+    run: async (c, a) => {
+      const r = await editarAgenteDeModulo(c.env, c.ctx, c.businessId, a);
+      await audit(c, `Cambió el agente del módulo ${String(a.modulo).slice(0, 40)}`, { modulo: 'ai', origen: c.origin });
       return r;
     },
   },
