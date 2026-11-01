@@ -169,6 +169,15 @@ export function routes(r) {
     await audit(c, `${b.aprobar === false ? 'Rechazó' : 'Aprobó'} una propuesta de un agente`, { modulo: MOD, detalle: { herramienta: res.paso.herramienta } });
     return json({ paso: res.paso, pendientes: res.pendientes });
   });
+  // Conversar con el agente de un módulo: responde como ese agente (su Estrategia, sus herramientas y lo que ha hecho). Lo que cambie datos queda como propuesta.
+  r.post(`${B}/agentes/:id/chat`, `tenant:${MOD}`, async (c) => {
+    const ag = await one(c.env, 'SELECT * FROM ia_agentes WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId);
+    if (!ag) throw new HttpError(404, 'Agente no encontrado');
+    const b = await readJson(c.req);
+    const res = await asistente(c.env, { org: c.businessId, ctx: { ...c.ctx, readOnly: c.readOnly }, mensajes: b.mensajes, agente: ag });
+    if (res.status !== 200) throw new HttpError(res.status, res.error);
+    return json({ respuesta: res.respuesta, pasos: res.pasos, siguientes: res.siguientes });
+  });
   r.post(`${B}/asistente`, `tenant:${MOD}`, async (c) => {
     const b = await readJson(c.req), progresoId = /^[\w-]{8,40}$/.test(b.progreso || '') ? b.progreso : null;
     const res = await asistente(c.env, { org: c.businessId, ctx: { ...c.ctx, readOnly: c.readOnly }, mensajes: b.mensajes, progresoId });

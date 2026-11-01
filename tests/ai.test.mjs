@@ -97,6 +97,9 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('IA: listar de nuevo no duplica los agentes de módulo', (await A.app(`${X}/agentes`)).data.rows.filter((r) => r.modulo === 'marketing').length === 1);
   check('IA: la Estrategia del agente de módulo se edita y su nombre/herramientas no cambian', (await A.app(`${X}/agentes/${mk.id}`, { method: 'PATCH', body: { instrucciones: 'Prioriza leads de la última semana', nombre: 'Otro', herramientas: JSON.stringify([]) } })).status === 200
     && (await A.app(`${X}/agentes`)).data.rows.find((r) => r.id === mk.id).instrucciones === 'Prioriza leads de la última semana' && (await A.app(`${X}/agentes`)).data.rows.find((r) => r.id === mk.id).nombre === mk.nombre);
+  const chat = await A.app(`${X}/agentes/${mk.id}/chat`, { method: 'POST', body: { mensajes: [{ role: 'user', content: GUION(['{"accion":"fin","respuesta":"Esto es lo que he hecho."}']) }] } });
+  check('IA: se conversa con el agente de un módulo (responde como él)', chat.status === 200 && chat.data.respuesta === 'Esto es lo que he hecho.', JSON.stringify(chat.data).slice(0, 200));
+  check('IA: B no conversa con el agente de A (404)', (await B.app(`${X}/agentes/${mk.id}/chat`, { method: 'POST', body: { mensajes: [{ role: 'user', content: 'hola' }] } })).status === 404);
   check('IA: el agente de módulo no se borra (400) y se puede vaciar su Estrategia', (await A.app(`${X}/agentes/${mk.id}`, { method: 'DELETE' })).status === 400 && (await A.app(`${X}/agentes/${mk.id}`, { method: 'PATCH', body: { instrucciones: '' } })).status === 200);
   check('IA: un agente libre sigue exigiendo instrucciones', (await A.app(`${X}/agentes`, { method: 'POST', body: { nombre: 'Sin texto', herramientas: JSON.stringify(['marketing.resumen']) } })).status === 400);
   const gest = await A.app('/api/ai/herramientas');   // la lista para agentes libres no ofrece escrituras del módulo ai

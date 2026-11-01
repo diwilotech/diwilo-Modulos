@@ -3,6 +3,8 @@ DW.ready.then((me) => {
   if (!me.pageAllowed) return;
   const { api, esc, toast, confirm, modal } = window.App;
   const C = window.App.Crud, { money, num, day, chip } = C;
+  // Cabecera del módulo: el agente (ícono y nombre), las estadísticas en líneas pequeñas y el chat; si el componente no carga, tarjetas como antes
+  const cabeceraAgente = async (el, modulo, tiles) => { if (!window.DwAgenteMod) await new Promise((ok) => { const s = document.createElement('script'); s.src = '/m/agentemod.js'; s.onload = s.onerror = ok; document.head.appendChild(s); }); return window.DwAgenteMod ? window.DwAgenteMod.montar(el, { modulo, stats: tiles }) : C.kpis(el, tiles); };
   const B = '/api/nomina', RO = me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const hoy = C.todayCo(), mesHoy = hoy.slice(0, 7);
@@ -104,7 +106,7 @@ DW.ready.then((me) => {
         <div class="col-lg-5"><div class="nom-card h-100"><h2 class="h6 mb-0">${uno ? `¿A quién llega lo de ${esc(uno.name.split(' ')[0])}?` : '¿A quién llega el costo del mes?'}</h2><div class="small text-body-secondary">Del costo total de ${money(gTot)}: cuánto va a cada parte.</div>
           ${pila(items, { on: calSel?.k })}<div data-leg>${items.filter((x) => x.v > 0).map((x) => `<div class="nom-leg ${calSel?.k === x.k ? 'on' : ''}" data-parte="${x.k}"><span class="dot" style="background:${x.c}"></span><span class="flex-grow-1">${esc(x.l)}</span><b>${money(x.v)}</b><span class="small text-body-secondary" style="width:38px;text-align:right">${pct(x.v, gTot)}</span></div>`).join('') || '<div class="small text-body-secondary">No hay personas vinculadas este mes.</div>'}</div></div></div></div>
       <div data-sel class="mb-3"></div><div data-cuerpo></div></div>`;
-    C.kpis($('[data-k]', el), [['A pagar a las personas', money(uno ? uno.neto : t.empleados), 'neto después de descuentos', 'bi-wallet2'], ['Seguridad social y parafiscales', money(uno ? uno.aportes : t.aportes), 'a cargo del empleador', 'bi-shield-check'], ['Retención (DIAN)', money(uno ? uno.partes.dian : t.dian), 'se paga el mes siguiente', 'bi-bank'],
+    cabeceraAgente($('[data-k]', el), 'nomina', [['A pagar a las personas', money(uno ? uno.neto : t.empleados), 'neto después de descuentos', 'bi-wallet2'], ['Seguridad social y parafiscales', money(uno ? uno.aportes : t.aportes), 'a cargo del empleador', 'bi-shield-check'], ['Retención (DIAN)', money(uno ? uno.partes.dian : t.dian), 'se paga el mes siguiente', 'bi-bank'],
       ['Provisiones', money(uno ? uno.provisiones : t.provisiones), 'cesantías, intereses, prima, vacaciones', 'bi-piggy-bank'], [uno ? `Cuánto cuesta ${uno.name.split(' ')[0]}` : 'Costo total del mes', money(uno ? uno.costo : t.costo), 'devengado + aportes + provisiones', 'bi-calculator']]);
 
     /* detalle de lo seleccionado: un día, un pago, una parte de la gráfica */

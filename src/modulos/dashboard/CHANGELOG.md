@@ -3,6 +3,7 @@
 ## 1.7.0 · Inicio pasivo (los módulos empujan)
 - Inicio deja de llamar en vivo a Finanzas, Marketing y Mensajes: lee `dashboard_estado`, donde cada módulo deja sus indicadores y alertas (`empujarTablero`, `src/lib/tablero.js`). Se recalcula tras cada escritura del módulo (API y herramientas de IA), cuando entra un chat en Mensajes y cada día en el cron. Un módulo central sin estado se calcula una vez al abrir Inicio (autocorrectivo; sirve de relleno al desplegar).
 - RPC `Modulos.empujarTablero(ctx, modulo, { widgets, alertas })` para que una app empuje el estado de sus módulos PROPIOS. La respuesta de `GET /api/dashboard` no cambia: ningún frontend se toca.
+- Inicio ya no se actualiza por tiempo (quitados el sondeo de la figura cada 30 s y el repintado cada 90 s): se pinta al abrirse y al volver a la pestaña tras 10 minutos.
 - `GET /api/dashboard/agentes` trae `modulo` y `auto` de cada agente.
 
 ## 1.6.0 · 2026-10-29

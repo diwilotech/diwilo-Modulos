@@ -218,14 +218,24 @@ const ESTILO = `ESTILO DE RESPUESTA
 - Al final, ofrece 2 o 3 "siguientes" (preguntas de menos de 40 caracteres) que la persona probablemente quiera hacer después.`;
 
 /* ---------- asistente interactivo del negocio ---------- */
-export async function asistente(env, { org, ctx, mensajes, progresoId = null }) {
+// Con `agente`: conversa como EL agente de un módulo (solo sus herramientas, su Estrategia y lo que ha hecho); sin él, es IA Diwilo (todos los módulos).
+export async function asistente(env, { org, ctx, mensajes, progresoId = null, agente = null }) {
   const hist = (Array.isArray(mensajes) ? mensajes : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
   if (!hist.length || hist[hist.length - 1].role !== 'user') return { status: 400, error: 'Escribe tu pregunta' };
   await asegurarAgentesDeModulo(env, ctx, org).catch((e) => console.error('agentes de módulo', e.message));
-  const herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura' || t.name === 'ai.gestionar_agente_modulo');   // IA Diwilo SÍ puede gestionar los agentes de módulo (siempre como propuesta)
-  const guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai');
-  const estrategias = await estrategiasDe(env, org).catch(() => []);
-  const system = sistemaDeHerramientas({ guias, estrategias, flujos: flujosEntre(herr), rol: 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones: `Responde en español. Para preguntas sobre el negocio consulta con herramientas antes de contestar.\n\n${ESTILO}`, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
+  let herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura' || t.name === 'ai.gestionar_agente_modulo');   // IA Diwilo SÍ puede gestionar los agentes de módulo (siempre como propuesta)
+  let guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai'), estrategias = await estrategiasDe(env, org).catch(() => []);
+  let rol = 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones = `Responde en español. Para preguntas sobre el negocio consulta con herramientas antes de contestar.\n\n${ESTILO}`;
+  if (agente) {
+    const mias = new Set(parseList(agente.herramientas));
+    herr = herr.filter((t) => mias.has(t.name) && t.modulo !== 'ai');
+    guias = guias.filter((g) => g.modulo === agente.modulo); estrategias = [];
+    const ult = await all(env, 'SELECT estado, resumen, created_at FROM ia_ejecuciones WHERE agente_id = ? AND business_id = ? ORDER BY id DESC LIMIT 5', agente.id, org);
+    rol = `Eres «${agente.nombre}», el agente de IA del módulo ${nombreDeModulo(agente.modulo || '')} de este negocio. Conversas con el equipo: cuentas qué has hecho, qué hay pendiente y haces o propones lo que te piden, solo con las herramientas de tu módulo.`;
+    instrucciones = `Responde en español.${agente.instrucciones ? `\n\nTU ESTRATEGIA (lo que la persona dejó dicho para ti; respétala):\n${agente.instrucciones}` : ''}
+\nLO ÚLTIMO QUE HICISTE (tus ejecuciones, de la más reciente a la más antigua; si te preguntan qué has hecho, respóndelo con esto y con herramientas de lectura):\n${ult.length ? ult.map((u) => `- ${new Date(u.created_at - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' ')} · ${u.estado}: ${String(u.resumen || '').replace(/\s+/g, ' ').slice(0, 300)}`).join('\n') : '(aún no has trabajado)'}\n\n${ESTILO}`;
+  }
+  const system = sistemaDeHerramientas({ guias, estrategias, flujos: flujosEntre(herr), rol, instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
   const escribir = escritor(env, org, progresoId);
   if (escribir) await env.DB.prepare('DELETE FROM ia_progreso WHERE updated_at < ?').bind(now() - 86400000).run().catch(() => {});
   try {

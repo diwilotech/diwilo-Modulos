@@ -11,6 +11,8 @@ DW.ready.then((me) => {
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
   }
   const C = window.App.Crud;
+  // Cabecera del módulo: el agente (ícono y nombre), las estadísticas en líneas pequeñas y el chat; si el componente no carga, tarjetas como antes
+  const cabeceraAgente = async (el, modulo, tiles) => { if (!window.DwAgenteMod) await new Promise((ok) => { const s = document.createElement('script'); s.src = '/m/agentemod.js'; s.onload = s.onerror = ok; document.head.appendChild(s); }); return window.DwAgenteMod ? window.DwAgenteMod.montar(el, { modulo, stats: tiles }) : C.kpis(el, tiles); };
   const { money, num, day, monthName, chip } = C;
   const B = '/api/finanzas';
   const $ = (s, el = document) => el.querySelector(s);
@@ -221,7 +223,7 @@ DW.ready.then((me) => {
     async function load() {
       let s; try { s = await api(`${B}/summary${m.value ? `?month=${m.value}` : ''}`); } catch (x) { $('[data-kpis]', el).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
       m.value = s.month;
-      C.kpis($('[data-kpis]', el), [
+      cabeceraAgente($('[data-kpis]', el), 'finanzas', [
         ['Ingresos del mes', money(s.totals.income), '', 'bi-arrow-down-circle'], ['Gastos del mes', money(s.totals.expense), '', 'bi-arrow-up-circle'],
         ['Resultado', `<span class="${s.totals.net >= 0 ? 'text-success' : 'text-danger'}">${money(s.totals.net)}</span>`, '', 'bi-wallet2'],
         ['Presupuesto del mes', money(s.totals.budget), s.totals.budget ? `usado ${Math.round(s.totals.expense / s.totals.budget * 100)}%` : 'sin presupuesto', 'bi-bullseye'],

@@ -11,6 +11,8 @@ DW.ready.then((me) => {
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
   }
   const C = window.App.Crud;
+  // Cabecera del módulo: el agente (ícono y nombre), las estadísticas en líneas pequeñas y el chat; si el componente no carga, tarjetas como antes
+  const cabeceraAgente = async (el, modulo, tiles) => { if (!window.DwAgenteMod) await new Promise((ok) => { const s = document.createElement('script'); s.src = '/m/agentemod.js'; s.onload = s.onerror = ok; document.head.appendChild(s); }); return window.DwAgenteMod ? window.DwAgenteMod.montar(el, { modulo, stats: tiles }) : C.kpis(el, tiles); };
   const { money, num, pct, day, chip } = C;
   const B = '/api/marketing';
   const $ = (s, el = document) => el.querySelector(s);
@@ -96,7 +98,7 @@ DW.ready.then((me) => {
       let s; try { s = await api(`${B}/summary?${qs}`); } catch (x) { $('[data-kpis]', el).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
       from.value = s.from; to.value = s.to;
       const open = s.deals.pipeline.reduce((a, p) => a + p.value, 0);
-      C.kpis($('[data-kpis]', el), [
+      cabeceraAgente($('[data-kpis]', el), 'marketing', [
         ['Leads nuevos', num(s.contacts.new), '', 'bi-person-plus'], ['Leads abiertos', num(s.contacts.by_stage.lead || 0), '', 'bi-hourglass'], ['Clientes', num(s.contacts.by_stage.cliente || 0), '', 'bi-person-check'],
         ['Oportunidades abiertas', money(open), `${num(s.deals.pipeline.reduce((a, p) => a + p.n, 0))} en curso`, 'bi-funnel'],
         ['Ganado en el periodo', money(s.deals.won_value), `${num(s.deals.won)} cerradas · ${pct(s.deals.win_rate)} de éxito`, 'bi-trophy'],

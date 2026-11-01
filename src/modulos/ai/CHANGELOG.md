@@ -3,6 +3,7 @@
 ## 1.10.0 — Un agente por módulo, con «Estrategia»
 - Cada módulo activo (central o propio de la app) tiene siempre su agente (`ia_agentes.modulo`, `auto = 1`): se crea y se mantiene solo (`asegurarAgentesDeModulo`, antes de listar agentes, del asistente y del Inicio). La persona solo escribe su **Estrategia** (el campo `instrucciones`) y lo activa o pausa; no se borra ni cuenta para el tope de 20 agentes. Los agentes libres no cambian.
 - IA Diwilo respeta las Estrategias (bloque ESTRATEGIAS en su prompt, `estrategiasDe`) y puede gestionarlas con la herramienta `ai.gestionar_agente_modulo` (Estrategia, activo, programación, autonomía; siempre como propuesta que la persona aprueba).
+- `POST /api/ai/agentes/:id/chat`: conversar con el agente de un módulo (solo sus herramientas, su Estrategia y un resumen de sus últimas ejecuciones; lo que cambie datos queda como propuesta). Componente `/m/agentemod.js` (`DwAgenteMod.montar`): cabecera de cada módulo con el agente, estadísticas en líneas pequeñas y el chat; reemplaza las tarjetas de estadísticas.
 - Migración `0042_agente_modulo_y_tablero.sql`. `crud.js` admite `beforeList(c)`.
 
 ## 1.9.0 — Historial del asistente

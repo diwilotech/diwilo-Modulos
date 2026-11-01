@@ -104,14 +104,7 @@ DW.ready.then((me) => {
       fig = K.montar(host, { linea: F.linea, valores, activos, ir });
       if (!fig) { host.closest('.dw-card').remove(); return; }
       figUltimo = Math.max(figUltimo, F.ultimo || 0);
-      clearInterval(figTimer);
-      figTimer = setInterval(async () => {
-        if (document.hidden || !fig) return;
-        const r = await api(`/api/dashboard/figura?desde=${figUltimo}`).catch(() => null);
-        if (!r) return;
-        figUltimo = Math.max(figUltimo, r.ultimo || 0);
-        r.movimientos.forEach((m, i) => { const f = fig.flujo(m.tipo); if (f) setTimeout(() => fig && fig.mover(f[0], f[1]), i * 700); });
-      }, 30000);
+      // Sin sondeo: el movimiento nuevo de la figura se ve al volver a abrir o enfocar Inicio (no se consulta cada 30 s)
     } catch (x) { console.warn('inicio', x.message); host.closest('.dw-card')?.remove(); }
   }
 
@@ -218,7 +211,8 @@ DW.ready.then((me) => {
   });
   view.addEventListener('keydown', (e) => { const r = e.key === 'Enter' && e.target.closest('.dsh-alerta[data-ruta]'); if (r) ir(r.dataset.ruta); });
 
-  const ciclo = () => { clearInterval(timer); timer = setInterval(() => { if (!document.hidden) pintar(false); }, 90000); };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) pintar(false); });
-  pintar(true).then(ciclo);
+  // Sin actualización automática por tiempo: Inicio se pinta al abrirse y solo se vuelve a pintar al regresar a la pestaña si pasaron más de 10 minutos (el estado lo empujan los módulos cuando cambia algo)
+  let ultima = Date.now();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - ultima > 600000) { ultima = Date.now(); pintar(false); } });
+  pintar(true);
 });
