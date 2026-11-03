@@ -12,7 +12,7 @@ const MODELO = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 // 'auto' = como antes (Gemini si hay clave, si no Workers AI). Cada proveedor necesita su secreto: ANTHROPIC_API_KEY, GEMINI_API_KEY o el binding AI.
 export const PROVEEDORES = {
   claude: { nombre: 'Claude (Anthropic)', secreto: 'ANTHROPIC_API_KEY', modelo: 'claude-sonnet-5-5', modelos: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'] },
-  gemini: { nombre: 'Gemini (Google)', secreto: 'GEMINI_API_KEY', modelo: 'gemini-2.5-flash', modelos: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
+  gemini: { nombre: 'Gemini (Google)', secreto: 'GEMINI_API_KEY', modelo: 'gemini-3.6-flash', modelos: ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-2.5-flash-lite'] },
   'workers-ai': { nombre: 'Workers AI (Cloudflare)', secreto: 'binding AI', modelo: MODELO, modelos: [MODELO] },
 };
 // Claves: las puestas desde Diwilo Admin (tabla ia_claves_prov, cifradas con CLAVES_KEK) van primero y el secreto de Cloudflare queda de última opción
@@ -112,7 +112,7 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
       }
       const model = modeloDe(env, plat, 'gemini');
       const generationConfig = { maxOutputTokens: maxTokens, temperature };
-      if (/flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      if (/2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
         body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: history.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig }),
@@ -152,7 +152,7 @@ export async function entenderArchivo(env, org, { bytes, mime, tipo, fuente = 'm
     try {
       const model = modeloDe(env, plat, 'gemini');
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: consigna }, { inline_data: { mime_type: mime, data: aBase64(bytes) } }] }], generationConfig: { maxOutputTokens: 500, temperature: 0.2, ...(/flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } }) });
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: consigna }, { inline_data: { mime_type: mime, data: aBase64(bytes) } }] }], generationConfig: { maxOutputTokens: 500, temperature: 0.2, ...(/2\.5-flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } }) });
       if (r.ok) { const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((x) => x.text).join('').trim(); if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: d.usageMetadata?.promptTokenCount ?? Math.ceil(bytes.length / 1000) + 100, tout: d.usageMetadata?.candidatesTokenCount ?? est(text) }); return text; } }
     } catch (e) { console.error('gemini media', e.message); }
   }

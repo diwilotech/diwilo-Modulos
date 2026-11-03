@@ -4,7 +4,7 @@ DW.ready.then((me) => {
   const { api, esc, toast, confirm, modal } = window.App;
   const C = window.App.Crud, { money, num, day, chip } = C;
   // Cabecera del módulo: el agente (ícono y nombre), las estadísticas en líneas pequeñas y el chat; si el componente no carga, tarjetas como antes
-  const cabeceraAgente = async (el, modulo, tiles) => { if (!window.DwAgenteMod) await new Promise((ok) => { const s = document.createElement('script'); s.src = '/m/agentemod.js'; s.onload = s.onerror = ok; document.head.appendChild(s); }); return window.DwAgenteMod ? window.DwAgenteMod.montar(el, { modulo, stats: tiles }) : C.kpis(el, tiles); };
+  const cabeceraAgente = async (el, modulo, tiles) => { if (!window.DwAgenteMod) await new Promise((ok) => { const s = document.createElement('script'); s.src = (location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/') + 'agentemod.js'; s.onload = s.onerror = ok; document.head.appendChild(s); }); return window.DwAgenteMod ? window.DwAgenteMod.montar(el, { modulo, stats: tiles }) : C.kpis(el, tiles); };
   const B = '/api/nomina', RO = me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const hoy = C.todayCo(), mesHoy = hoy.slice(0, 7);
