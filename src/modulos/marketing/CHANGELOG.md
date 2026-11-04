@@ -1,5 +1,8 @@
 # Marketing — cambios
 
+## 1.8.0
+- Los contactos guardan el **nombre de la empresa** (como la llamas) y su **razón social** con S.A.S. o el tipo que sea, más el NIT. Proyectos usa la razón social en cotizaciones y cuentas de cobro.
+
 ## 1.7.0 · 2026-10-20
 - **Menos pantallas:** se quitan de la interfaz Tareas y automatizaciones e Informes (la API y las herramientas de IA siguen igual).
 - **Embudo por link:** cada link de rastreo es una tarjeta con **Vistas → Interesados → Matriculados**. Los interesados son quienes dejan sus datos en la página de matrícula (`mk_contacts.link_id`, migración 0017); al matricularlos en la app pasan a cliente (RPC `lead` y `matriculado`).

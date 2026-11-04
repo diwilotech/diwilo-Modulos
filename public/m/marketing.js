@@ -39,7 +39,7 @@ DW.ready.then((me) => {
   const stepsOf = (a) => { try { const v = JSON.parse(a.task_title); if (Array.isArray(v)) return v; } catch {} return a.task_title ? [{ t: a.task_title, d: 0 }] : []; };
   const F = {
     contacts: [
-      { k: 'name', label: 'Nombre', required: true }, { k: 'company', label: 'Empresa' }, { k: 'email', label: 'Correo', type: 'email' }, { k: 'phone', label: 'Teléfono' },
+      { k: 'name', label: 'Nombre', required: true }, { k: 'company', label: 'Nombre de la empresa', placeholder: 'Madetableros' }, { k: 'legal_name', label: 'Razón social', placeholder: 'Distribuciones Madetableros S.A.S.' }, { k: 'tax_id', label: 'NIT' }, { k: 'email', label: 'Correo', type: 'email' }, { k: 'phone', label: 'Teléfono' },
       { k: 'stage', label: 'Etapa', type: 'select', options: Object.entries(STAGE_C) }, { k: 'source', label: 'Origen', placeholder: 'Instagram, referido, volante…' },
       { k: 'campaign_id', label: 'Campaña', ref: 'campaigns' }, { k: 'owner', label: 'Responsable' }, { k: 'last_contact_at', label: 'Último contacto', type: 'date' },
       { k: 'tags', label: 'Etiquetas', placeholder: 'vip, barrio' }, { k: 'notes', label: 'Notas', type: 'long' }],
@@ -148,7 +148,7 @@ DW.ready.then((me) => {
     t.load();
     el.addEventListener('click', (e) => {
       if (!e.target.closest('[data-csv]')) return;
-      const cols = [['Nombre', 'name'], ['Empresa', 'company'], ['Correo', 'email'], ['Teléfono', 'phone'], ['Etapa', 'stage'], ['Origen', 'source'], ['Responsable', 'owner'], ['Último contacto', 'last_contact_at'], ['Notas', 'notes']];
+      const cols = [['Nombre', 'name'], ['Empresa', 'company'], ['Razón social', 'legal_name'], ['NIT', 'tax_id'], ['Correo', 'email'], ['Teléfono', 'phone'], ['Etapa', 'stage'], ['Origen', 'source'], ['Responsable', 'owner'], ['Último contacto', 'last_contact_at'], ['Notas', 'notes']];
       const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
       const csv = [cols.map((x) => x[0]).join(';'), ...t.rows().map((r) => cols.map(([, k]) => q(r[k])).join(';'))].join('\r\n');
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = 'clientes-y-leads.csv'; a.click();

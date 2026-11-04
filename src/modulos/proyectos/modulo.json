@@ -1,7 +1,7 @@
 {
   "id": "proyectos",
   "nombre": "Proyectos",
-  "version": "1.4.1",
+  "version": "1.5.1",
   "descripcion": "Proyectos y clientes con sus cotizaciones y cuentas de cobro en un solo lugar: cotizaciones con consecutivo, líneas en pesos o dólares, vigencia, condiciones y PDF con tu firma; al aprobar una cotización se crea su cuenta de cobro (sin pagar) en Finanzas, ligada al proyecto. Todo se puede pedir a la IA.",
   "icono": "bi-kanban",
   "menu": {
@@ -44,7 +44,7 @@
   "pagina": "/m/proyectos.js",
   "central": true,
   "mcp": {
-    "guia": "Proyectos: cada PROYECTO es una EMPRESA (solo su nombre; su contacto vive también en Marketing con el correo). Sus cotizaciones son los trabajos. Crea la empresa con crear_proyecto (nombre, NIT, correo, ciudad); si cambias sus datos con editar_proyecto se copian a todas sus cotizaciones y cuentas de cobro. Para cotizar usa crear_cotizacion (un valor total o líneas; si la persona solo da un valor, no pidas más detalle); `incluye`, `necesitamos`, `plazo` y `sugerencias` (opcionales, aparte del total) enriquecen el PDF y se cambian con editar_cotizacion. Cuando el cliente aprueba, usa cotizacion_a_cuenta_de_cobro (puedes pasar `lineas` para cobrar solo algunas, p. ej. un anticipo): crea la cuenta de cobro en Finanzas sin pagar. Para enviarlas: preparar_correo muestra el borrador y enviar_por_correo lo manda por Mensajes con el enlace público al PDF (lleva tu firma). Para una cuenta de cobro suelta usa finanzas_crear_cuenta_cobro (con `proyecto_id`). El RUT y la certificación bancaria se suben desde la pantalla (la IA no sube archivos); ver_documentos dice cuáles faltan y, si existen, los correos los enlazan solos. enviar_por_correo adjunta el PDF (si la pantalla lo arma), el RUT y la certificación bancaria; desde MCP/IA sale con los documentos subidos y el enlace al PDF.",
+    "guia": "Proyectos: cada PROYECTO es una EMPRESA (solo su nombre; su contacto vive también en Marketing con el correo). Sus cotizaciones son los trabajos. Crea la empresa con crear_proyecto (nombre, NIT, correo, ciudad); si cambias sus datos con editar_proyecto se copian a todas sus cotizaciones y cuentas de cobro. Para cotizar usa crear_cotizacion (un valor total o líneas; si la persona solo da un valor, no pidas más detalle); `incluye`, `necesitamos`, `plazo` y `sugerencias` (opcionales, aparte del total) enriquecen el PDF y se cambian con editar_cotizacion. Cuando el cliente aprueba, usa cotizacion_a_cuenta_de_cobro (puedes pasar `lineas` para cobrar solo algunas, p. ej. un anticipo): crea la cuenta de cobro en Finanzas sin pagar. Para enviarlas: preparar_correo muestra el borrador y enviar_por_correo lo manda por Mensajes con el enlace público al PDF (lleva tu firma). Para una cuenta de cobro suelta usa finanzas_crear_cuenta_cobro (con `proyecto_id`). El RUT y la certificación bancaria se suben desde la pantalla (la IA no sube archivos); ver_documentos dice cuáles faltan y, si existen, los correos los enlazan solos. enviar_por_correo adjunta el PDF (si la pantalla lo arma), el RUT y la certificación bancaria; desde MCP/IA sale con los documentos subidos y el enlace al PDF. Una cotización admite varias cuentas de cobro (anticipo y saldo): pasa `valor` o `lineas` a cotizacion_a_cuenta_de_cobro. La empresa guarda nombre comercial y `razon_social` (con S.A.S.); los PDF usan la razón social.",
     "ejemplos": [
       "Crea la empresa DACH Institut con correo comunicaciones@dach-institut.com",
       "Hazle una cotización a DACH por $150.000 por la landing, con sugerencias aparte",

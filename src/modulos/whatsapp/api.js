@@ -67,8 +67,19 @@ async function cuentaDeGoogle(c, id) {
   if (!cu) throw new HttpError(400, 'Esa cuenta de Google no está vinculada: vincúlala en la pestaña Google');
   return cu;
 }
+// Cada cuenta de Google conectada con Gmail (hola@, ventas@…) tiene su propia bandeja de correo: de ahí salen los correos y ahí llegan las respuestas
+export async function bandejasDeGoogle(c) {
+  const cuentas = await all(c.env, "SELECT id, email, scopes FROM wa_google_cuentas WHERE business_id = ? ORDER BY id", c.businessId), creadas = [];
+  for (const cu of cuentas) {
+    if (!String(cu.scopes || '').includes('gmail')) continue;
+    if (await one(c.env, "SELECT 1 FROM wa_bandejas WHERE canal = 'correo' AND (lower(phone_number_id) = ? OR (business_id = ? AND cuenta_google = ?))", String(cu.email).toLowerCase(), c.businessId, cu.id)) continue;
+    try { await api.create(c, 'bandejas', { nombre: cu.email, canal: 'correo', cuenta_google: cu.id }); creadas.push(cu.email); } catch (e) { console.error('bandeja de Google', cu.email, e.message); }
+  }
+  return creadas;
+}
 export const ENTITIES = {
   bandejas: {
+    async beforeList(c) { await bandejasDeGoogle(c).catch(() => []); },
     table: 'wa_bandejas', label: 'la bandeja', title: 'nombre', search: ['nombre', 'telefono'], order: 'created_at',
     fields: { nombre: 'text!', canal: Object.keys(CANALES), telefono: 'text', phone_number_id: 'text', waba_id: 'text', url_salida: 'url', reenviar_a: 'email', cuenta_plantillas: 'text', cuenta_google: 'int', responder_desde: ['auto', 'cuenta'], autoguardar: 'bool+', activo: 'bool+' },
     leer: 'tenant', crear: 'manager', borrar: 'manager',

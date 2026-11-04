@@ -34,37 +34,38 @@ async function precio(c, row, before = {}) {
 
 const TXT = (v) => (v == null ? '' : String(v).trim());
 // Contacto de Marketing de la empresa: se enlaza el que ya existe (por nombre o empresa) o se crea. Así el nombre vive en un solo lugar.
-async function contactoDe(c, { id, name, email }) {
+async function contactoDe(c, { id, name, email, legal, nit }) {
   let k = id ? await one(c.env, 'SELECT * FROM mk_contacts WHERE id = ? AND business_id = ?', id, c.businessId) : null;
   if (!k && name) k = await one(c.env, 'SELECT * FROM mk_contacts WHERE business_id = ? AND (lower(company) = lower(?) OR lower(name) = lower(?)) ORDER BY id LIMIT 1', c.businessId, name, name);
   if (!k) {
     const t = now();
-    const r = await c.env.DB.prepare("INSERT INTO mk_contacts (business_id, name, email, company, stage, source, created_at, updated_at) VALUES (?, ?, ?, ?, 'cliente', 'proyectos', ?, ?)").bind(c.businessId, name, email || null, name, t, t).run();
-    return { id: r.meta.last_row_id, name, email: email || null };
+    const r = await c.env.DB.prepare("INSERT INTO mk_contacts (business_id, name, email, company, legal_name, tax_id, stage, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'cliente', 'proyectos', ?, ?)").bind(c.businessId, name, email || null, name, legal || null, nit || null, t, t).run();
+    return { id: r.meta.last_row_id, name, email: email || null, legal_name: legal || null, tax_id: nit || null };
   }
-  if (email && email !== k.email) { await c.env.DB.prepare('UPDATE mk_contacts SET email = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(email, now(), k.id, c.businessId).run(); k.email = email; }
+  const cambios = { ...(email && email !== k.email ? { email } : {}), ...(legal && legal !== k.legal_name ? { legal_name: legal } : {}), ...(nit && nit !== k.tax_id ? { tax_id: nit } : {}) };
+  if (Object.keys(cambios).length) { await c.env.DB.prepare(`UPDATE mk_contacts SET ${Object.keys(cambios).map((x) => `${x} = ?`).join(', ')}, updated_at = ? WHERE id = ? AND business_id = ?`).bind(...Object.values(cambios), now(), k.id, c.businessId).run(); Object.assign(k, cambios); }
   return k;
 }
 // Los datos de la empresa viajan a sus cotizaciones y cuentas de cobro (también a las que ya existen)
 async function propagar(c, id) {
   const p = await one(c.env, 'SELECT * FROM pr_projects WHERE id = ? AND business_id = ?', id, c.businessId);
   if (!p) return;
-  const v = [p.name, p.tax_id || null, p.client_email || null, p.client_city || null, id, c.businessId], t = now();
+  const v = [p.legal_name || p.name, p.tax_id || null, p.client_email || null, p.client_city || null, id, c.businessId], t = now();
   await c.env.DB.prepare('UPDATE pr_quotes SET counterparty = ?, tax_id = ?, client_email = ?, client_city = ?, updated_at = ? WHERE project_id = ? AND business_id = ?').bind(v[0], v[1], v[2], v[3], t, id, c.businessId).run();
   await c.env.DB.prepare("UPDATE fin_invoices SET counterparty = ?, tax_id = ?, client_email = ?, client_city = ? WHERE project_id = ? AND business_id = ? AND kind = 'emitida'").bind(...v).run();
 }
 
 export const ENTITIES = {
-  projects: { table: 'pr_projects', label: 'el proyecto', title: 'name', search: ['name', 'client', 'tax_id'], order: "CASE status WHEN 'activo' THEN 0 WHEN 'propuesta' THEN 1 ELSE 2 END, id DESC",
-    fields: { name: 'text!', client: 'text', tax_id: 'text', client_email: 'text', client_city: 'text', contact_id: 'int', status: ['propuesta', 'activo', 'terminado', 'cancelado'], notes: 'long' },
+  projects: { table: 'pr_projects', label: 'el proyecto', title: 'name', search: ['name', 'legal_name', 'client', 'tax_id'], order: "CASE status WHEN 'activo' THEN 0 WHEN 'propuesta' THEN 1 ELSE 2 END, id DESC",
+    fields: { name: 'text!', legal_name: 'text', client: 'text', tax_id: 'text', client_email: 'text', client_city: 'text', contact_id: 'int', status: ['propuesta', 'activo', 'terminado', 'cancelado'], notes: 'long' },
     async beforeCreate(c, row) {
       row.client = row.name;
-      const k = await contactoDe(c, { id: row.contact_id, name: row.name, email: TXT(row.client_email) });
-      row.contact_id = k.id; row.client_email ||= k.email || null;
+      const k = await contactoDe(c, { id: row.contact_id, name: row.name, email: TXT(row.client_email), legal: TXT(row.legal_name), nit: TXT(row.tax_id) });
+      row.contact_id = k.id; row.client_email ||= k.email || null; row.legal_name ||= k.legal_name || null; row.tax_id ||= k.tax_id || null;
     },
     async beforeUpdate(c, row, before) {
       if ('name' in row) row.client = row.name;
-      if (row.client_email) { const k = await contactoDe(c, { id: before.contact_id, name: row.name || before.name, email: TXT(row.client_email) }); row.contact_id ??= k.id; }
+      if (row.client_email || row.legal_name || row.tax_id) { const k = await contactoDe(c, { id: before.contact_id, name: row.name || before.name, email: TXT(row.client_email), legal: TXT(row.legal_name), nit: TXT(row.tax_id) }); row.contact_id ??= k.id; }
     },
     async afterUpdate(c, id) { await propagar(c, id); },
     async decorate(c, rows) {
@@ -79,7 +80,7 @@ export const ENTITIES = {
     async beforeCreate(c, row) {
       if (row.project_id) {
         const p = await one(c.env, 'SELECT * FROM pr_projects WHERE id = ? AND business_id = ?', row.project_id, c.businessId);
-        if (p) { row.counterparty = p.name; row.tax_id ||= p.tax_id; row.client_email ||= p.client_email; row.client_city ||= p.client_city; }
+        if (p) { row.counterparty = p.legal_name || p.name; row.tax_id ||= p.tax_id; row.client_email ||= p.client_email; row.client_city ||= p.client_city; }
       }
       await precio(c, row);
       row.number ||= await numeroCotizacion(c);
@@ -97,20 +98,38 @@ export const ENTITIES = {
 const api = crud(new Router(), { base: B, modulo: MOD, entities: ENTITIES });
 export { api };
 
-// Aprueba la cotización y crea su cuenta de cobro en Finanzas (una sola vez)
-export async function cobrarCotizacion(c, id, { fecha, vence, lineas } = {}) {
+// Lo ya cobrado de una cotización: sus cuentas de cobro (no anuladas), las líneas usadas y lo que falta
+export async function cobrosDe(c, q) {
+  const cuentas = await all(c.env, "SELECT id, number, issue_date, due_date, total, paid, status, quote_lines FROM fin_invoices WHERE business_id = ? AND quote_id = ? AND kind = 'emitida' AND status <> 'anulada' ORDER BY id", c.businessId, q.id);
+  const usadas = [...new Set(cuentas.flatMap((x) => { try { return JSON.parse(x.quote_lines || '[]'); } catch { return []; } }))];
+  const cobrado = cuentas.reduce((t, x) => t + (x.total || 0), 0);
+  return { cuentas: cuentas.map(({ quote_lines, ...x }) => x), usadas, cobrado, pendiente: Math.max(0, (q.total || 0) - cobrado) };
+}
+// Crea una cuenta de cobro desde la cotización: líneas elegidas o un valor (anticipo, abono). Puede haber varias hasta cubrir el total
+export async function cobrarCotizacion(c, id, { fecha, vence, lineas, valor, concepto } = {}) {
   const q = await api.get(c, 'quotes', id);
-  if (q.invoice_id && await one(c.env, 'SELECT id FROM fin_invoices WHERE id = ? AND business_id = ?', q.invoice_id, c.businessId)) throw new HttpError(409, 'Esa cotización ya tiene su cuenta de cobro');
   if (q.status === 'rechazada') throw new HttpError(409, 'Esa cotización está rechazada');
   let items = []; try { items = JSON.parse(q.items || '[]'); } catch { /* sin líneas */ }
-  if (Array.isArray(lineas) && lineas.length) items = items.filter((_, i) => lineas.includes(i));   // cobrar solo algunas líneas (p. ej. un anticipo)
-  if (!items.length) throw new HttpError(400, 'Elige al menos una línea para cobrar');
+  const prev = await cobrosDe(c, q);
+  if (prev.pendiente <= 0 && prev.cuentas.length) throw new HttpError(409, 'Esa cotización ya está cobrada por completo');
+  let cobro, idx = [];
+  if (Number(valor) > 0) {
+    if (Number(valor) > prev.pendiente + 1) throw new HttpError(400, `El valor supera lo que falta por cobrar (${prev.pendiente})`);
+    cobro = [{ concepto: TXT(concepto) || `Abono a la cotización ${q.number}`, cantidad: 1, moneda: 'COP', valor: Math.round(Number(valor)) }];
+  } else {
+    idx = (Array.isArray(lineas) && lineas.length ? lineas : items.map((_, i) => i)).filter((i) => Number.isInteger(i) && items[i] && !prev.usadas.includes(i));
+    if (!idx.length) throw new HttpError(400, 'Esas líneas ya están cobradas: elige otras o cobra un valor');
+    cobro = idx.map((i) => items[i]);
+    if (cobro.reduce((t, i) => t + (i.total || 0), 0) > prev.pendiente + 1) throw new HttpError(400, 'Esas líneas superan lo que falta por cobrar');
+  }
+  const completa = !prev.cuentas.length && idx.length === items.length;
   const r = await fin.create(c, 'invoices', { kind: 'emitida', counterparty: q.counterparty, tax_id: q.tax_id, client_email: q.client_email, client_city: q.client_city, issue_date: fecha || today(), due_date: vence,
-    concept: q.title ? `${q.title}, según la cotización ${q.number} aprobada.` : `Según la cotización ${q.number} aprobada.`, items, tax: q.tax || 0, project_id: q.project_id || undefined });
+    concept: `${q.title ? `${q.title}, según` : 'Según'} la cotización ${q.number} aprobada${completa ? '' : ' (cobro parcial)'}.`, items: cobro, tax: completa ? (q.tax || 0) : 0,
+    project_id: q.project_id || undefined, quote_id: id, quote_lines: JSON.stringify(idx) });
   await c.env.DB.prepare("UPDATE pr_quotes SET status = 'aprobada', invoice_id = ?, updated_at = ? WHERE id = ? AND business_id = ?").bind(r.id, now(), id, c.businessId).run();
   const inv = await fin.get(c, 'invoices', r.id);
   await audit(c, `Creó la cuenta de cobro ${inv.number} desde la cotización ${q.number}`, { modulo: MOD });
-  return { id: r.id, numero: inv.number, total: inv.total, cotizacion: q.number, proyecto_id: q.project_id || null };
+  return { id: r.id, numero: inv.number, total: inv.total, cotizacion: q.number, proyecto_id: q.project_id || null, pendiente: Math.max(0, prev.pendiente - inv.total) };
 }
 
 export async function resumen(c) {
@@ -184,8 +203,10 @@ export async function borradorCorreo(c, tipo, id) {
   if (docsOk.length) cuerpo += `\n\nDocumentos para tu proceso:\n${docsOk.map((x) => `• ${DOCS[x.kind]}: ${base}/${x.kind}`).join('\n')}`;
   cuerpo += `\n\nGracias,\n${perfil.issuer_name || perfil.brand || ''}${perfil.phone ? `\n${perfil.phone}` : ''}`;
   let bandejas = [];
-  try { bandejas = (await llamar(c, 'GET', '/api/whatsapp/bandejas')).rows.filter((b) => b.canal === 'correo' && b.activo).map((b) => ({ id: b.id, nombre: b.nombre })); } catch { /* Mensajes no activo */ }
-  return { tipo, id, docs: docsOk.map((x) => ({ kind: x.kind, nombre: DOCS[x.kind] })), para: email || '', empresa: nombre, proyecto_id: proyecto || null, asunto, mensaje: cuerpo, enlace, bandejas, numero: doc.number };
+  try { bandejas = (await llamar(c, 'GET', '/api/whatsapp/bandejas')).rows.filter((b) => b.canal === 'correo' && b.activo).map((b) => ({ id: b.id, nombre: b.nombre, direccion: b.phone_number_id })); } catch { /* Mensajes no activo */ }
+  // Desde la dirección del negocio (la de sus datos de cobro, p. ej. hola@…); si no hay, la primera
+  const defecto = (bandejas.find((x) => String(x.direccion || '').toLowerCase() === String(perfil.email || '').toLowerCase()) || bandejas[0] || {}).id || null;
+  return { tipo, id, docs: docsOk.map((x) => ({ kind: x.kind, nombre: DOCS[x.kind] })), bandeja_defecto: defecto, para: email || '', empresa: nombre, proyecto_id: proyecto || null, asunto, mensaje: cuerpo, enlace, bandejas, numero: doc.number };
 }
 // Manda el correo por Mensajes (queda en sus chats); la cotización pasa a «enviada»
 export async function enviarPorCorreo(c, { tipo, id, para, asunto, mensaje, bandeja_id, pdf, incluir }) {
@@ -206,10 +227,10 @@ export async function enviarPorCorreo(c, { tipo, id, para, asunto, mensaje, band
     const ext = f.mime === 'application/pdf' ? '.pdf' : f.mime === 'image/png' ? '.png' : f.mime === 'image/webp' ? '.webp' : '.jpg';
     adjuntos.push({ filename: `${DOCS[f.kind]}${ext}`, type: f.mime, content: aBase64(await o.arrayBuffer()) });
   }
-  const out = await llamar(c, 'POST', '/api/whatsapp/correo/enviar', { body: { bandeja_id: Number(bandeja_id) || b.bandejas[0].id, asunto: TXT(asunto) || b.asunto, mensaje: TXT(mensaje) || b.mensaje, contactos: [k.id], adjuntos } });
+  const out = await llamar(c, 'POST', '/api/whatsapp/correo/enviar', { body: { bandeja_id: Number(bandeja_id) || b.bandeja_defecto, asunto: TXT(asunto) || b.asunto, mensaje: TXT(mensaje) || b.mensaje, contactos: [k.id], adjuntos } });
   if (tipo === 'cotizacion') await c.env.DB.prepare("UPDATE pr_quotes SET status = 'enviada', updated_at = ? WHERE id = ? AND business_id = ? AND status = 'borrador'").bind(now(), id, c.businessId).run();
   await audit(c, `Envió por correo ${tipo === 'cotizacion' ? 'la cotización' : 'la cuenta de cobro'} ${b.numero} a ${para}`, { modulo: MOD });
-  return { ok: true, para, adjuntos: adjuntos.map((a) => a.filename), ...out };
+  return { ok: true, para, desde: (b.bandejas.find((x) => x.id === (Number(bandeja_id) || b.bandeja_defecto)) || {}).direccion || null, adjuntos: adjuntos.map((a) => a.filename), ...out };
 }
 // Página pública /validar/<código>/documento: el PDF de la cotización o cuenta de cobro que se envió por correo
 export async function documentoPublico(env, app, code, origin) {
@@ -237,6 +258,7 @@ export function routes(r) {
     return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
   });
 
+  r.get(`${B}/quotes/:id/cobros`, `tenant:${MOD}`, async (c) => json(await cobrosDe(c, await api.get(c, 'quotes', Number(c.params.id)))));
   r.get(`${B}/quotes/:id`, `tenant:${MOD}`, async (c) => json(await api.get(c, 'quotes', Number(c.params.id))));
   r.get(`${B}/documentos`, `tenant:${MOD}`, async (c) => json({ rows: await documentosDe(c.env, c.businessId) }));
   r.get(`${B}/documentos/:kind`, `tenant:${MOD}`, async (c) => {
@@ -252,7 +274,7 @@ export function routes(r) {
   });
   r.get(`${B}/contactos`, `tenant:${MOD}`, async (c) => {
     const q = `%${TXT(c.url.searchParams.get('q'))}%`;
-    return json({ rows: await all(c.env, 'SELECT id, name, email, company FROM mk_contacts WHERE business_id = ? AND (name LIKE ? OR company LIKE ?) ORDER BY name LIMIT 8', c.businessId, q, q) });
+    return json({ rows: await all(c.env, 'SELECT id, name, email, company, legal_name, tax_id FROM mk_contacts WHERE business_id = ? AND (name LIKE ? OR company LIKE ? OR legal_name LIKE ?) ORDER BY name LIMIT 8', c.businessId, q, q, q) });
   });
   r.get(`${B}/correo/borrador`, `tenant:${MOD}`, async (c) => {
     const tipo = c.url.searchParams.get('tipo') === 'cuenta' ? 'cuenta' : 'cotizacion';
@@ -263,8 +285,8 @@ export function routes(r) {
   r.get(`${B}/projects/:id/detalle`, `tenant:${MOD}`, async (c) => {
     const id = Number(c.params.id), proyecto = await api.get(c, 'projects', id);
     return json({ proyecto,
-      cotizaciones: await all(c.env, 'SELECT id, number, title, issue_date, valid_until, total, status, (SELECT f.id FROM fin_invoices f WHERE f.id = pr_quotes.invoice_id AND f.business_id = pr_quotes.business_id) AS invoice_id FROM pr_quotes WHERE business_id = ? AND project_id = ? ORDER BY id DESC', c.businessId, id),
-      cuentas_de_cobro: await all(c.env, "SELECT id, number, issue_date, due_date, total, paid, status FROM fin_invoices WHERE business_id = ? AND project_id = ? AND kind = 'emitida' ORDER BY id DESC", c.businessId, id) });
+      cotizaciones: await all(c.env, 'SELECT id, number, title, issue_date, valid_until, total, status, invoice_id FROM pr_quotes WHERE business_id = ? AND project_id = ? ORDER BY id DESC', c.businessId, id),
+      cuentas_de_cobro: await all(c.env, "SELECT id, number, issue_date, due_date, total, paid, status, quote_id FROM fin_invoices WHERE business_id = ? AND project_id = ? AND kind = 'emitida' ORDER BY id DESC", c.businessId, id) });
   });
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => {
     const s = await resumen(c), n = s.por_aprobar.cantidad;

@@ -208,8 +208,8 @@ export async function checkList(c, listId) {
 
 /* ---------------- entidades ---------------- */
 export const ENTITIES = {
-  contacts: { table: 'mk_contacts', label: 'el contacto', title: 'name', search: ['name', 'email', 'company', 'phone'], order: 'updated_at DESC',
-    fields: { name: 'text!', email: 'email', phone: 'text', company: 'text', stage: STAGES_CONTACT, source: 'text', campaign_id: 'int', owner: 'text', tags: 'text', notes: 'long', last_contact_at: 'date' },
+  contacts: { table: 'mk_contacts', label: 'el contacto', title: 'name', search: ['name', 'email', 'company', 'legal_name', 'tax_id', 'phone'], order: 'updated_at DESC',
+    fields: { name: 'text!', email: 'email', phone: 'text', company: 'text', legal_name: 'text', tax_id: 'text', stage: STAGES_CONTACT, source: 'text', campaign_id: 'int', owner: 'text', tags: 'text', notes: 'long', last_contact_at: 'date' },
     refs: { campaign_id: 'mk_campaigns' },
     async afterCreate(c, id, row) { if (row.stage === 'lead' || !row.stage) await onNewContact(c.env, c.businessId, { id, ...row }); } },
   deals: { table: 'mk_deals', label: 'la oportunidad', title: 'title', search: ['title', 'notes'], order: 'updated_at DESC',

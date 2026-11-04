@@ -103,8 +103,8 @@ export default [
   {
     name: 'marketing.crear_contacto', modulo: 'marketing', rol: 'staff', tipo: 'escritura',
     description: 'Crea un cliente o lead. Si es un lead nuevo, se disparan las automatizaciones de «lead nuevo».',
-    inputSchema: S({ nombre: str(), telefono: str(), correo: str(), empresa: str(), etapa: { type: 'string', enum: ['lead', 'cliente', 'perdido'] }, origen: str(), notas: str() }, ['nombre']),
-    run: async (c, a) => ({ creado: await api.create(c, 'contacts', { name: a.nombre, phone: a.telefono, email: a.correo, company: a.empresa, stage: a.etapa || 'lead', source: a.origen, notes: a.notas }) }),
+    inputSchema: S({ nombre: str(), telefono: str(), correo: str(), razon_social: { type: 'string', description: 'Razón social con su tipo, p. ej. «Distribuciones Madetableros S.A.S.»' }, nit: { type: 'string' }, empresa: str(), etapa: { type: 'string', enum: ['lead', 'cliente', 'perdido'] }, origen: str(), notas: str() }, ['nombre']),
+    run: async (c, a) => ({ creado: await api.create(c, 'contacts', { name: a.nombre, phone: a.telefono, email: a.correo, company: a.empresa, legal_name: a.razon_social, tax_id: a.nit, stage: a.etapa || 'lead', source: a.origen, notes: a.notas }) }),
   },
   {
     name: 'marketing.cambiar_etapa_contacto', modulo: 'marketing', rol: 'staff', tipo: 'escritura',

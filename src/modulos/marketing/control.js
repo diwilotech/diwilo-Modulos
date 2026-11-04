@@ -12,7 +12,7 @@ const ETAPA = { type: 'string', enum: ['lead', 'cliente', 'perdido'] };
 export default [
   // Contactos, tareas, listas y automatizaciones: editar y borrar (crear y buscar ya existen en ia.js)
   ...CRUD({ modulo: 'marketing', entidad: 'contacts', singular: 'contacto', plural: 'contactos', sin: ['listar', 'crear'],
-    props: { name: txt(), email: txt(), phone: txt(), company: txt(), stage: ETAPA, source: txt(), campaign_id: id(), owner: txt(), tags: txt(), notes: txt(), last_contact_at: fecha() } }),
+    props: { name: txt(), email: txt(), phone: txt(), company: txt(), legal_name: txt(), tax_id: txt(), stage: ETAPA, source: txt(), campaign_id: id(), owner: txt(), tags: txt(), notes: txt(), last_contact_at: fecha() } }),
   ...CRUD({ modulo: 'marketing', entidad: 'tasks', singular: 'tarea', plural: 'tareas', borra: 'staff', sin: ['listar', 'crear'],
     props: { title: txt(), due_date: fecha(), done: bool(), contact_id: id(), deal_id: id(), assignee: txt(), notes: txt() } }),
   ...CRUD({ modulo: 'marketing', entidad: 'lists', singular: 'lista', plural: 'listas', sin: ['listar', 'crear'],

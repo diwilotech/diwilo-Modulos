@@ -1,5 +1,9 @@
 # WhatsApp — cambios
 
+## 3.13.0 — Una bandeja de correo por cada cuenta de Google
+- Al abrir Mensajes se crea sola la bandeja de correo de cada cuenta de Google conectada con Gmail que aún no la tenga (hola@, ventas@…). Cada dirección tiene su bandeja: de ahí salen sus correos y ahí llegan las respuestas.
+- Los correos con adjuntos se pueden mandar desde `/api/whatsapp/correo/enviar` (`adjuntos`).
+
 ## 3.12.0 · 2026-11-03
 - **Nueva herramienta de IA `crear_reunion`:** crea la reunión en Google Calendar con Meet y la invitación por correo (fecha y hora a elección del equipo). Antes la IA no podía y usaba otra herramienta con un chat inventado («No encontré ese chat»).
 - **Asistente:** una propuesta con datos incompletos ya no se registra; la IA pregunta lo que falta. Tras «Sí» se muestra el resultado (número, total, enlace) y, si falla, se invita a corregir.

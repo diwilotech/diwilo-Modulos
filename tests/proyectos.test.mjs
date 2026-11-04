@@ -47,6 +47,20 @@ export default async function ({ check, newBusiness }) {
   check('Proyectos: el borrador del correo trae destinatario, redacción y enlace público', bqe.status === 200 && bqe.data.para === 'compras@madetableros.co' && /\/validar\/[A-Z0-9]{8,}\/documento/.test(bqe.data.mensaje) && bce.status === 200 && bce.data.mensaje.includes(cbe.data.numero));
   check('Proyectos: enviar sin bandeja de correo da un aviso claro', (await A.app(`${P}/correo/enviar`, { method: 'POST', body: { tipo: 'cuenta', id: cbe.data.id } })).status === 400);
 
+  // Varias cuentas de cobro por cotización y razón social
+  const c2 = await A.app(`${P}/quotes/${qe.data.id}/cobrar`, { method: 'POST', body: { valor: 30000, concepto: 'Abono' } });
+  const c3 = await A.app(`${P}/quotes/${qe.data.id}/cobrar`, { method: 'POST', body: { valor: 999999 } });
+  const c4 = await A.app(`${P}/quotes/${qe.data.id}/cobrar`, { method: 'POST', body: { lineas: [0] } });
+  const st = (await A.app(`${P}/quotes/${qe.data.id}/cobros`)).data;
+  check('Proyectos: una cotización admite varias cuentas de cobro y no cobra de más', c2.status === 200 && c3.status === 400 && c4.status === 400 && st.cuentas.length === 2 && st.cobrado === 230000 && st.pendiente === 20000 && st.usadas.join() === '0');
+  const c5 = await A.app(`${P}/quotes/${qe.data.id}/cobrar`, { method: 'POST', body: { valor: 20000 } });
+  check('Proyectos: cobra el saldo que faltaba y la cotización queda completa', c5.status === 200 && (await A.app(`${P}/quotes/${qe.data.id}/cobrar`, { method: 'POST', body: {} })).status === 409);
+  const dt = (await A.app(`${P}/projects/${em.data.id}/detalle`)).data;
+  check('Proyectos: el detalle de la empresa lista todas las cuentas de la cotización', dt.cuentas_de_cobro.filter((x) => x.quote_id === qe.data.id).length === 3);
+  await A.app(`${P}/projects/${em.data.id}`, { method: 'PATCH', body: { legal_name: 'Distribuciones Madetableros S.A.S.' } });
+  const rz = (await A.app(`${P}/quotes/${qe.data.id}`)).data, mk = (await A.app(`${P}/contactos?q=Madetab`)).data.rows[0];
+  check('Proyectos: la razón social va a las cotizaciones y a Marketing', rz.counterparty === 'Distribuciones Madetableros S.A.S.' && mk.legal_name === 'Distribuciones Madetableros S.A.S.' && mk.company === 'Madetableros');
+
   // RUT y certificación bancaria
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
   const sr = await A.app(`${P}/documentos/rut`, { method: 'POST', body: { nombre: 'rut.png', data: png } });

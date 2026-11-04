@@ -66,8 +66,9 @@ DW.ready.then((me) => {
     const { el: d } = modal(`<form novalidate>
       <div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${editando ? 'Datos de la empresa' : 'Nueva empresa'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body"><div class="row g-2">
-        <div class="col-12 position-relative"><label class="form-label small mb-1">Empresa</label><input class="form-control" name="name" required autocomplete="off" value="${esc(v.name || '')}" placeholder="Escribe el nombre de la empresa">
+        <div class="col-12 position-relative"><label class="form-label small mb-1">Nombre de la empresa</label><input class="form-control" name="name" required autocomplete="off" value="${esc(v.name || '')}" placeholder="Escribe el nombre de la empresa">
           <div class="list-group position-absolute w-100 shadow-sm" style="z-index:5;max-height:200px;overflow:auto" data-sug hidden></div><div class="form-text">Si ya está en tus contactos de Marketing, se cargan sus datos; si no, se crea allí también.</div></div>
+        <div class="col-sm-8"><label class="form-label small mb-1">Razón social <span class="text-body-secondary">· con S.A.S. o su tipo; sale en los PDF</span></label><input class="form-control" name="legal_name" value="${esc(v.legal_name || '')}" placeholder="Distribuciones Madetableros S.A.S."></div>
         <div class="col-sm-4"><label class="form-label small mb-1">NIT o documento</label><input class="form-control" name="tax_id" value="${esc(v.tax_id || '')}"></div>
         <div class="col-sm-4"><label class="form-label small mb-1">Ciudad</label><input class="form-control" name="client_city" value="${esc(v.client_city || '')}"></div>
         <div class="col-sm-4"><label class="form-label small mb-1">Correo</label><input class="form-control" name="client_email" type="email" value="${esc(v.client_email || '')}"></div></div>
@@ -90,12 +91,12 @@ DW.ready.then((me) => {
     sug.addEventListener('click', (e) => {
       const b = e.target.closest('[data-k]'); if (!b) return;
       const x = sug._rows.find((r) => String(r.id) === b.dataset.k); contacto = x.id;
-      f.name.value = x.company || x.name; if (x.email && !f.client_email.value) f.client_email.value = x.email; sug.hidden = true;
+      f.name.value = x.company || x.name; if (x.email && !f.client_email.value) f.client_email.value = x.email; if (x.legal_name && !f.legal_name.value) f.legal_name.value = x.legal_name; if (x.tax_id && !f.tax_id.value) f.tax_id.value = x.tax_id; sug.hidden = true;
     });
     $('[data-del]', d)?.addEventListener('click', async () => { if (!await confirm('¿Borrar esta empresa? Sus cotizaciones y cuentas de cobro no se borran.')) return; try { await api(`${B}/projects/${row.id}`, { method: 'DELETE' }); hide(d); toast('Borrada'); changed(null); } catch (x) { toast(x.message, false); } });
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const body = { name: f.name.value.trim(), tax_id: f.tax_id.value.trim(), client_city: f.client_city.value.trim(), client_email: f.client_email.value.trim() };
+      const body = { name: f.name.value.trim(), legal_name: f.legal_name.value.trim(), tax_id: f.tax_id.value.trim(), client_city: f.client_city.value.trim(), client_email: f.client_email.value.trim() };
       if (contacto) body.contact_id = contacto;
       if (!body.name) { $('[data-err]', d).textContent = 'Escribe el nombre de la empresa'; return; }
       try { const out = await api(editando ? `${B}/projects/${row.id}` : `${B}/projects`, { method: editando ? 'PATCH' : 'POST', body }); hide(d); toast(editando ? 'Guardado: se actualizaron sus cotizaciones y cuentas de cobro' : 'Empresa creada'); changed(editando ? row.id : out.id); }
@@ -146,7 +147,7 @@ DW.ready.then((me) => {
       <div class="modal-body">
         ${b.bandejas.length ? '' : '<div class="alert alert-warning small">Necesitas una bandeja de correo activa en <b>Mensajes → Bandejas</b> para enviar desde aquí.</div>'}
         <div class="row g-2"><div class="col-sm-7"><label class="form-label small mb-1">Para</label><input class="form-control" name="para" type="email" value="${esc(b.para)}" placeholder="correo@empresa.com"></div>
-          <div class="col-sm-5"><label class="form-label small mb-1">Enviar desde</label><select class="form-select" name="bandeja">${b.bandejas.map((x) => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
+          <div class="col-sm-5"><label class="form-label small mb-1">Enviar desde <span class="text-body-secondary">· cada correo tiene su bandeja en Mensajes</span></label><select class="form-select" name="bandeja">${b.bandejas.map((x) => `<option value="${x.id}" ${x.id === (+localStorage.getItem('pj_bandeja') && b.bandejas.some((y) => y.id === +localStorage.getItem('pj_bandeja')) ? +localStorage.getItem('pj_bandeja') : b.bandeja_defecto) ? 'selected' : ''}>${esc(x.direccion || x.nombre)}</option>`).join('')}</select></div>
           <div class="col-12"><label class="form-label small mb-1">Asunto</label><input class="form-control" name="asunto" value="${esc(b.asunto)}"></div>
           <div class="col-12"><label class="form-label small mb-1">Mensaje <span class="text-body-secondary">· lleva el enlace para ver y descargar el PDF</span></label><textarea class="form-control" name="mensaje" rows="11">${esc(b.mensaje)}</textarea></div>
           <div class="col-12"><label class="form-label small mb-1">Adjuntos</label>
@@ -164,31 +165,39 @@ DW.ready.then((me) => {
         let pdfAdj; if (f.adjpdf.checked) { btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Armando el PDF…'; pdfAdj = { nombre: `${tipo === 'cuenta' ? 'Cuenta de cobro' : 'Cotización'} ${b.numero || ''}`.trim(), data: await pdfDe(tipo === 'cuenta' ? `${F}/invoices/${id}/pdf` : `${B}/quotes/${id}/pdf`) }; }
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
         await api(`${B}/correo/enviar`, { method: 'POST', body: { tipo, id, para: f.para.value.trim(), asunto: f.asunto.value.trim(), mensaje: f.mensaje.value.trim(), bandeja_id: +f.bandeja.value, pdf: pdfAdj, incluir: $$('[data-doc]', d).filter((x) => x.checked).map((x) => x.dataset.doc) } });
-        hide(d); toast('Enviado con sus adjuntos: queda en tus chats de Mensajes'); despues?.();
+        try { localStorage.setItem('pj_bandeja', f.bandeja.value); } catch { /* sin almacenamiento */ }
+        hide(d); toast(`Enviado desde ${f.bandeja.selectedOptions[0]?.textContent || 'tu correo'}: queda en tus chats de Mensajes`); despues?.();
       } catch (x) { $('[data-err]', d).textContent = x.message; btn.disabled = false; btn.innerHTML = txt; }
     });
   }
 
   // Cuenta de cobro: se eligen las líneas (todas, o p. ej. un anticipo), se crea sin pagar y se ofrece enviarla
   async function cobrar(qid, despues) {
-    let q; try { q = await api(`${B}/quotes/${qid}`); } catch (x) { toast(x.message, false); return; }
+    let q, st; try { [q, st] = await Promise.all([api(`${B}/quotes/${qid}`), api(`${B}/quotes/${qid}/cobros`)]); } catch (x) { toast(x.message, false); return; }
     let lines = []; try { lines = JSON.parse(q.items || '[]'); } catch { /* vacío */ }
+    const libres = lines.map((_, i) => i).filter((i) => !st.usadas.includes(i));
     const { el: d } = modal(`<form novalidate>
       <div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Cuenta de cobro · ${esc(q.number)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
-      <div class="modal-body"><p class="small text-body-secondary">${esc(q.counterparty)} · ${esc(q.title || '')}. Elige qué líneas cobrar; la cuenta queda sin pagar en Finanzas.</p>
-        <div class="list-group mb-3">${lines.map((l, i) => `<label class="list-group-item d-flex gap-2 align-items-start"><input class="form-check-input mt-1" type="checkbox" data-i="${i}" checked><span class="flex-grow-1">${esc(l.concepto)}${l.detalle ? sub(l.detalle) : ''}</span><b class="text-nowrap">${l.moneda === 'USD' ? `USD ${l.valor}` : money(l.total)}</b></label>`).join('')}</div>
+      <div class="modal-body"><p class="small text-body-secondary mb-2">${esc(q.counterparty)} · ${esc(q.title || '')}</p>
+        <div class="d-flex flex-wrap gap-3 small mb-3"><span>Cotizado <b>${money(q.total)}</b></span><span>Ya cobrado <b>${money(st.cobrado)}</b>${st.cuentas.length ? ` (${st.cuentas.map((u) => esc(u.number)).join(', ')})` : ''}</span><span>Falta por cobrar <b>${money(st.pendiente)}</b></span></div>
+        <div class="btn-group btn-group-sm mb-3" role="group"><input type="radio" class="btn-check" name="modo" id="m1" value="lineas" ${libres.length ? 'checked' : 'disabled'}><label class="btn btn-outline-primary" for="m1">Por líneas</label><input type="radio" class="btn-check" name="modo" id="m2" value="valor" ${libres.length ? '' : 'checked'}><label class="btn btn-outline-primary" for="m2">Un valor (anticipo o abono)</label></div>
+        <div data-pl><div class="list-group mb-3">${lines.map((l, i) => { const u = st.usadas.includes(i); return `<label class="list-group-item d-flex gap-2 align-items-start ${u ? 'text-body-secondary' : ''}"><input class="form-check-input mt-1" type="checkbox" data-i="${i}" ${u ? 'disabled' : 'checked'}><span class="flex-grow-1">${esc(l.concepto)}${u ? sub('Ya cobrada en otra cuenta') : l.detalle ? sub(l.detalle) : ''}</span><b class="text-nowrap">${l.moneda === 'USD' ? `USD ${l.valor}` : money(l.total)}</b></label>`; }).join('')}</div></div>
+        <div data-pv hidden><div class="row g-2 mb-3"><div class="col-sm-5"><label class="form-label small mb-1">Valor a cobrar (máx. ${money(st.pendiente)})</label><input class="form-control" name="valor" type="number" min="1" max="${st.pendiente}" step="any" placeholder="${Math.round(st.pendiente / 2)}"></div>
+          <div class="col-sm-7"><label class="form-label small mb-1">Concepto</label><input class="form-control" name="concepto" placeholder="Anticipo del 50% · ${esc(q.number)}"></div></div></div>
         <div class="row g-2"><div class="col-sm-6"><label class="form-label small mb-1">Fecha de la cuenta</label><input class="form-control" name="fecha" type="date" value="${C.todayCo()}"></div>
           <div class="col-sm-6"><label class="form-label small mb-1">Pagar antes del</label><input class="form-control" name="vence" type="date"></div></div>
-        <div class="text-end mt-3">Total de la cotización <b>${money(q.total)}</b></div><div class="small text-danger mt-2" data-err></div></div>
+        <div class="small text-danger mt-2" data-err></div></div>
       <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button> <button class="btn btn-primary"><i class="bi bi-receipt me-1"></i>Cobrar</button></div></form>`, { size: 'modal-lg' });
-    const f = $('form', d);
+    const f = $('form', d), modo = () => f.modo.value;
+    const vista = () => { $('[data-pl]', d).hidden = modo() === 'valor'; $('[data-pv]', d).hidden = modo() !== 'valor'; };
+    f.addEventListener('change', (e) => { if (e.target.name === 'modo') vista(); }); vista();
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const idx = $$('[data-i]', d).filter((x) => x.checked).map((x) => +x.dataset.i);
-      if (!idx.length) { $('[data-err]', d).textContent = 'Elige al menos una línea'; return; }
-      const body = { lineas: idx.length === lines.length ? undefined : idx, fecha: f.fecha.value || undefined, vence: f.vence.value || undefined };
+      const body = { fecha: f.fecha.value || undefined, vence: f.vence.value || undefined };
+      if (modo() === 'valor') { body.valor = Number(f.valor.value); body.concepto = f.concepto.value.trim() || undefined; if (!(body.valor > 0)) { $('[data-err]', d).textContent = 'Escribe el valor a cobrar'; return; } }
+      else { const idx = $$('[data-i]', d).filter((x) => x.checked).map((x) => +x.dataset.i); if (!idx.length) { $('[data-err]', d).textContent = 'Elige al menos una línea'; return; } body.lineas = idx; }
       try {
-        const x = await api(`${B}/quotes/${qid}/cobrar`, { method: 'POST', body }); hide(d); toast(`Cuenta de cobro ${x.numero} creada`); despues?.();
+        const x = await api(`${B}/quotes/${qid}/cobrar`, { method: 'POST', body }); hide(d); toast(`Cuenta de cobro ${x.numero} creada${x.pendiente ? ` · faltan ${money(x.pendiente)}` : ''}`); despues?.();
         enviar('cuenta', x.id, despues);
       } catch (x) { $('[data-err]', d).textContent = x.message; }
     });
@@ -209,7 +218,7 @@ DW.ready.then((me) => {
 .pj-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:rgba(var(--bs-emphasis-color-rgb),.03)}
 .pj-q{background:var(--bs-body-bg);border:1px solid var(--bs-border-color-translucent);border-radius:14px;padding:10px 14px}.pj-q1{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pj-q1 .tot{margin-left:auto;font-weight:600;font-size:1.05rem}
 .pj-qa{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.pj-qa .btn{--bs-btn-padding-y:.2rem;--bs-btn-padding-x:.55rem;--bs-btn-font-size:.8rem;display:inline-flex;align-items:center;gap:5px}
-.pj-vacio{margin:auto;text-align:center;color:var(--bs-secondary-color);padding:24px}.pj-back{display:none}
+.pj-q .collapse .btn{--bs-btn-padding-y:.15rem;--bs-btn-padding-x:.5rem;--bs-btn-font-size:.78rem;display:inline-flex;align-items:center;gap:4px}.pj-vacio{margin:auto;text-align:center;color:var(--bs-secondary-color);padding:24px}.pj-back{display:none}
 @media (max-width:767px){.pj-box{grid-template-columns:1fr;height:calc(100dvh - 190px)}.pj-box .pj-det{display:none}.pj-box.abierto{height:calc(100dvh - 90px)}.pj-box.abierto .pj-list{display:none}.pj-box.abierto .pj-det{display:flex}.pj-back{display:inline-block}}
 </style>`);
   function proyectos(el) {
@@ -230,19 +239,23 @@ DW.ready.then((me) => {
     async function detalle(id) {
       sel = id; pintaLista(); caja.classList.add('abierto');
       let d; try { d = await api(`${B}/projects/${id}/detalle`); } catch (x) { der.innerHTML = `<div class="pj-vacio text-danger">${esc(x.message)}</div>`; return; }
-      const p = d.proyecto, cuentas = new Map(d.cuentas_de_cobro.map((x) => [x.id, x])), recarga = () => cargaLista($('[data-bus]', el).value.trim());
+      const p = d.proyecto, recarga = () => cargaLista($('[data-bus]', el).value.trim());
       const datos = [p.tax_id && `NIT ${esc(p.tax_id)}`, p.client_email && esc(p.client_email), p.client_city && esc(p.client_city)].filter(Boolean).join(' · ');
       der.innerHTML = `<div class="pj-cab"><div class="pj-cab1"><button class="btn btn-sm btn-outline-secondary pj-back" data-back aria-label="Volver"><i class="bi bi-arrow-left"></i></button><span class="pj-av">${ini(p)}</span>
-          <div class="t"><b>${esc(p.name)}</b><span class="pj-sub">${datos || 'Sin NIT, correo ni ciudad: agrégalos en «Datos»'}</span></div></div>
+          <div class="t"><b>${esc(p.name)}</b>${p.legal_name && p.legal_name !== p.name ? `<span class="pj-sub">${esc(p.legal_name)}</span>` : ''}<span class="pj-sub">${datos || 'Sin NIT, correo ni ciudad: agrégalos en «Datos»'}</span></div></div>
           ${RO ? '' : '<div class="pj-tb"><button class="btn btn-sm btn-primary" data-cot><i class="bi bi-plus-lg"></i>Cotización</button><button class="btn btn-sm btn-outline-secondary" data-edit><i class="bi bi-pencil"></i>Datos</button></div>'}</div>
         <div class="pj-log">${d.cotizaciones.length ? d.cotizaciones.map((x) => {
-          const cu = cuentas.get(x.invoice_id);
+          const cus = d.cuentas_de_cobro.filter((u) => u.quote_id === x.id && u.status !== 'anulada'), cobrado = cus.reduce((t, u) => t + u.total, 0), falta = Math.max(0, x.total - cobrado);
+          const fila = (u) => `<div class="d-flex flex-wrap align-items-center gap-2 py-1"><i class="bi bi-receipt"></i><b>${esc(u.number)}</b><span>${money(u.total)}</span>${chip(...(COB[u.status] || ['free', u.status]))}
+              <span class="ms-auto d-flex gap-1"><button class="btn btn-outline-primary" data-act="vercuenta" data-inv="${u.id}"><i class="bi bi-eye"></i>Ver</button>${RO ? '' : `<button class="btn btn-outline-secondary" data-act="enviarcuenta" data-inv="${u.id}"><i class="bi bi-send"></i>Enviar</button>`}</span></div>`;
+          const acc = cus.length > 1 ? `<div class="mt-2"><button class="btn btn-sm btn-light w-100 d-flex justify-content-between align-items-center" type="button" data-bs-toggle="collapse" data-bs-target="#pjc${x.id}" aria-expanded="false"><span><i class="bi bi-receipt me-1"></i>${cus.length} cuentas de cobro · ${money(cobrado)} de ${money(x.total)}</span><i class="bi bi-chevron-down"></i></button>
+              <div class="collapse" id="pjc${x.id}"><div class="border rounded p-2 mt-1">${cus.map(fila).join('<hr class="my-1">')}</div></div></div>`
+            : cus.length ? `<div class="border rounded px-2 mt-2">${fila(cus[0])}</div>` : '';
           return `<div class="pj-q" data-q="${x.id}"><div class="pj-q1"><a href="#" data-act="edit" class="fw-semibold text-decoration-none">${esc(x.number)}</a>${chip(...(COT[x.status] || ['free', x.status]))}<span class="tot">${money(x.total)}</span></div>
-            <div class="small text-body-secondary">${esc(x.title || 'Sin título')} · ${day(x.issue_date)}${x.valid_until ? ` · válida hasta ${day(x.valid_until)}` : ''}</div>
-            ${cu ? `<div class="small mt-1"><i class="bi bi-receipt me-1"></i>${esc(cu.number)} · ${money(cu.total)} · ${chip(...(COB[cu.status] || ['free', cu.status]))}</div>` : ''}
+            <div class="small text-body-secondary">${esc(x.title || 'Sin título')} · ${day(x.issue_date)}${x.valid_until ? ` · válida hasta ${day(x.valid_until)}` : ''}${cus.length ? ` · cobrado ${money(cobrado)}${falta ? `, falta ${money(falta)}` : ' · completa'}` : ''}</div>
+            ${acc}
             <div class="pj-qa"><button class="btn btn-outline-primary" data-act="ver"><i class="bi bi-eye"></i>Ver cotización</button>
-              ${RO ? '' : cu ? `<button class="btn btn-outline-primary" data-act="vercuenta" data-inv="${cu.id}"><i class="bi bi-receipt"></i>Ver cuenta</button><button class="btn btn-outline-secondary" data-act="enviarcuenta" data-inv="${cu.id}"><i class="bi bi-send"></i>Enviar cuenta</button>`
-                : `<button class="btn btn-primary" data-act="cobrar"><i class="bi bi-receipt"></i>Cuenta de cobro</button>`}
+              ${RO || x.status === 'rechazada' || (cus.length && !falta) ? '' : `<button class="btn btn-primary" data-act="cobrar"><i class="bi bi-receipt"></i>${cus.length ? 'Otra cuenta de cobro' : 'Cuenta de cobro'}</button>`}
               ${RO ? '' : '<button class="btn btn-outline-secondary" data-act="enviar"><i class="bi bi-send"></i>Enviar cotización</button>'}</div></div>`; }).join('')
           : '<div class="pj-vacio"><i class="bi bi-file-earmark-text fs-1 d-block mb-2"></i>Sin cotizaciones todavía.<br>Crea la primera con «Cotización» o pídeselo a la IA.</div>'}</div>`;
       $('[data-back]', der)?.addEventListener('click', () => caja.classList.remove('abierto'));

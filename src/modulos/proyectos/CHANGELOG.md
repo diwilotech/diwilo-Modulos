@@ -1,5 +1,12 @@
 # Proyectos — cambios
 
+## 1.5.1 — Envío desde la dirección del negocio
+- El correo sale por defecto desde la bandeja cuya dirección coincide con la de tus datos de cobro (p. ej. hola@), y el modal muestra la dirección de cada bandeja y recuerda la última que usaste.
+
+## 1.5.0 — Varias cuentas de cobro por cotización y razón social
+- Una cotización puede tener varias cuentas de cobro (anticipo, saldo…) hasta cubrir su total: se cobran líneas o un valor, y las líneas ya cobradas no se repiten (`fin_invoices.quote_id`, `quote_lines`, migración 0047).
+- La empresa guarda su nombre y su razón social con S.A.S.; los PDF usan la razón social. Marketing también la guarda en sus contactos (con NIT).
+
 ## 1.4.1 — PDF más compacto
 - Cotización y cuenta de cobro con espacios y letras más compactos: la cuenta de cobro cabe en una hoja; la cotización, en una o dos bien repartidas (sin cortar tarjetas ni filas).
 - El PDF adjunto al correo sale en una sola hoja si cabe con un ajuste pequeño; si no, en hojas cortadas entre bloques.
