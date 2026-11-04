@@ -281,7 +281,7 @@ export function routes(r) {
       if (p === 'claude') texto = (await viaClaude(c.env, { system: 'Responde en español, muy breve.', history: [{ role: 'user', content: 'Di solo: listo' }], maxTokens: 20, temperature: 0, modelo, clave })).text;
       else if (p === 'gemini') {
         const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Di solo: listo' }] }], generationConfig: { maxOutputTokens: 20 } }) });
-        if (!r2.ok) throw new Error(`Gemini ${r2.status}`);
+        if (!r2.ok) throw new Error(`Gemini ${r2.status}: ${(await r2.text()).replace(/\s+/g, ' ').slice(0, 150)}`);
         texto = (await r2.json()).candidates?.[0]?.content?.parts?.map((x) => x.text).join('').trim();
       } else { const o = await c.env.AI.run(modelo, { messages: [{ role: 'user', content: 'Di solo: listo' }], max_tokens: 20 }); texto = String(o?.response ?? '').trim(); }
       return json({ ok: !!texto, proveedor: p, modelo, ms: Date.now() - t0, texto: String(texto || '').slice(0, 80) });

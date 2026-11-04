@@ -3,7 +3,7 @@
 // las de escritura se PROPONEN (la persona las aprueba) o se ejecutan, según la autonomía.
 import { HttpError } from '../../lib/http.js';
 import { llamarIA, ajustesDe } from '../../lib/ia.js';
-import { REG, ejecutarHerramienta, herramientasDe } from '../../lib/registro.js';
+import { REG, ejecutarHerramienta, herramientasDe, validarArgs } from '../../lib/registro.js';
 import { guiasDe } from '../../lib/guias.js';
 import { flujosEntre, flujosEnTexto } from '../../lib/flujos.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
@@ -33,7 +33,7 @@ CÓMO RESPONDER: siempre con UN solo objeto JSON, sin texto fuera de él:
 {"accion":"usar","herramienta":"<nombre>","args":{...}}   para usar una herramienta
 {"accion":"guia","modulo":"<id>"}   para leer la guía de uso de un módulo
 {"accion":"fin","respuesta":"<lo que le dices a la persona>","siguientes":["<pregunta corta>","<otra>"]}   cuando ya terminaste (siguientes es opcional: 2 o 3 preguntas de seguimiento MUY cortas, de máximo 40 caracteres, que la persona probablemente quiera hacer después)
-Reglas: no inventes datos ni cifras: si no los tienes, consúltalos con una herramienta. No repitas una herramienta con los mismos argumentos. Máximo ${maxPasos} pasos.
+Reglas: no inventes datos ni cifras: si no los tienes, consúltalos con una herramienta; si son datos que solo la persona sabe, pregúntaselos. Nunca inventes ids (chat_id, etc.): obtenlos con una herramienta de lectura. Si la persona ya dio un dato antes en la conversación, úsalo sin volver a preguntarlo. Nunca digas que algo quedó creado, registrado o solicitado si no es una propuesta ya registrada; si no existe una herramienta para lo que piden, dilo claro. Si ya preguntaste algo y la persona contestó, avanza, no repitas la pregunta. No repitas una herramienta con los mismos argumentos. Máximo ${maxPasos} pasos.
 ${autonomia === 'ejecutar' ? 'Las herramientas de escritura se ejecutan al instante: úsalas solo cuando estés seguro.' : 'Las herramientas de escritura quedan como PROPUESTA hasta que una persona las apruebe: propónlas y explica por qué en tu respuesta final.'}`;
 }
 
@@ -92,9 +92,16 @@ export async function bucle(env, { org, ctx, system, historial, herramientas, au
     if (!t) { pasos.push({ n, herramienta: String(o.herramienta || '?').slice(0, 80), args, estado: 'error', resultado: 'Herramienta no disponible' }); hist.push({ role: 'user', content: `La herramienta «${o.herramienta}» no existe o no está disponible. Usa solo las de la lista.` }); continue; }
     if (usadas.has(firma)) { hist.push({ role: 'user', content: 'Ya usaste esa herramienta con esos argumentos. Usa el resultado que ya tienes o termina.' }); continue; }
     usadas.add(firma);
+    // Una escritura con datos incompletos NO se propone (fallaría al aprobarla): la IA debe pedírselos a la persona
+    const mal = t.tipo === 'escritura' ? validarArgs(t.name, args, t.inputSchema) : null;
+    if (mal) {
+      pasos.push({ n, herramienta: t.name, args, tipo: 'escritura', estado: 'error', resultado: mal });
+      hist.push({ role: 'user', content: `NO se registró la propuesta de ${t.name}: ${mal} No inventes datos. Si la persona ya los dijo, corrige los argumentos y vuelve a intentarlo; si no, termina con "fin" y pídele SOLO lo que falta en una pregunta corta (puedes sugerir un valor por defecto).` });
+      continue;
+    }
     if (t.tipo === 'escritura' && autonomia !== 'ejecutar') {
       pasos.push({ n, herramienta: t.name, args, tipo: 'escritura', estado: 'propuesta' });
-      hist.push({ role: 'user', content: 'Propuesta registrada: una persona la aprobará. Sigue con lo demás o termina.' });
+      hist.push({ role: 'user', content: 'Propuesta registrada (aún NO se hizo): una persona la aprobará. Si ya no falta nada, termina con "fin" diciendo con claridad qué se hará (nombres, valores y fechas exactos) y que espera su confirmación.' });
       continue;
     }
     await avisar(`${t.tipo === 'escritura' ? 'Haciendo' : 'Consultando'}: ${t.name}`);

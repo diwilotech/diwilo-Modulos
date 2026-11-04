@@ -234,10 +234,11 @@ export async function huecosLibres(env, org, { fresco = false } = {}) {
   return v;
 }
 // Crea la cita con Meet e invita a la persona. `inicio` debe ser uno de los horarios libres.
-export async function crearCita(env, org, { inicio, nombre, correo, descripcion }) {
+export async function crearCita(env, org, { inicio, nombre, correo, descripcion, forzar = false, duracion = 0 }) {
   const { agenda, slots } = await huecosLibres(env, org, { fresco: true });
-  if (!slots.some((s) => s.iso === new Date(inicio).toISOString())) throw new GoogleError('Ese horario ya no está libre');
-  const ini = new Date(inicio), fin = new Date(ini.getTime() + agenda.duracion * 60000);
+  // forzar: una persona del equipo elige la hora (no tiene que ser uno de los huecos públicos)
+  if (!forzar && !slots.some((s) => s.iso === new Date(inicio).toISOString())) throw new GoogleError('Ese horario ya no está libre');
+  const ini = new Date(inicio), fin = new Date(ini.getTime() + (duracion || agenda.duracion) * 60000);
   const ev = await gapi(env, org, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(agenda.calendario)}/events?conferenceDataVersion=1&sendUpdates=all`, { method: 'POST', body: JSON.stringify({
     summary: agenda.titulo.replace(/\{nombre\}/gi, nombre || 'cliente'), description: descripcion || 'Cita agendada por el asistente de Mensajes.', start: { dateTime: ini.toISOString() }, end: { dateTime: fin.toISOString() },
     attendees: [{ email: correo, ...(nombre ? { displayName: nombre } : {}) }, ...(agenda.copia && agenda.copia !== String(correo).toLowerCase() ? [{ email: agenda.copia }] : [])], conferenceData: { createRequest: { requestId: hex(8), conferenceSolutionKey: { type: 'hangoutsMeet' } } } }) }, 'calendario');

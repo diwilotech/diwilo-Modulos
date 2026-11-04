@@ -3,7 +3,7 @@ import { api, chats, chatCompleto } from './api.js';
 import { HttpError } from '../../lib/http.js';
 import { AGENTE_EN, guardarMensaje, tocarChat } from './webhook.js';
 import { enviarTexto } from './canales.js';
-import { cancelarCita } from './google.js';
+import { cancelarCita, crearCita, agendaDe, etiquetaHora } from './google.js';
 import { all, one } from '../../lib/crud.js';
 import { guardarArchivo, listarArchivos } from './media.js';
 
@@ -86,6 +86,19 @@ export default [
       await cancelarCita(c.env, c.businessId, cita);
       await c.env.DB.prepare('UPDATE wa_conversaciones SET cita = NULL WHERE id = ?').bind(ch.id).run();
       return { ok: true, cancelada: cita.etiqueta };
+    },
+  },
+  {
+    name: 'whatsapp.crear_reunion', modulo: 'whatsapp', rol: 'staff', tipo: 'escritura',
+    description: 'Crea una reunión en Google Calendar con enlace de Google Meet e invita a la persona por correo. Pide fecha (AAAA-MM-DD) y hora local (HH:MM, 24 h). «Hoy» y «mañana» se calculan con la fecha de hoy. No necesita un chat.',
+    inputSchema: S({ correo: { type: 'string', description: 'Correo de la persona invitada' }, nombre: { type: 'string', description: 'Nombre de la persona (opcional)' }, fecha: { type: 'string', description: 'AAAA-MM-DD' }, hora: { type: 'string', description: 'HH:MM, 24 h, hora local del negocio' }, asunto: { type: 'string', description: 'Tema de la reunión' }, duracion_min: { type: 'number', description: 'Minutos (por defecto, los de la agenda)' } }, ['correo', 'fecha', 'hora']),
+    validar: (a) => (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(a.correo || '').trim()) ? 'El correo no es válido.' : !/^\d{4}-\d{2}-\d{2}$/.test(String(a.fecha)) ? 'La fecha debe ser AAAA-MM-DD.' : !/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(a.hora)) ? 'La hora debe ser HH:MM (24 h).' : null),
+    run: async (c, a) => {
+      const ag = await agendaDe(c.env, c.businessId), [h, m] = String(a.hora).split(':').map(Number);
+      const [y, mo, d] = String(a.fecha).split('-').map(Number), ms = Date.UTC(y, mo - 1, d, h, m) - ag.offset * 60000;
+      if (ms < Date.now() - 600000) throw new HttpError(400, 'Esa fecha y hora ya pasaron');
+      const r = await crearCita(c.env, c.businessId, { inicio: new Date(ms).toISOString(), nombre: a.nombre, correo: String(a.correo).trim(), descripcion: a.asunto, forzar: true, duracion: Number(a.duracion_min) || 0 });
+      return { ok: true, cuando: etiquetaHora(ms, ag.offset), enlace_meet: r.link, invitado: a.correo };
     },
   },
   {

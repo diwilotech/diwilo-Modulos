@@ -136,7 +136,7 @@ export const ENTITIES = {
     } },
   invoices: { table: 'fin_invoices', label: 'la factura', title: 'number', search: ['number', 'counterparty', 'tax_id'], order: 'issue_date DESC, id DESC',
     fields: { kind: ['emitida', 'recibida'], number: 'text', counterparty: 'text!', tax_id: 'text', client_email: 'text', client_city: 'text', issue_date: 'date!', due_date: 'date', concept: 'long', items: 'json',
-      subtotal: 'money', tax: 'money', total: 'money', status: ['pendiente', 'pagada', 'anulada'], cost_center_id: 'int', category: 'text', notes: 'long' },
+      subtotal: 'money', tax: 'money', total: 'money', status: ['pendiente', 'pagada', 'anulada'], cost_center_id: 'int', project_id: 'int', category: 'text', notes: 'long' },
     async beforeCreate(c, row) {
       await priceInvoice(c, row, {}, true);
       row.total = row.total || (row.subtotal || 0) + (row.tax || 0);

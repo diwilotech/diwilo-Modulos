@@ -15,6 +15,20 @@ export function herramientasDe(ctx) {
     .map(({ name, description, inputSchema, rol, tipo, modulo, propia }) => ({ name, description, inputSchema, rol, tipo, modulo, ...(propia ? { propia: true } : {}) }));
 }
 
+// Revisa los argumentos ANTES de proponer o ejecutar una herramienta: obligatorios del esquema, tipos y la regla propia de la herramienta (`validar`).
+// Devuelve un texto con lo que falta (para que la IA se lo pregunte a la persona) o null si todo está bien.
+export function validarArgs(name, args = {}, schema = null) {
+  const t = REG.tools.find((x) => x.name === name), sch = t?.inputSchema || schema, a = args && typeof args === 'object' ? args : {};
+  const falta = (sch?.required || []).filter((k) => a[k] === undefined || a[k] === null || a[k] === '' || (Array.isArray(a[k]) && !a[k].length));
+  if (falta.length) return `Faltan datos obligatorios: ${falta.join(', ')}.`;
+  for (const [k, v] of Object.entries(sch?.properties || {})) {
+    if (a[k] === undefined || a[k] === null) continue;
+    if (v.type === 'number' && !Number.isFinite(Number(a[k]))) return `«${k}» debe ser un número.`;
+    if (v.type === 'array' && !Array.isArray(a[k])) return `«${k}» debe ser una lista.`;
+  }
+  try { return t?.validar?.(a) || null; } catch (e) { return e.message || 'Datos no válidos'; }
+}
+
 // Ejecuta una herramienta con el contexto de un negocio, con las mismas reglas que el MCP (módulo activo, rol, solo lectura).
 export async function ejecutarHerramienta(env, ctx, name, args = {}) {
   // Herramienta propia de la app: la ejecuta la app (con la sesión de quien hizo la llamada), no este Worker

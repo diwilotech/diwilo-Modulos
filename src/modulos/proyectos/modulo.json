@@ -1,0 +1,27 @@
+{
+  "id": "proyectos",
+  "nombre": "Proyectos",
+  "version": "1.0.0",
+  "descripcion": "Proyectos y clientes con sus cotizaciones y cuentas de cobro en un solo lugar: cotizaciones con consecutivo, líneas en pesos o dólares, vigencia, condiciones y PDF con tu firma; al aprobar una cotización se crea su cuenta de cobro (sin pagar) en Finanzas, ligada al proyecto. Todo se puede pedir a la IA.",
+  "icono": "bi-kanban",
+  "menu": { "ruta": "/staff/proyectos.html", "orden": 45 },
+  "permisos": { "ver": "staff", "configurar": "admin" },
+  "widgets": [ { "id": "resumen", "api": "/api/proyectos/summary" } ],
+  "ia": [
+    "proyectos.resumen", "proyectos.listar_proyectos", "proyectos.crear_proyecto", "proyectos.editar_proyecto",
+    "proyectos.listar_cotizaciones", "proyectos.crear_cotizacion", "proyectos.cambiar_estado_cotizacion",
+    "proyectos.cotizacion_a_cuenta_de_cobro", "proyectos.enlace_pdf"
+  ],
+  "tablas": ["pr_projects", "pr_quotes"],
+  "rutas_publicas": [],
+  "depende_de": ["finanzas"],
+  "pagina": "/m/proyectos.js",
+  "central": true,
+  "mcp": {
+    "guia": "Proyectos: clientes y trabajos con sus cotizaciones y cuentas de cobro. Para cotizar usa crear_cotizacion (un valor total o líneas); si la persona solo da un valor, no pidas más detalle. Cuando el cliente aprueba, usa cotizacion_a_cuenta_de_cobro: crea la cuenta de cobro en Finanzas sin pagar. Para una cuenta de cobro suelta usa finanzas_crear_cuenta_cobro (con `proyecto_id` si es de un proyecto). El PDF se abre con el enlace que devuelven las herramientas y lleva la firma del negocio.",
+    "ejemplos": [ "Hazle una cotización a DACH por $150.000 por la landing de campaña", "¿Qué cotizaciones están sin respuesta?", "Convierte la cotización COT-0003 en cuenta de cobro" ],
+    "flujos": [
+      { "id": "cotizar", "nombre": "Cotizar y cobrar", "descripcion": "De la cotización a la cuenta de cobro.", "pasos": [ "proyectos.listar_proyectos", "proyectos.crear_cotizacion", "proyectos.cambiar_estado_cotizacion", "proyectos.cotizacion_a_cuenta_de_cobro" ] }
+    ]
+  }
+}

@@ -1,5 +1,9 @@
 # WhatsApp — cambios
 
+## 3.12.0 · 2026-11-03
+- **Nueva herramienta de IA `crear_reunion`:** crea la reunión en Google Calendar con Meet y la invitación por correo (fecha y hora a elección del equipo). Antes la IA no podía y usaba otra herramienta con un chat inventado («No encontré ese chat»).
+- **Asistente:** una propuesta con datos incompletos ya no se registra; la IA pregunta lo que falta. Tras «Sí» se muestra el resultado (número, total, enlace) y, si falla, se invita a corregir.
+
 ## 3.11.0 · 2026-10-29
 - **Inicio:** Mensajes aporta su indicador (chats sin leer, con el detalle de cuántos necesitan a una persona o están sin responder, `GET /api/whatsapp/resumen`) y una alerta en el Inicio cuando hay chats en rojo.
 

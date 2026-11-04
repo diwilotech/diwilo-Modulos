@@ -7,10 +7,11 @@ import * as finanzasApi from '../modulos/finanzas/api.js';
 import * as marketingApi from '../modulos/marketing/api.js';
 import * as nominaApi from '../modulos/nomina/api.js';
 import * as mensajesApi from '../modulos/whatsapp/api.js';
+import * as proyectosApi from '../modulos/proyectos/api.js';
 
 let router;
 const rutas = () => {
-  if (!router) { router = new Router(); finanzasApi.routes(router); marketingApi.routes(router); nominaApi.routes(router); mensajesApi.routes(router); }
+  if (!router) { router = new Router(); finanzasApi.routes(router); marketingApi.routes(router); nominaApi.routes(router); mensajesApi.routes(router); proyectosApi.routes(router); }
   return router;
 };
 

@@ -186,8 +186,10 @@ ${inv ? `<dt>Cuenta por cobrar</dt><dd>${esc(inv.number || '#' + inv.id)} · tot
 ${autoprint ? '<script>addEventListener("load",()=>setTimeout(print,300))</script>' : ''}</body></html>`;
 }
 
-export async function invoiceDocument(env, org, inv, { autoprint = false, origin = '', logo = null } = {}) {
-  const p = await getProfile(env, org), K = await skin(env, org);
+// `cot` (opcional) convierte el mismo diseño en una COTIZACIÓN: { titulo, condiciones }
+export async function invoiceDocument(env, org, inv, { autoprint = false, origin = '', logo = null, cot = null } = {}) {
+  const p = { ...(await getProfile(env, org)) }, K = await skin(env, org);
+  if (cot) p.title = cot.titulo || 'Cotización';
   let items = []; try { items = JSON.parse(inv.items || '[]'); } catch {}
   if (!items.length) items = [{ concepto: inv.concept || inv.notes || 'Servicios', cantidad: 1, moneda: 'COP', valor: inv.subtotal || inv.total, total: inv.subtotal || inv.total }];
   const subtotal = inv.subtotal || items.reduce((s, i) => s + (i.total || 0), 0), tax = inv.tax || 0, total = inv.total || subtotal + tax;
@@ -196,7 +198,7 @@ export async function invoiceDocument(env, org, inv, { autoprint = false, origin
   const stamp = inv.status === 'pagada' ? 'Pagada' : inv.status === 'anulada' ? 'Anulada' : '';
   const wa = p.whatsapp ? `https://wa.me/${p.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola, envío el comprobante de pago de la ${p.title.toLowerCase()} ${number} por ${pesos(total)}.`)}` : '';
   const fileName = `${p.title} ${number} - ${inv.counterparty}`.replace(/[\\/:*?"<>|]/g, '');
-  const vcode = await verifyCode(env, inv), vurl = `${origin}/validar/${vcode}`;
+  const vcode = cot ? '' : await verifyCode(env, inv), vurl = `${origin}/validar/${vcode}`;
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(fileName)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="${K.gfont}" rel="stylesheet">
@@ -258,30 +260,31 @@ footer{margin-top:12px;padding-top:8px;border-top:1px solid var(--line);display:
   <header>
     <div class="brand">${logo ? `<img src="${esc(logo)}" alt="" style="width:42px;height:42px;border-radius:10px;object-fit:cover">` : ''}<div><b>${esc(p.brand || p.issuer_name)}</b><small>${esc(p.tagline || '')}</small></div></div>
     <div class="doc"><h1>${esc(p.title)}</h1><div class="num">N.º ${esc(number)}</div>
-      <dl><dt>Fecha</dt><dd>${esc(fecha(inv.issue_date))}</dd>${inv.due_date ? `<dt>Pagar antes del</dt><dd>${esc(fecha(inv.due_date))}</dd>` : ''}<dt>Ciudad</dt><dd>${esc(p.city || '')}</dd></dl></div>
+      <dl><dt>Fecha</dt><dd>${esc(fecha(inv.issue_date))}</dd>${inv.due_date ? `<dt>${cot ? 'Válida hasta' : 'Pagar antes del'}</dt><dd>${esc(fecha(inv.due_date))}</dd>` : ''}<dt>Ciudad</dt><dd>${esc(p.city || '')}</dd></dl></div>
   </header>
   <section class="parties">
-    <div class="party"><h2>Cobrar a</h2><b>${esc(inv.counterparty)}</b>${inv.tax_id ? `<span>NIT ${esc(inv.tax_id)}</span>` : ''}${inv.client_city ? `<span>${esc(inv.client_city)}</span>` : ''}${inv.client_email ? `<span>${esc(inv.client_email)}</span>` : ''}</div>
-    <div class="party"><h2>El monto es adeudado a</h2><b>${esc(p.issuer_name)}</b>${p.issuer_doc ? `<span>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}${p.issuer_doc_city ? ` de ${esc(p.issuer_doc_city)}` : ''}</span>` : ''}<span>${[p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</span></div>
+    <div class="party"><h2>${cot ? 'Preparada para' : 'Cobrar a'}</h2><b>${esc(inv.counterparty)}</b>${inv.tax_id ? `<span>NIT ${esc(inv.tax_id)}</span>` : ''}${inv.client_city ? `<span>${esc(inv.client_city)}</span>` : ''}${inv.client_email ? `<span>${esc(inv.client_email)}</span>` : ''}</div>
+    <div class="party"><h2>${cot ? 'Presentada por' : 'El monto es adeudado a'}</h2><b>${esc(p.issuer_name)}</b>${p.issuer_doc ? `<span>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}${p.issuer_doc_city ? ` de ${esc(p.issuer_doc_city)}` : ''}</span>` : ''}<span>${[p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</span></div>
   </section>
-  <section class="amount"><div><small>Por la suma de</small><div class="v">${pesos(total)} <span style="font-size:14px;font-weight:500">COP</span></div></div><div class="w">${esc(enLetras(total))}</div></section>
-  ${inv.concept ? `<section class="sec"><h2>Por concepto de</h2><p class="concept">${esc(inv.concept).replace(/\n/g, '<br>')}</p></section>` : ''}
+  <section class="amount"><div><small>${cot ? 'Valor total' : 'Por la suma de'}</small><div class="v">${pesos(total)} <span style="font-size:14px;font-weight:500">COP</span></div></div><div class="w">${esc(enLetras(total))}</div></section>
+  ${inv.concept ? `<section class="sec"><h2>${cot ? 'Resumen' : 'Por concepto de'}</h2><p class="concept">${esc(inv.concept).replace(/\n/g, '<br>')}</p></section>` : ''}
   <section class="sec">
     <table><thead><tr><th class="idx">#</th><th>Concepto</th><th class="c">Cant.</th><th class="n">Valor unitario</th><th class="n">Total</th></tr></thead><tbody>
     ${items.map((i, k) => `<tr><td class="idx">${k + 1}</td><td>${esc(i.concepto)}${i.detalle ? `<small>${esc(i.detalle)}</small>` : ''}${i.moneda === 'USD' ? `<small>${usdTxt(i.valor)} × TRM $${Number(i.trm).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${esc(fecha(inv.issue_date))})</small>` : ''}</td>
       <td class="c">${Number(i.cantidad || 1).toLocaleString('es-CO')}</td><td class="n">${i.moneda === 'USD' ? `${usdTxt(i.valor)}<small>${pesos(Math.round(i.valor * i.trm))}</small>` : pesos(i.valor)}</td><td class="n">${pesos(i.total)}</td></tr>`).join('')}
     </tbody></table>
-    <div class="totals"><dl>${tax ? `<dt>Subtotal</dt><dd>${pesos(subtotal)}</dd><dt>Impuestos</dt><dd>${pesos(tax)}</dd>` : ''}<dt class="t">Total a pagar</dt><dd class="t">${pesos(total)}</dd></dl></div>
+    <div class="totals"><dl>${tax ? `<dt>Subtotal</dt><dd>${pesos(subtotal)}</dd><dt>Impuestos</dt><dd>${pesos(tax)}</dd>` : ''}<dt class="t">${cot ? 'Total' : 'Total a pagar'}</dt><dd class="t">${pesos(total)}</dd></dl></div>
   </section>
-  ${p.account_number || p.breb_key ? `<section class="pay"><div><h2 style="margin:0 0 6px;font:600 9.5px/1 ${K.fam};letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)">Forma de pago</h2>
+  ${cot?.condiciones ? `<section class="sec"><h2>Condiciones</h2><p class="concept">${esc(cot.condiciones).replace(/\n/g, '<br>')}</p></section>` : ''}
+  ${!cot && (p.account_number || p.breb_key) ? `<section class="pay"><div><h2 style="margin:0 0 6px;font:600 9.5px/1 ${K.fam};letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)">Forma de pago</h2>
     ${p.breb_key ? `<p class="breb"><span class="bb">Bre-B</span><span>Paga al instante desde cualquier banco o billetera con la <strong>llave ${esc(p.breb_key)}</strong>.</span></p>` : ''}
     ${p.account_number ? `<p>${p.breb_key ? 'O consigna o transfiere' : 'Consignar o transferir'} a la <strong>cuenta de ${esc(p.account_type || 'ahorros')} N.º ${esc(p.account_number)} de ${esc(p.bank)}</strong>, a nombre de ${esc(p.issuer_name)}.</p>` : ''}
     <p>Usa como referencia <strong>${esc(number)}</strong>. Cualquier inquietud: ${[p.phone && `celular ${esc(p.phone)}`, p.email && esc(p.email)].filter(Boolean).join(' o ')}.</p>
     ${hasUsd ? '<p style="font-size:11.5px">Los valores en dólares se convirtieron a pesos con la TRM oficial (Banco de la República) indicada en cada línea.</p>' : ''}</div>
     ${wa ? `<div class="qr"><div id="qr"></div>Escanea para enviar el comprobante por WhatsApp</div>` : ''}</section>` : ''}
-  ${p.legal ? `<p class="legal">${esc(p.legal)}</p>` : ''}
+  ${!cot && p.legal ? `<p class="legal">${esc(p.legal)}</p>` : ''}
   <section class="sign"><div class="who">${p.signature ? `<img src="${esc(p.signature)}" alt="Firma">` : ''}<div class="line"><b>${esc(p.issuer_name)}</b>${p.issuer_doc ? `<span>${esc(p.signer_doc_label || p.issuer_doc_label || 'Documento')}: ${esc(p.issuer_doc)}</span>` : ''}${p.phone ? `<span>Teléfono: ${esc(p.phone)}</span>` : ''}</div></div>
-    <div class="thanks"><div class="verify"><div id="qrv"></div><div><b>Valida este documento</b><span>Escanea el código o entra a<br>${esc(new URL(origin || 'https://x').host)}/validar</span><code>${esc(vcode)}</code></div></div>Gracias por confiar en ${esc(p.brand || 'nosotros')}.</div></section>
+    <div class="thanks">${cot ? '' : `<div class="verify"><div id="qrv"></div><div><b>Valida este documento</b><span>Escanea el código o entra a<br>${esc(new URL(origin || 'https://x').host)}/validar</span><code>${esc(vcode)}</code></div></div>`}${cot ? 'Gracias por considerarnos.' : `Gracias por confiar en ${esc(p.brand || 'nosotros')}.`}</div></section>
   <footer><span>${[p.web, p.email, p.phone].filter(Boolean).map(esc).join(' · ')}</span><span>${esc(p.title)} ${esc(number)}</span></footer>
 </main>
 <script>

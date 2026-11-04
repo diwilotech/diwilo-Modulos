@@ -1,5 +1,9 @@
 # IA (`ai`) — cambios
 
+## 1.10.1 — Gemini: elegir modelo y errores visibles
+- «Modelo de IA»: el modelo de Claude y el de Gemini se escogen de una lista (3.6, 3.8, 3.5, 2.5…).
+- Gemini 3.x ya no recibe `temperature` (Google la rechaza) y los fallos de Google se registran y salen en «Probar».
+
 ## 1.10.0 — Un agente por módulo, con «Estrategia»
 - Cada módulo activo (central o propio de la app) tiene siempre su agente (`ia_agentes.modulo`, `auto = 1`): se crea y se mantiene solo (`asegurarAgentesDeModulo`, antes de listar agentes, del asistente y del Inicio). La persona solo escribe su **Estrategia** (el campo `instrucciones`) y lo activa o pausa; no se borra ni cuenta para el tope de 20 agentes. Los agentes libres no cambian.
 - IA Diwilo respeta las Estrategias (bloque ESTRATEGIAS en su prompt, `estrategiasDe`) y puede gestionarlas con la herramienta `ai.gestionar_agente_modulo` (Estrategia, activo, programación, autonomía; siempre como propuesta que la persona aprueba).

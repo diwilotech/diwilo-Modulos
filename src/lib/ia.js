@@ -12,7 +12,7 @@ const MODELO = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 // 'auto' = como antes (Gemini si hay clave, si no Workers AI). Cada proveedor necesita su secreto: ANTHROPIC_API_KEY, GEMINI_API_KEY o el binding AI.
 export const PROVEEDORES = {
   claude: { nombre: 'Claude (Anthropic)', secreto: 'ANTHROPIC_API_KEY', modelo: 'claude-sonnet-5-5', modelos: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'] },
-  gemini: { nombre: 'Gemini (Google)', secreto: 'GEMINI_API_KEY', modelo: 'gemini-3.6-flash', modelos: ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-2.5-flash-lite'] },
+  gemini: { nombre: 'Gemini (Google)', secreto: 'GEMINI_API_KEY', modelo: 'gemini-3.6-flash', modelos: ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'] },
   'workers-ai': { nombre: 'Workers AI (Cloudflare)', secreto: 'binding AI', modelo: MODELO, modelos: [MODELO] },
 };
 // Claves: las puestas desde Diwilo Admin (tabla ia_claves_prov, cifradas con CLAVES_KEK) van primero y el secreto de Cloudflare queda de última opción
@@ -43,7 +43,7 @@ export function ordenIA(env, plat) {
   const base = plat.proveedor === 'claude' ? ['claude', 'gemini', 'workers-ai'] : plat.proveedor === 'gemini' ? ['gemini', 'workers-ai'] : plat.proveedor === 'workers-ai' ? ['workers-ai'] : ['gemini', 'workers-ai'];
   return base.filter((p) => hayProveedor(env, p, plat));
 }
-export const modeloDe = (env, plat, p) => (p === 'claude' ? plat.modelo_claude || env.CLAUDE_MODEL || PROVEEDORES.claude.modelo : p === 'gemini' ? plat.modelo_gemini || env.GEMINI_MODEL || PROVEEDORES.gemini.modelo : env.AI_MODEL || MODELO);
+export const modeloDe = (env, plat, p) => (p === 'claude' ? plat.modelo_claude || env.CLAUDE_MODEL || PROVEEDORES.claude.modelo : p === 'gemini' ? [plat.modelo_gemini, env.GEMINI_MODEL].find((m) => m && !/^gemini-(1|2)/.test(m)) || PROVEEDORES.gemini.modelo   /* los 1.x y 2.x ya no se ofrecen a cuentas nuevas */ : env.AI_MODEL || MODELO);
 
 // Claude por la API de mensajes de Anthropic. Los turnos seguidos del mismo rol se juntan y siempre empieza un turno del usuario.
 export async function viaClaude(env, { system, history, maxTokens, temperature, modelo, clave = env.ANTHROPIC_API_KEY }) {
@@ -111,7 +111,8 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
         await registrarUso(env, org, { fuente, proveedor: 'claude', tin: o.tin || est(system), tout: o.tout || est(o.text) }); return o.text;
       }
       const model = modeloDe(env, plat, 'gemini');
-      const generationConfig = { maxOutputTokens: maxTokens, temperature };
+      const generationConfig = { maxOutputTokens: maxTokens };
+      if (!/gemini-3/.test(model)) generationConfig.temperature = temperature;   // Gemini 3.x no admite temperature: Google pide quitarla
       if (/2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
@@ -120,7 +121,8 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
       if (r.ok) {
         const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((p2) => p2.text).join('').trim(), u = d.usageMetadata || {};
         if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: u.promptTokenCount ?? est(system), tout: (u.candidatesTokenCount ?? est(text)) + (u.thoughtsTokenCount || 0) }); return text; }
-      }
+        console.error('gemini sin texto', model, d.promptFeedback?.blockReason || d.candidates?.[0]?.finishReason || '');
+      } else console.error('gemini', r.status, model, (await r.text()).slice(0, 300));   // antes el fallo se perdía sin rastro
     } catch (e) { console.error(p, e.message); }
     // si falla seguimos con el siguiente de la lista y, al final, con Workers AI
   }
@@ -152,8 +154,8 @@ export async function entenderArchivo(env, org, { bytes, mime, tipo, fuente = 'm
     try {
       const model = modeloDe(env, plat, 'gemini');
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: consigna }, { inline_data: { mime_type: mime, data: aBase64(bytes) } }] }], generationConfig: { maxOutputTokens: 500, temperature: 0.2, ...(/2\.5-flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } }) });
-      if (r.ok) { const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((x) => x.text).join('').trim(); if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: d.usageMetadata?.promptTokenCount ?? Math.ceil(bytes.length / 1000) + 100, tout: d.usageMetadata?.candidatesTokenCount ?? est(text) }); return text; } }
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: consigna }, { inline_data: { mime_type: mime, data: aBase64(bytes) } }] }], generationConfig: { maxOutputTokens: 500, ...(/gemini-3/.test(model) ? {} : { temperature: 0.2 }), ...(/2\.5-flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } }) });
+      if (r.ok) { const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((x) => x.text).join('').trim(); if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: d.usageMetadata?.promptTokenCount ?? Math.ceil(bytes.length / 1000) + 100, tout: d.usageMetadata?.candidatesTokenCount ?? est(text) }); return text; } } else console.error('gemini media', r.status, model, (await r.text()).slice(0, 300));
     } catch (e) { console.error('gemini media', e.message); }
   }
   if (!env.AI) throw new HttpError(503, 'La IA no está configurada');

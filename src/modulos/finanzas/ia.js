@@ -179,15 +179,18 @@ export default [
   },
   {
     name: 'finanzas.crear_cuenta_cobro', modulo: 'finanzas', rol: 'admin', tipo: 'escritura',
-    description: 'Crea una cuenta de cobro (por cobrar) con sus líneas; recibe consecutivo y queda lista en PDF en Finanzas → Facturas. Las líneas en dólares se pasan a pesos con la TRM oficial de la fecha.',
-    inputSchema: S({ cliente: str(), nit: str(), ciudad: str(), correo: str(), fecha: str('AAAA-MM-DD'), vence: str('AAAA-MM-DD'), concepto: str('Párrafo que explica el cobro'), centro_costo: ref,
-      lineas: { type: 'array', items: { type: 'object', properties: { concepto: str(), detalle: str(), cantidad: num(), valor: num('Pesos'), dolares: num() }, required: ['concepto'] } } }, ['cliente', 'lineas']),
+    description: 'Crea una cuenta de cobro (por cobrar, queda SIN pagar) con sus líneas; recibe consecutivo y queda lista en PDF en Finanzas → Facturas. Si la persona da un solo valor total, pásalo en `valor` (y `concepto`) sin pedir más detalle. Las líneas en dólares se pasan a pesos con la TRM oficial de la fecha.',
+    inputSchema: S({ cliente: str(), nit: str(), ciudad: str(), correo: str(), fecha: str('AAAA-MM-DD'), vence: str('AAAA-MM-DD'), concepto: str('Párrafo que explica el cobro'), centro_costo: ref, proyecto_id: num('Id de un proyecto de Proyectos, si es de uno'),
+      valor: num('Valor total en pesos, si no hay líneas detalladas (se crea UNA línea con el `concepto`)'),
+      lineas: { type: 'array', items: { type: 'object', properties: { concepto: str(), detalle: str(), cantidad: num(), valor: num('Pesos'), dolares: num() }, required: ['concepto'] } } }, ['cliente']),
+    validar: (a) => (!(a.lineas || []).length && !(Number(a.valor) > 0) ? 'Falta el valor: pasa `valor` (total) o `lineas` con concepto y valor.' : (a.lineas || []).some((l) => !l.concepto || !(Number(l.valor || l.dolares) > 0)) ? 'Cada línea necesita concepto y valor.' : null),
     run: async (c, a) => {
-      const items = (a.lineas || []).map((l) => ({ concepto: l.concepto, detalle: l.detalle, cantidad: l.cantidad || 1, moneda: l.dolares ? 'USD' : 'COP', valor: l.dolares || l.valor }));
+      const lineas = (a.lineas || []).length ? a.lineas : [{ concepto: String(a.concepto || 'Servicios prestados').slice(0, 200), valor: Number(a.valor) }];
+      const items = lineas.map((l) => ({ concepto: l.concepto, detalle: l.detalle, cantidad: l.cantidad || 1, moneda: l.dolares ? 'USD' : 'COP', valor: l.dolares || l.valor }));
       if (!items.length || items.some((i) => !(i.valor > 0))) throw new Error('Cada línea necesita concepto y valor');
       const date = a.fecha || today();
       const r = await api.create(c, 'invoices', { kind: 'emitida', counterparty: a.cliente, tax_id: a.nit, client_city: a.ciudad, client_email: a.correo, issue_date: date,
-        due_date: a.vence || new Date(Date.parse(date + 'T12:00:00Z') + 15 * 864e5).toISOString().slice(0, 10), concept: a.concepto, items, cost_center_id: await finRef(c, 'cc', a.centro_costo) });
+        due_date: a.vence || new Date(Date.parse(date + 'T12:00:00Z') + 15 * 864e5).toISOString().slice(0, 10), concept: a.concepto, items, cost_center_id: await finRef(c, 'cc', a.centro_costo), project_id: a.proyecto_id || undefined });
       const inv = await api.get(c, 'invoices', r.id);
       return { id: r.id, numero: inv.number, total: inv.total, pdf: `${c.url?.origin || ''}/api/finanzas/invoices/${r.id}/pdf` };
     },

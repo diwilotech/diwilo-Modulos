@@ -24,6 +24,8 @@ Escríbeme como a una persona. Ejemplos:
 Lo que cambia datos o escribe a clientes te lo propongo y lo hago cuando respondas *SÍ* (o *NO* para cancelar).
 Comandos: *ayuda* · *salir* (cierra la sesión)`;
 
+// Lo que la persona quiere ver tras una acción: número, total, fecha o enlace
+const detalle = (r) => { if (!r || typeof r !== 'object') return ''; const x = []; if (r.numero) x.push(`N° ${r.numero}`); if (r.total) x.push(`total $${Number(r.total).toLocaleString('es-CO')}`); if (r.cuando) x.push(r.cuando); if (r.enlace_meet) x.push(r.enlace_meet); if (r.pdf) x.push(r.pdf); return x.length ? ` · ${x.join(' · ')}` : ''; };
 const SI = /^\s*(s[ií]|si|ok|dale|confirmo|hazlo|aprobado|listo|adelante)\s*[!.¡]*\s*$/i, NO = /^\s*(no|cancela|cancelar|nada|rechazo|mejor no)\s*[!.¡]*\s*$/i;
 
 export async function procesarAdmin(env, { bandeja, conv, admin, texto }) {
@@ -58,7 +60,7 @@ export async function procesarAdmin(env, { bandeja, conv, admin, texto }) {
     if (pend && SI.test(t)) {
       await env.DB.prepare('DELETE FROM wa_admin_pend WHERE business_id = ? AND numero = ?').bind(org, admin.numero).run();
       const res = [];
-      for (const p of JSON.parse(pend.pasos)) { const r = await ejecutarHerramienta(env, ctx, p.herramienta, p.args); res.push(r.ok ? '✅ Hecho' : `⚠️ No se pudo: ${String(r.error || 'error').slice(0, 160)}`); }
+      for (const p of JSON.parse(pend.pasos)) { const r = await ejecutarHerramienta(env, ctx, p.herramienta, p.args); res.push(r.ok ? `✅ Hecho${detalle(r.result)}` : `⚠️ No se pudo: ${String(r.error || 'error').slice(0, 160)}\nDime qué corregir y lo propongo de nuevo.`); }
       return await decir(res.join('\n'));
     }
     // Pregunta o pedido nuevo: el asistente del negocio (con la conversación reciente como contexto)
