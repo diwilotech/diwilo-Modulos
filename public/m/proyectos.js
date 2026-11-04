@@ -22,15 +22,149 @@ DW.ready.then((me) => {
     $('[data-seg]').insertAdjacentHTML('beforebegin', s ? `<p class="text-body-secondary small mb-2">${s.proyectos_abiertos} proyectos abiertos · ${s.por_aprobar.cantidad} cotizaciones por aprobar (${money(s.por_aprobar.total)}) · ${s.cuentas_de_cobro_pendientes.cantidad} cuentas de cobro sin pagar (${money(s.cuentas_de_cobro_pendientes.saldo)})</p>` : '');
   };
 
+  const hide = (d) => bootstrap.Modal.getInstance(d)?.hide();
+  const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+  // Empresa: el nombre se autocompleta con los contactos de Marketing; NIT, correo y ciudad viajan a sus cotizaciones y cuentas de cobro
+  function empresa(row, changed) {
+    const editando = !!(row && row.id), v = { ...(row || {}) };
+    const { el: d } = modal(`<form novalidate>
+      <div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${editando ? 'Datos de la empresa' : 'Nueva empresa'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body"><div class="row g-2">
+        <div class="col-12 position-relative"><label class="form-label small mb-1">Empresa</label><input class="form-control" name="name" required autocomplete="off" value="${esc(v.name || '')}" placeholder="Escribe el nombre de la empresa">
+          <div class="list-group position-absolute w-100 shadow-sm" style="z-index:5;max-height:200px;overflow:auto" data-sug hidden></div><div class="form-text">Si ya está en tus contactos de Marketing, se cargan sus datos; si no, se crea allí también.</div></div>
+        <div class="col-sm-4"><label class="form-label small mb-1">NIT o documento</label><input class="form-control" name="tax_id" value="${esc(v.tax_id || '')}"></div>
+        <div class="col-sm-4"><label class="form-label small mb-1">Ciudad</label><input class="form-control" name="client_city" value="${esc(v.client_city || '')}"></div>
+        <div class="col-sm-4"><label class="form-label small mb-1">Correo</label><input class="form-control" name="client_email" type="email" value="${esc(v.client_email || '')}"></div></div>
+        ${editando ? '<p class="small text-body-secondary mt-2 mb-0"><i class="bi bi-arrow-repeat me-1"></i>Al guardar, estos datos se actualizan en todas sus cotizaciones y cuentas de cobro.</p>' : ''}
+        <div class="small text-danger mt-2" data-err></div></div>
+      <div class="modal-footer border-0 pt-0 justify-content-between"><span>${editando && me.canManage ? '<button type="button" class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash me-1"></i>Borrar</button>' : ''}</span>
+        <span><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button> <button class="btn btn-primary">Guardar</button></span></div></form>`);
+    const f = $('form', d), sug = $('[data-sug]', d);
+    let contacto = v.contact_id || null;
+    f.name.addEventListener('input', debounce(async () => {
+      contacto = editando ? contacto : null;
+      const t = f.name.value.trim();
+      if (t.length < 2) { sug.hidden = true; return; }
+      try {
+        const r = (await api(`${B}/contactos?q=${encodeURIComponent(t)}`)).rows;
+        sug.innerHTML = r.map((x) => `<button type="button" class="list-group-item list-group-item-action py-1" data-k="${x.id}"><b>${esc(x.company || x.name)}</b>${x.email ? `<span class="small text-body-secondary ms-2">${esc(x.email)}</span>` : ''}</button>`).join('');
+        sug.hidden = !r.length; sug._rows = r;
+      } catch { sug.hidden = true; }
+    }));
+    sug.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-k]'); if (!b) return;
+      const x = sug._rows.find((r) => String(r.id) === b.dataset.k); contacto = x.id;
+      f.name.value = x.company || x.name; if (x.email && !f.client_email.value) f.client_email.value = x.email; sug.hidden = true;
+    });
+    $('[data-del]', d)?.addEventListener('click', async () => { if (!await confirm('¿Borrar esta empresa? Sus cotizaciones y cuentas de cobro no se borran.')) return; try { await api(`${B}/projects/${row.id}`, { method: 'DELETE' }); hide(d); toast('Borrada'); changed(null); } catch (x) { toast(x.message, false); } });
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = { name: f.name.value.trim(), tax_id: f.tax_id.value.trim(), client_city: f.client_city.value.trim(), client_email: f.client_email.value.trim() };
+      if (contacto) body.contact_id = contacto;
+      if (!body.name) { $('[data-err]', d).textContent = 'Escribe el nombre de la empresa'; return; }
+      try { const out = await api(editando ? `${B}/projects/${row.id}` : `${B}/projects`, { method: editando ? 'PATCH' : 'POST', body }); hide(d); toast(editando ? 'Guardado: se actualizaron sus cotizaciones y cuentas de cobro' : 'Empresa creada'); changed(editando ? row.id : out.id); }
+      catch (x) { $('[data-err]', d).textContent = x.message; }
+    });
+  }
+
+  // Enviar por correo (Mensajes): redacción lista, editable, con el enlace público al PDF
+  async function enviar(tipo, id, despues) {
+    let b;
+    try { b = await api(`${B}/correo/borrador?tipo=${tipo}&id=${id}`); } catch (x) { toast(x.message, false); return; }
+    const { el: d } = modal(`<form novalidate>
+      <div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Enviar ${tipo === 'cuenta' ? 'la cuenta de cobro' : 'la cotización'} ${esc(b.numero || '')}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body">
+        ${b.bandejas.length ? '' : '<div class="alert alert-warning small">Necesitas una bandeja de correo activa en <b>Mensajes → Bandejas</b> para enviar desde aquí.</div>'}
+        <div class="row g-2"><div class="col-sm-7"><label class="form-label small mb-1">Para</label><input class="form-control" name="para" type="email" value="${esc(b.para)}" placeholder="correo@empresa.com"></div>
+          <div class="col-sm-5"><label class="form-label small mb-1">Enviar desde</label><select class="form-select" name="bandeja">${b.bandejas.map((x) => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
+          <div class="col-12"><label class="form-label small mb-1">Asunto</label><input class="form-control" name="asunto" value="${esc(b.asunto)}"></div>
+          <div class="col-12"><label class="form-label small mb-1">Mensaje <span class="text-body-secondary">· lleva el enlace para ver y descargar el PDF</span></label><textarea class="form-control" name="mensaje" rows="11">${esc(b.mensaje)}</textarea></div></div>
+        <div class="small text-danger mt-2" data-err></div></div>
+      <div class="modal-footer border-0 pt-0 justify-content-between"><a class="btn btn-outline-secondary" href="${esc(b.enlace)}" target="_blank" rel="noopener"><i class="bi bi-filetype-pdf me-1"></i>Ver PDF</a>
+        <span><button type="button" class="btn btn-light" data-bs-dismiss="modal">Ahora no</button> <button class="btn btn-primary" ${b.bandejas.length ? '' : 'disabled'}><i class="bi bi-send me-1"></i>Enviar</button></span></div></form>`, { size: 'modal-lg' });
+    const f = $('form', d);
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await api(`${B}/correo/enviar`, { method: 'POST', body: { tipo, id, para: f.para.value.trim(), asunto: f.asunto.value.trim(), mensaje: f.mensaje.value.trim(), bandeja_id: +f.bandeja.value } }); hide(d); toast('Enviado: queda en tus chats de Mensajes'); despues?.(); }
+      catch (x) { $('[data-err]', d).textContent = x.message; }
+    });
+  }
+
+  // Cuenta de cobro: se eligen las líneas (todas, o p. ej. un anticipo), se crea sin pagar y se ofrece enviarla
+  async function cobrar(qid, despues) {
+    let q; try { q = await api(`${B}/quotes/${qid}`); } catch (x) { toast(x.message, false); return; }
+    let lines = []; try { lines = JSON.parse(q.items || '[]'); } catch { /* vacío */ }
+    const { el: d } = modal(`<form novalidate>
+      <div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Cuenta de cobro · ${esc(q.number)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body"><p class="small text-body-secondary">${esc(q.counterparty)} · ${esc(q.title || '')}. Elige qué líneas cobrar; la cuenta queda sin pagar en Finanzas.</p>
+        <div class="list-group mb-3">${lines.map((l, i) => `<label class="list-group-item d-flex gap-2 align-items-start"><input class="form-check-input mt-1" type="checkbox" data-i="${i}" checked><span class="flex-grow-1">${esc(l.concepto)}${l.detalle ? sub(l.detalle) : ''}</span><b class="text-nowrap">${l.moneda === 'USD' ? `USD ${l.valor}` : money(l.total)}</b></label>`).join('')}</div>
+        <div class="row g-2"><div class="col-sm-6"><label class="form-label small mb-1">Fecha de la cuenta</label><input class="form-control" name="fecha" type="date" value="${C.todayCo()}"></div>
+          <div class="col-sm-6"><label class="form-label small mb-1">Pagar antes del</label><input class="form-control" name="vence" type="date"></div></div>
+        <div class="text-end mt-3">Total de la cotización <b>${money(q.total)}</b></div><div class="small text-danger mt-2" data-err></div></div>
+      <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button> <button class="btn btn-primary"><i class="bi bi-receipt me-1"></i>Cobrar</button></div></form>`, { size: 'modal-lg' });
+    const f = $('form', d);
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const idx = $$('[data-i]', d).filter((x) => x.checked).map((x) => +x.dataset.i);
+      if (!idx.length) { $('[data-err]', d).textContent = 'Elige al menos una línea'; return; }
+      const body = { lineas: idx.length === lines.length ? undefined : idx, fecha: f.fecha.value || undefined, vence: f.vence.value || undefined };
+      try {
+        const x = await api(`${B}/quotes/${qid}/cobrar`, { method: 'POST', body }); hide(d); toast(`Cuenta de cobro ${x.numero} creada`); despues?.();
+        enviar('cuenta', x.id, despues);
+      } catch (x) { $('[data-err]', d).textContent = x.message; }
+    });
+  }
+
+  // Empresas a la izquierda; a la derecha, sus cotizaciones (los trabajos) con Ver, Cuenta de cobro y Enviar
   function proyectos(el) {
-    const fields = [{ k: 'name', label: 'Proyecto', required: true }, { k: 'client', label: 'Cliente', required: true }, { k: 'tax_id', label: 'NIT / CC' }, { k: 'client_city', label: 'Ciudad' }, { k: 'client_email', label: 'Correo' },
-      { k: 'status', label: 'Estado', type: 'select', options: Object.entries(PROY).map(([k, v]) => [k, v[1]]) }, { k: 'notes', label: 'Notas', type: 'long', full: true }];
-    const t = C.table({ el, base: B, entity: 'projects', title: 'proyecto', newText: 'Nuevo proyecto', fields, empty: 'Sin proyectos. Crea el primero o pídeselo a la IA.', emptyIcon: 'bi-kanban',
-      columns: [{ label: 'Proyecto', main: true, html: (r) => `${esc(r.name)}${sub(r.client)}` }, { label: 'Estado', html: (r) => chip(...(PROY[r.status] || ['free', r.status])) },
-        { label: 'Cotizado', cls: 'text-end', html: (r) => `${money(r.cotizado)}${sub(`${r.cotizaciones} cotiz.`)}` }, { label: 'Cobrado', cls: 'text-end', html: (r) => `${money(r.cobrado)}${sub(`pagado ${money(r.pagado)}`)}` }],
-      rowActions: () => RO ? '' : '<button class="btn btn-sm btn-outline-primary" data-act="cot"><i class="bi bi-file-earmark-text me-1"></i>Cotizar</button>',
-      onAction: (a, r) => { if (a === 'cot') cotizacion({ project_id: r.id, counterparty: r.client, tax_id: r.tax_id, client_city: r.client_city, client_email: r.client_email, title: r.name }, () => { location.hash = '#cotizaciones'; render(); }); } });
-    t.load();
+    let lista = [], sel = null;
+    el.innerHTML = `<div class="row g-3"><div class="col-lg-4"><div class="card"><div class="card-body p-2">
+        <div class="d-flex gap-2 mb-2"><input class="form-control form-control-sm" data-q placeholder="Buscar empresa…" aria-label="Buscar empresa">${RO ? '' : '<button class="btn btn-sm btn-primary text-nowrap" data-new><i class="bi bi-plus-lg me-1"></i>Empresa</button>'}</div>
+        <div class="list-group list-group-flush" data-list></div></div></div></div>
+      <div class="col-lg-8" data-der></div></div>`;
+    const der = $('[data-der]', el), box = $('[data-list]', el);
+    const pintaLista = () => {
+      box.innerHTML = lista.length ? lista.map((r) => `<button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${r.id === sel ? 'active' : ''}" data-id="${r.id}"><span class="text-truncate">${esc(r.name)}</span><span class="badge ${r.id === sel ? 'text-bg-light' : 'text-bg-secondary'} ms-2">${r.cotizaciones}</span></button>`).join('')
+        : '<div class="p-3 small text-body-secondary">Sin empresas. Crea la primera o pídeselo a la IA.</div>';
+    };
+    async function cargaLista(q = '') {
+      try { lista = (await api(`${B}/projects?limit=200${q ? `&q=${encodeURIComponent(q)}` : ''}`)).rows; } catch (x) { toast(x.message, false); lista = []; }
+      if (!sel && lista.length) sel = lista[0].id;
+      pintaLista(); if (sel) detalle(sel); else der.innerHTML = '';
+    }
+    async function detalle(id) {
+      sel = id; pintaLista();
+      let d; try { d = await api(`${B}/projects/${id}/detalle`); } catch (x) { der.innerHTML = `<div class="text-danger small">${esc(x.message)}</div>`; return; }
+      const p = d.proyecto, cuentas = new Map(d.cuentas_de_cobro.map((x) => [x.id, x]));
+      const recarga = () => { cargaLista($('[data-q]', el).value.trim()); };
+      der.innerHTML = `<div class="card"><div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between gap-2 mb-3"><div><h2 class="h5 mb-1">${esc(p.name)}</h2><div class="small text-body-secondary">${[p.tax_id && `NIT ${esc(p.tax_id)}`, p.client_email && esc(p.client_email), p.client_city && esc(p.client_city)].filter(Boolean).join(' · ') || 'Sin NIT, correo ni ciudad: agrégalos en «Datos»'}</div></div>
+          ${RO ? '' : '<div class="d-flex gap-2 align-items-start"><button class="btn btn-sm btn-outline-secondary" data-edit><i class="bi bi-pencil me-1"></i>Datos</button><button class="btn btn-sm btn-primary" data-cot><i class="bi bi-plus-lg me-1"></i>Cotización</button></div>'}</div>
+        ${d.cotizaciones.length ? `<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Cotización</th><th>Fecha</th><th class="text-end">Total</th><th>Estado</th><th></th></tr></thead><tbody>
+          ${d.cotizaciones.map((x) => { const cu = cuentas.get(x.invoice_id); return `<tr data-q="${x.id}"><td><a href="#" data-act="edit">${esc(x.number)}</a>${sub(x.title)}</td><td>${day(x.issue_date)}</td><td class="text-end">${money(x.total)}</td>
+            <td>${chip(...(COT[x.status] || ['free', x.status]))}${cu ? sub(`${esc(cu.number)} · ${(COB[cu.status] || [, cu.status])[1]}`) : ''}</td>
+            <td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-primary" data-act="ver" title="Ver PDF"><i class="bi bi-eye me-1"></i>Ver</button>
+              ${RO ? '' : x.invoice_id ? `<button class="btn btn-sm btn-outline-primary" data-act="vercuenta" data-inv="${x.invoice_id}"><i class="bi bi-receipt me-1"></i>Cuenta</button> <button class="btn btn-sm btn-outline-secondary" data-act="enviarcuenta" data-inv="${x.invoice_id}" title="Enviar la cuenta de cobro por correo"><i class="bi bi-send"></i></button>`
+                : `<button class="btn btn-sm btn-primary" data-act="cobrar"><i class="bi bi-receipt me-1"></i>Cuenta de cobro</button> <button class="btn btn-sm btn-outline-secondary" data-act="enviar" title="Enviar la cotización por correo"><i class="bi bi-send"></i></button>`}</td></tr>`; }).join('')}
+          </tbody></table></div>` : '<div class="text-body-secondary small py-3">Sin cotizaciones todavía. Crea la primera con «Cotización» o pídeselo a la IA.</div>'}</div></div>`;
+      $('[data-edit]', der)?.addEventListener('click', () => empresa(p, (id2) => (id2 ? (id2 === id ? recarga() : (sel = id2, recarga())) : (sel = null, recarga()))));
+      $('[data-cot]', der)?.addEventListener('click', () => cotizacion({ project_id: p.id, counterparty: p.name, tax_id: p.tax_id, client_city: p.client_city, client_email: p.client_email }, recarga));
+      der.onclick = async (e) => {
+        const b = e.target.closest('[data-act]'); if (!b) return; e.preventDefault();
+        const qid = +b.closest('[data-q]').dataset.q, a = b.dataset.act;
+        if (a === 'ver') pdf(`${B}/quotes/${qid}/pdf`);
+        else if (a === 'vercuenta') pdf(`${F}/invoices/${b.dataset.inv}/pdf`);
+        else if (a === 'cobrar') cobrar(qid, recarga);
+        else if (a === 'enviar') enviar('cotizacion', qid, recarga);
+        else if (a === 'enviarcuenta') enviar('cuenta', +b.dataset.inv, recarga);
+        else if (a === 'edit') { try { cotizacion(await api(`${B}/quotes/${qid}`), recarga); } catch (x) { toast(x.message, false); } }
+      };
+    }
+    box.onclick = (e) => { const b = e.target.closest('[data-id]'); if (b) detalle(+b.dataset.id); };
+    $('[data-q]', el).addEventListener('input', debounce((e) => { sel = null; cargaLista(e.target.value.trim()); }));
+    $('[data-new]', el)?.addEventListener('click', () => empresa(null, (id) => { sel = id; cargaLista(); }));
+    cargaLista();
   }
 
   function cotizaciones(el) {
@@ -44,9 +178,8 @@ DW.ready.then((me) => {
       rowActions: (r) => `<button class="btn btn-sm btn-outline-primary" data-act="pdf"><i class="bi bi-filetype-pdf me-1"></i>PDF</button>${RO || r.invoice_id || r.status === 'rechazada' ? '' : ' <button class="btn btn-sm btn-primary" data-act="cobrar"><i class="bi bi-receipt me-1"></i>Aprobar y cobrar</button>'}`,
       onAction: async (a, r) => {
         if (a === 'pdf') return pdf(`${B}/quotes/${r.id}/pdf`);
-        if (a === 'cobrar' && await confirm(`¿Aprobar la cotización ${r.number} y crear su cuenta de cobro por ${money(r.total)}? Queda sin pagar en Finanzas.`)) {
-          try { const x = await api(`${B}/quotes/${r.id}/cobrar`, { method: 'POST', body: {} }); toast(`Cuenta de cobro ${x.numero} creada`); t.load(); pdf(`${F}/invoices/${x.id}/pdf`); } catch (e) { toast(e.message, false); }
-        } } });
+        if (a === 'cobrar') cobrar(r.id, () => t.load());
+      } });
     t.load();
   }
 
@@ -56,15 +189,19 @@ DW.ready.then((me) => {
     const editando = !!(row && row.id), bloqueada = editando && !!row.invoice_id;
     const v = editando ? { ...row } : { issue_date: C.todayCo(), ...row };
     let lines = []; try { lines = JSON.parse(v.items || '[]'); } catch { /* vacío */ }
+    let ex = {}; try { ex = JSON.parse(v.extra || '{}') || {}; } catch { /* vacío */ }
+    const desdeEmpresa = !!v.project_id, lst = (a) => (Array.isArray(a) ? a.join('\n') : '');
     if (!lines.length) lines = [{ concepto: '', cantidad: 1, moneda: 'COP', valor: '' }];
     const n = (x) => Number(String(x ?? '').replace(/[^\d.,-]/g, '').replace(',', '.')) || 0;
     const { el: d } = modal(`<form novalidate>
       <div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${editando ? `Cotización ${esc(row.number)}` : 'Nueva cotización'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body"><div class="row g-2">
-        <div class="col-12"><label class="form-label small mb-1">Cliente</label><input class="form-control" name="counterparty" required value="${esc(v.counterparty || '')}"></div>
+        ${desdeEmpresa ? `<div class="col-12"><div class="small text-body-secondary border rounded p-2"><b>${esc(v.counterparty || '')}</b>${[v.tax_id && ' · NIT ' + esc(v.tax_id), v.client_email && ' · ' + esc(v.client_email), v.client_city && ' · ' + esc(v.client_city)].filter(Boolean).join('')}<br>Los datos de la empresa se cambian en «Datos» y se actualizan aquí solos.</div></div>`
+          : `        <div class="col-12"><label class="form-label small mb-1">Cliente</label><input class="form-control" name="counterparty" required value="${esc(v.counterparty || '')}"></div>
         <div class="col-sm-4"><label class="form-label small mb-1">NIT o documento</label><input class="form-control" name="tax_id" value="${esc(v.tax_id || '')}"></div>
         <div class="col-sm-4"><label class="form-label small mb-1">Ciudad</label><input class="form-control" name="client_city" value="${esc(v.client_city || '')}"></div>
         <div class="col-sm-4"><label class="form-label small mb-1">Correo</label><input class="form-control" name="client_email" type="email" value="${esc(v.client_email || '')}"></div>
+`}
         <div class="col-12"><label class="form-label small mb-1">Título del trabajo</label><input class="form-control" name="title" value="${esc(v.title || '')}" placeholder="Landing de campaña"></div>
         <div class="col-12"><label class="form-label small mb-1">Resumen del alcance</label><textarea class="form-control" name="concept" rows="2">${esc(v.concept || '')}</textarea></div>
         <div class="col-sm-6"><label class="form-label small mb-1">Fecha</label><input class="form-control" name="issue_date" type="date" required value="${esc(v.issue_date || '')}"></div>
@@ -73,6 +210,9 @@ DW.ready.then((me) => {
         ${bloqueada ? '<p class="small text-body-secondary">Ya tiene cuenta de cobro: las líneas no se pueden cambiar.</p>' : '<button class="btn btn-sm btn-outline-primary mt-1" type="button" data-add><i class="bi bi-plus-lg me-1"></i>Agregar línea</button>'}
         <div class="text-end mt-2">Total <b class="fs-4" data-total>$0</b></div>
         <div class="row g-2 mt-1"><div class="col-12"><label class="form-label small mb-1">Condiciones <span class="text-body-secondary">· forma de pago, entrega, qué no incluye</span></label><textarea class="form-control" name="conditions" rows="3">${esc(v.conditions || '')}</textarea></div>
+          <div class="col-12"><label class="form-label small mb-1">Sugerencias <span class="text-body-secondary">· una por línea; salen aparte en el PDF y no suman al total</span></label><textarea class="form-control" name="sugerencias" rows="3">${esc(lst(ex.sugerencias))}</textarea></div>
+          <div class="col-sm-8"><label class="form-label small mb-1">Lo que necesitamos del cliente <span class="text-body-secondary">· una por línea</span></label><textarea class="form-control" name="necesitamos" rows="2">${esc(lst(ex.necesitamos))}</textarea></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Plazo de entrega</label><input class="form-control" name="plazo" value="${esc(ex.plazo || '')}" placeholder="3 semanas"></div>
           ${editando ? `<div class="col-sm-6"><label class="form-label small mb-1">Estado</label><select class="form-select" name="status">${Object.entries(COT).map(([k, x]) => `<option value="${k}" ${v.status === k ? 'selected' : ''}>${x[1]}</option>`).join('')}</select></div>` : ''}</div>
         <div class="small text-danger mt-2" data-err></div></div>
       <div class="modal-footer border-0 pt-0 justify-content-between"><span>${editando && me.canManage ? '<button type="button" class="btn btn-sm btn-outline-danger" data-del><i class="bi bi-trash me-1"></i>Borrar</button>' : ''}</span>
@@ -101,8 +241,11 @@ DW.ready.then((me) => {
     f.addEventListener('submit', async (e) => {
       e.preventDefault(); read();
       const go = e.submitter?.value, body = Object.fromEntries(new FormData(f));
+      const ll = (t) => String(t || '').split('\n').map((x) => x.trim()).filter(Boolean);
+      body.extra = JSON.stringify({ ...ex, sugerencias: ll(body.sugerencias), necesitamos: ll(body.necesitamos), plazo: (body.plazo || '').trim() });
+      delete body.sugerencias; delete body.necesitamos; delete body.plazo;
       if (!bloqueada) body.items = lines.filter((l) => String(l.concepto).trim()).map((l) => ({ concepto: l.concepto, detalle: l.detalle || undefined, cantidad: n(l.cantidad) || 1, moneda: l.moneda, valor: n(l.valor) }));
-      if (v.project_id) body.project_id = v.project_id;
+      if (v.project_id) { body.project_id = v.project_id; body.counterparty ||= v.counterparty; }
       if (!body.valid_until) delete body.valid_until;
       try {
         const out = await api(editando ? `${B}/quotes/${row.id}` : `${B}/quotes`, { method: editando ? 'PATCH' : 'POST', body });

@@ -29,6 +29,7 @@ import { importarEquipo } from './modulos/nomina/api.js';
 import { linkBySlug, countClick, registrarLead, marcarMatriculado } from './modulos/marketing/api.js';
 import { publicCard } from './modulos/marketing/tarjetas.js';
 import { validatePage } from './modulos/finanzas/api.js';
+import { documentoPublico } from './modulos/proyectos/api.js';
 import { kitOf } from './lib/marca.js';
 import { REG, ejecutarHerramienta } from './lib/registro.js';
 import { guiasDe } from './lib/guias.js';
@@ -138,7 +139,8 @@ export class Modulos extends WorkerEntrypoint {
   lead(app, negocio, datos) { return registrarLead(this.env, app, negocio, datos || {}); }
   matriculado(app, negocio, datos) { return marcarMatriculado(this.env, app, negocio, datos || {}); }
 
-  async validar(app, code, origin) {
+  async validar(app, code, origin, documento = false) {
+    if (documento) return documentoPublico(this.env, app, code, origin);
     const res = await validatePage(new Request(`${origin}/validar/${encodeURIComponent(code || '')}`), this.env, app);
     return asText(res);
   }

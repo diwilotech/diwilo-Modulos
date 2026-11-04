@@ -1,27 +1,69 @@
 {
   "id": "proyectos",
   "nombre": "Proyectos",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "descripcion": "Proyectos y clientes con sus cotizaciones y cuentas de cobro en un solo lugar: cotizaciones con consecutivo, líneas en pesos o dólares, vigencia, condiciones y PDF con tu firma; al aprobar una cotización se crea su cuenta de cobro (sin pagar) en Finanzas, ligada al proyecto. Todo se puede pedir a la IA.",
   "icono": "bi-kanban",
-  "menu": { "ruta": "/staff/proyectos.html", "orden": 45 },
-  "permisos": { "ver": "staff", "configurar": "admin" },
-  "widgets": [ { "id": "resumen", "api": "/api/proyectos/summary" } ],
-  "ia": [
-    "proyectos.resumen", "proyectos.listar_proyectos", "proyectos.crear_proyecto", "proyectos.editar_proyecto",
-    "proyectos.listar_cotizaciones", "proyectos.crear_cotizacion", "proyectos.cambiar_estado_cotizacion",
-    "proyectos.cotizacion_a_cuenta_de_cobro", "proyectos.enlace_pdf"
+  "menu": {
+    "ruta": "/staff/proyectos.html",
+    "orden": 45
+  },
+  "permisos": {
+    "ver": "staff",
+    "configurar": "admin"
+  },
+  "widgets": [
+    {
+      "id": "resumen",
+      "api": "/api/proyectos/summary"
+    }
   ],
-  "tablas": ["pr_projects", "pr_quotes"],
+  "ia": [
+    "proyectos.resumen",
+    "proyectos.listar_proyectos",
+    "proyectos.crear_proyecto",
+    "proyectos.editar_proyecto",
+    "proyectos.listar_cotizaciones",
+    "proyectos.crear_cotizacion",
+    "proyectos.cambiar_estado_cotizacion",
+    "proyectos.cotizacion_a_cuenta_de_cobro",
+    "proyectos.enlace_pdf",
+    "proyectos.editar_cotizacion",
+    "proyectos.preparar_correo",
+    "proyectos.enviar_por_correo"
+  ],
+  "tablas": [
+    "pr_projects",
+    "pr_quotes"
+  ],
   "rutas_publicas": [],
-  "depende_de": ["finanzas"],
+  "depende_de": [
+    "finanzas"
+  ],
   "pagina": "/m/proyectos.js",
   "central": true,
   "mcp": {
-    "guia": "Proyectos: clientes y trabajos con sus cotizaciones y cuentas de cobro. Para cotizar usa crear_cotizacion (un valor total o líneas); si la persona solo da un valor, no pidas más detalle. Cuando el cliente aprueba, usa cotizacion_a_cuenta_de_cobro: crea la cuenta de cobro en Finanzas sin pagar. Para una cuenta de cobro suelta usa finanzas_crear_cuenta_cobro (con `proyecto_id` si es de un proyecto). El PDF se abre con el enlace que devuelven las herramientas y lleva la firma del negocio.",
-    "ejemplos": [ "Hazle una cotización a DACH por $150.000 por la landing de campaña", "¿Qué cotizaciones están sin respuesta?", "Convierte la cotización COT-0003 en cuenta de cobro" ],
+    "guia": "Proyectos: cada PROYECTO es una EMPRESA (solo su nombre; su contacto vive también en Marketing con el correo). Sus cotizaciones son los trabajos. Crea la empresa con crear_proyecto (nombre, NIT, correo, ciudad); si cambias sus datos con editar_proyecto se copian a todas sus cotizaciones y cuentas de cobro. Para cotizar usa crear_cotizacion (un valor total o líneas; si la persona solo da un valor, no pidas más detalle); `incluye`, `necesitamos`, `plazo` y `sugerencias` (opcionales, aparte del total) enriquecen el PDF y se cambian con editar_cotizacion. Cuando el cliente aprueba, usa cotizacion_a_cuenta_de_cobro (puedes pasar `lineas` para cobrar solo algunas, p. ej. un anticipo): crea la cuenta de cobro en Finanzas sin pagar. Para enviarlas: preparar_correo muestra el borrador y enviar_por_correo lo manda por Mensajes con el enlace público al PDF (lleva tu firma). Para una cuenta de cobro suelta usa finanzas_crear_cuenta_cobro (con `proyecto_id`).",
+    "ejemplos": [
+      "Crea la empresa DACH Institut con correo comunicaciones@dach-institut.com",
+      "Hazle una cotización a DACH por $150.000 por la landing, con sugerencias aparte",
+      "Convierte la COT-0003 en cuenta de cobro y envíasela por correo",
+      "Cambia el NIT de Madetableros a 900.123.456-7"
+    ],
     "flujos": [
-      { "id": "cotizar", "nombre": "Cotizar y cobrar", "descripcion": "De la cotización a la cuenta de cobro.", "pasos": [ "proyectos.listar_proyectos", "proyectos.crear_cotizacion", "proyectos.cambiar_estado_cotizacion", "proyectos.cotizacion_a_cuenta_de_cobro" ] }
+      {
+        "id": "cotizar",
+        "nombre": "Cotizar, cobrar y enviar",
+        "descripcion": "De la cotización a la cuenta de cobro y su envío por correo.",
+        "pasos": [
+          "proyectos.listar_proyectos",
+          "proyectos.crear_cotizacion",
+          "proyectos.preparar_correo",
+          "proyectos.enviar_por_correo",
+          "proyectos.cotizacion_a_cuenta_de_cobro",
+          "proyectos.enviar_por_correo"
+        ]
+      }
     ]
   }
 }

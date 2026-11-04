@@ -2,6 +2,7 @@
 // líneas en COP o USD (TRM oficial), firma, Bre-B, QR para el comprobante y QR de validación pública (/validar/:código).
 // El documento se arma en HTML con diseño de impresión (A4); el navegador lo guarda como PDF con texto real.
 import { brandOf, TEMAS, FUENTES, paleta } from '../../lib/marca.js';
+import { rich, bloque, hero, kpisHtml, firmaHtml, pieHtml, barra, estilos, cabeza } from '../../lib/propuesta.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pesos = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO');
 const usdTxt = (n) => 'USD ' + Number(n || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -73,7 +74,7 @@ export async function priceItems(items, trmFor) {
 
 /* ---------------- validación pública (QR del documento) ---------------- */
 // Código aleatorio (50 bits, sin letras confusas): no se puede adivinar ni sacar del número del documento
-async function verifyCode(env, inv) {
+export async function verifyCode(env, inv) {
   if (inv.verify_code) return inv.verify_code;
   const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', b = crypto.getRandomValues(new Uint8Array(10));
   const code = [...b].map((x) => abc[x % abc.length]).join('');
@@ -186,111 +187,48 @@ ${inv ? `<dt>Cuenta por cobrar</dt><dd>${esc(inv.number || '#' + inv.id)} · tot
 ${autoprint ? '<script>addEventListener("load",()=>setTimeout(print,300))</script>' : ''}</body></html>`;
 }
 
-// `cot` (opcional) convierte el mismo diseño en una COTIZACIÓN: { titulo, condiciones }
-export async function invoiceDocument(env, org, inv, { autoprint = false, origin = '', logo = null, cot = null } = {}) {
+// Cuenta de cobro (o factura) en PDF con el diseño propuesta de src/lib/propuesta.js.
+export async function invoiceDocument(env, org, inv, { autoprint = false, origin = '', logo = null } = {}) {
   const p = { ...(await getProfile(env, org)) }, K = await skin(env, org);
-  if (cot) p.title = cot.titulo || 'Cotización';
   let items = []; try { items = JSON.parse(inv.items || '[]'); } catch {}
   if (!items.length) items = [{ concepto: inv.concept || inv.notes || 'Servicios', cantidad: 1, moneda: 'COP', valor: inv.subtotal || inv.total, total: inv.subtotal || inv.total }];
   const subtotal = inv.subtotal || items.reduce((s, i) => s + (i.total || 0), 0), tax = inv.tax || 0, total = inv.total || subtotal + tax;
   const hasUsd = items.some((i) => i.moneda === 'USD');
   const number = inv.number || `#${inv.id}`;
-  const stamp = inv.status === 'pagada' ? 'Pagada' : inv.status === 'anulada' ? 'Anulada' : '';
+  const stamp = inv.status === 'pagada' ? ['ok', 'Pagada'] : inv.status === 'anulada' ? ['bad', 'Anulada'] : null;
   const wa = p.whatsapp ? `https://wa.me/${p.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola, envío el comprobante de pago de la ${p.title.toLowerCase()} ${number} por ${pesos(total)}.`)}` : '';
   const fileName = `${p.title} ${number} - ${inv.counterparty}`.replace(/[\\/:*?"<>|]/g, '');
-  const vcode = cot ? '' : await verifyCode(env, inv), vurl = `${origin}/validar/${vcode}`;
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(fileName)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="${K.gfont}" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
-<style>
-@page{size:A4;margin:0}
-*{box-sizing:border-box}
-:root{--ink:#14112b;--ink2:#4a4766;--ink3:#8a87a3;--line:#e7e4f2;--soft:${K.c50};--brand:${K.c500};--brand2:${K.c700}}
-html{background:#e9e7f1}
-body{margin:0;font:12px/1.45 ${K.fam};color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.bar{position:sticky;top:0;z-index:5;display:flex;gap:10px;justify-content:center;align-items:center;padding:12px 16px;background:#14112b;color:#fff;font-size:13px}
-.bar button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 18px;cursor:pointer;background:${K.c400};color:#fff}.bar button.sec{background:transparent;box-shadow:inset 0 0 0 1px #5a5580}
-.bar span{opacity:.7}
-.page{width:210mm;min-height:297mm;margin:24px auto;background:#fff;box-shadow:0 10px 40px rgba(20,17,43,.15);padding:16mm 16mm 14mm;position:relative;display:flex;flex-direction:column;overflow:hidden}
-.page::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,${K.c400},${K.c500} 45%,${K.c700})}
-header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
-.brand{display:flex;gap:10px;align-items:center}.brand svg{width:36px;height:38px}
-.brand b{display:block;font:600 19px/1.1 ${K.fam};letter-spacing:-.02em}.brand small{color:var(--ink3);font-size:10.5px}
-.doc{text-align:right}.doc h1{margin:0;font:600 12px/1 ${K.fam};letter-spacing:.18em;text-transform:uppercase;color:var(--brand)}
-.doc .num{font:600 21px/1.15 ${K.fam};margin-top:6px;letter-spacing:-.01em}
-.doc dl{display:grid;grid-template-columns:auto auto;gap:1px 12px;margin:6px 0 0;font-size:11px;justify-content:end}.doc dt{color:var(--ink3)}.doc dd{margin:0;font-weight:500}
-.parties{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
-.party{border:1px solid var(--line);border-radius:10px;padding:9px 12px}
-.party h2,.sec h2{margin:0 0 5px;font:600 9.5px/1 ${K.fam};letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
-.party b{display:block;font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em}.party span{display:block;color:var(--ink2);font-size:11px}
-.amount{margin-top:10px;border-radius:12px;padding:11px 16px;background:linear-gradient(135deg,${K.c50},${K.c100} 60%,${K.c50});display:flex;justify-content:space-between;align-items:center;gap:16px}
-.amount small{display:block;color:var(--ink2);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
-.amount .v{font:600 24px/1.1 ${K.fam};color:var(--brand2);white-space:nowrap}
-.amount .w{color:var(--ink2);font-size:11.5px;font-style:italic;text-align:right;max-width:58%}
-.sec{margin-top:13px}.concept{color:var(--ink2);margin:0}
-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11.5px}
-thead th{text-align:left;font:600 9.5px/1 ${K.fam};letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:7px 8px;border-bottom:1.5px solid var(--ink)}
-tbody td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}td.c,th.c{text-align:center}
-td small{display:block;color:var(--ink3);font-size:10px;margin-top:1px}
-.idx{color:var(--ink3);width:26px}
-.totals{display:flex;justify-content:flex-end;margin-top:6px}
-.totals dl{display:grid;grid-template-columns:auto auto;gap:6px 28px;margin:0;min-width:240px;font-variant-numeric:tabular-nums}
-.totals dt{color:var(--ink2)}.totals dd{margin:0;text-align:right}
-.totals .t{font-weight:600;font-size:13.5px;color:var(--ink);padding-top:8px;border-top:1.5px solid var(--ink)}
-.pay{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;margin-top:13px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;break-inside:avoid}
-.pay p{margin:1px 0;color:var(--ink2);font-size:11.5px}.breb{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px!important}.bb{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--brand2);font:700 10px/1.4 ${K.fam};letter-spacing:.04em;box-shadow:inset 0 0 0 1px #ddd0fb}.pay strong{color:var(--ink)}
-.qr{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9px;line-height:1.3;color:var(--ink3);text-align:center;width:80px}.qr svg{width:62px;height:62px}
-.legal{margin-top:10px;color:var(--ink3);font-size:10px}
-.sign{margin-top:auto;padding-top:26px;display:flex;justify-content:space-between;align-items:flex-end;gap:20px;break-inside:avoid}
-.sign .who{min-width:240px}.sign img{max-height:54px;max-width:220px;display:block;margin-bottom:-6px}
-.sign .line{border-top:1px solid var(--ink);padding-top:6px;margin-top:${p.signature ? '4px' : '48px'}}
-.sign .who b{display:block}.sign .who span{display:block;color:var(--ink2);font-size:11px}
-.sign .thanks{color:var(--ink3);font-size:11px;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-.verify{display:flex;gap:9px;align-items:center;text-align:left;border:1px solid var(--line);border-radius:10px;padding:7px 9px}.verify #qrv svg{width:58px;height:58px;display:block}.verify b{display:block;color:var(--ink);font-size:10.5px}.verify span{display:block;font-size:9.5px;line-height:1.35}.verify code{display:block;margin-top:2px;font:600 9.5px ui-monospace,monospace;letter-spacing:.08em;color:var(--brand2)}
-footer{margin-top:12px;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;color:var(--ink3);font-size:9.5px}
-.stamp{position:absolute;top:120px;right:-6px;transform:rotate(-12deg);border:3px solid currentColor;border-radius:10px;padding:4px 16px;font:700 26px/1 ${K.fam};letter-spacing:.12em;text-transform:uppercase;opacity:.22;color:${inv.status === 'anulada' ? '#dc2626' : '#16a34a'}}
-@media print{html{background:#fff}.bar{display:none}.page{margin:0;box-shadow:none;width:210mm;min-height:296mm;height:auto;overflow:visible;padding:11mm 13mm 8mm}.page::before{height:4px}tr,.party,.amount,.pay,.sign{break-inside:avoid}.sign{padding-top:${p.signature ? '4px' : '14px'}}.sign img{max-height:48px;margin-bottom:-10px}}
-@media screen and (max-width:820px){.page{width:auto;min-height:0;margin:12px;padding:20px}.parties{grid-template-columns:1fr}.amount{flex-direction:column;align-items:flex-start}.amount .w{text-align:left;max-width:none}}
-</style></head><body>
-<div class="bar"><button onclick="print()">Descargar PDF</button><button class="sec" onclick="history.length>1?history.back():close()">Cerrar</button><span>En la ventana de impresión elige «Guardar como PDF».</span></div>
-<main class="page">
-  ${stamp ? `<div class="stamp">${stamp}</div>` : ''}
-  <header>
-    <div class="brand">${logo ? `<img src="${esc(logo)}" alt="" style="width:42px;height:42px;border-radius:10px;object-fit:cover">` : ''}<div><b>${esc(p.brand || p.issuer_name)}</b><small>${esc(p.tagline || '')}</small></div></div>
-    <div class="doc"><h1>${esc(p.title)}</h1><div class="num">N.º ${esc(number)}</div>
-      <dl><dt>Fecha</dt><dd>${esc(fecha(inv.issue_date))}</dd>${inv.due_date ? `<dt>${cot ? 'Válida hasta' : 'Pagar antes del'}</dt><dd>${esc(fecha(inv.due_date))}</dd>` : ''}<dt>Ciudad</dt><dd>${esc(p.city || '')}</dd></dl></div>
-  </header>
-  <section class="parties">
-    <div class="party"><h2>${cot ? 'Preparada para' : 'Cobrar a'}</h2><b>${esc(inv.counterparty)}</b>${inv.tax_id ? `<span>NIT ${esc(inv.tax_id)}</span>` : ''}${inv.client_city ? `<span>${esc(inv.client_city)}</span>` : ''}${inv.client_email ? `<span>${esc(inv.client_email)}</span>` : ''}</div>
-    <div class="party"><h2>${cot ? 'Presentada por' : 'El monto es adeudado a'}</h2><b>${esc(p.issuer_name)}</b>${p.issuer_doc ? `<span>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}${p.issuer_doc_city ? ` de ${esc(p.issuer_doc_city)}` : ''}</span>` : ''}<span>${[p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</span></div>
-  </section>
-  <section class="amount"><div><small>${cot ? 'Valor total' : 'Por la suma de'}</small><div class="v">${pesos(total)} <span style="font-size:14px;font-weight:500">COP</span></div></div><div class="w">${esc(enLetras(total))}</div></section>
-  ${inv.concept ? `<section class="sec"><h2>${cot ? 'Resumen' : 'Por concepto de'}</h2><p class="concept">${esc(inv.concept).replace(/\n/g, '<br>')}</p></section>` : ''}
-  <section class="sec">
-    <table><thead><tr><th class="idx">#</th><th>Concepto</th><th class="c">Cant.</th><th class="n">Valor unitario</th><th class="n">Total</th></tr></thead><tbody>
-    ${items.map((i, k) => `<tr><td class="idx">${k + 1}</td><td>${esc(i.concepto)}${i.detalle ? `<small>${esc(i.detalle)}</small>` : ''}${i.moneda === 'USD' ? `<small>${usdTxt(i.valor)} × TRM $${Number(i.trm).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${esc(fecha(inv.issue_date))})</small>` : ''}</td>
-      <td class="c">${Number(i.cantidad || 1).toLocaleString('es-CO')}</td><td class="n">${i.moneda === 'USD' ? `${usdTxt(i.valor)}<small>${pesos(Math.round(i.valor * i.trm))}</small>` : pesos(i.valor)}</td><td class="n">${pesos(i.total)}</td></tr>`).join('')}
-    </tbody></table>
-    <div class="totals"><dl>${tax ? `<dt>Subtotal</dt><dd>${pesos(subtotal)}</dd><dt>Impuestos</dt><dd>${pesos(tax)}</dd>` : ''}<dt class="t">${cot ? 'Total' : 'Total a pagar'}</dt><dd class="t">${pesos(total)}</dd></dl></div>
-  </section>
-  ${cot?.condiciones ? `<section class="sec"><h2>Condiciones</h2><p class="concept">${esc(cot.condiciones).replace(/\n/g, '<br>')}</p></section>` : ''}
-  ${!cot && (p.account_number || p.breb_key) ? `<section class="pay"><div><h2 style="margin:0 0 6px;font:600 9.5px/1 ${K.fam};letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)">Forma de pago</h2>
-    ${p.breb_key ? `<p class="breb"><span class="bb">Bre-B</span><span>Paga al instante desde cualquier banco o billetera con la <strong>llave ${esc(p.breb_key)}</strong>.</span></p>` : ''}
-    ${p.account_number ? `<p>${p.breb_key ? 'O consigna o transfiere' : 'Consignar o transferir'} a la <strong>cuenta de ${esc(p.account_type || 'ahorros')} N.º ${esc(p.account_number)} de ${esc(p.bank)}</strong>, a nombre de ${esc(p.issuer_name)}.</p>` : ''}
-    <p>Usa como referencia <strong>${esc(number)}</strong>. Cualquier inquietud: ${[p.phone && `celular ${esc(p.phone)}`, p.email && esc(p.email)].filter(Boolean).join(' o ')}.</p>
-    ${hasUsd ? '<p style="font-size:11.5px">Los valores en dólares se convirtieron a pesos con la TRM oficial (Banco de la República) indicada en cada línea.</p>' : ''}</div>
-    ${wa ? `<div class="qr"><div id="qr"></div>Escanea para enviar el comprobante por WhatsApp</div>` : ''}</section>` : ''}
-  ${!cot && p.legal ? `<p class="legal">${esc(p.legal)}</p>` : ''}
-  <section class="sign"><div class="who">${p.signature ? `<img src="${esc(p.signature)}" alt="Firma">` : ''}<div class="line"><b>${esc(p.issuer_name)}</b>${p.issuer_doc ? `<span>${esc(p.signer_doc_label || p.issuer_doc_label || 'Documento')}: ${esc(p.issuer_doc)}</span>` : ''}${p.phone ? `<span>Teléfono: ${esc(p.phone)}</span>` : ''}</div></div>
-    <div class="thanks">${cot ? '' : `<div class="verify"><div id="qrv"></div><div><b>Valida este documento</b><span>Escanea el código o entra a<br>${esc(new URL(origin || 'https://x').host)}/validar</span><code>${esc(vcode)}</code></div></div>`}${cot ? 'Gracias por considerarnos.' : `Gracias por confiar en ${esc(p.brand || 'nosotros')}.`}</div></section>
-  <footer><span>${[p.web, p.email, p.phone].filter(Boolean).map(esc).join(' · ')}</span><span>${esc(p.title)} ${esc(number)}</span></footer>
-</main>
+  const vcode = await verifyCode(env, inv), vurl = `${origin}/validar/${vcode}`;
+  const marca = p.brand || p.issuer_name || 'Diwilo', contacto = [p.web, p.email].filter(Boolean).join(' · '), emisor = p.issuer_name || marca;
+  const trmTxt = (n) => Number(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tabla = { tipo: 'tabla', idx: true, derecha: [2, 3, 4], columnas: ['#', 'Concepto', 'Cant.', 'Valor unitario', 'Total'],
+    filas: items.map((i, k) => [k + 1, `**${i.concepto || 'Servicio'}**${i.detalle ? `\n${i.detalle}` : ''}${i.moneda === 'USD' ? `\n${usdTxt(i.valor)} × TRM $${trmTxt(i.trm)}` : ''}`,
+      Number(i.cantidad || 1).toLocaleString('es-CO'), i.moneda === 'USD' ? `${usdTxt(i.valor)} (${pesos(Math.round(i.valor * i.trm))})` : pesos(i.valor), pesos(i.total)]),
+    total: ['', tax ? `Subtotal ${pesos(subtotal)} · Impuestos ${pesos(tax)} · Total a pagar` : 'Total a pagar', '', '', pesos(total)] };
+  const pago = p.account_number || p.breb_key ? `<div class="pay"><div><h3 style="margin:0 0 6px;font-size:9.5pt;color:var(--p2)">Forma de pago</h3>
+    ${p.breb_key ? `<p><span class="bb">Bre-B</span>Paga al instante desde cualquier banco o billetera con la <b>llave ${esc(p.breb_key)}</b>.</p>` : ''}
+    ${p.account_number ? `<p>${p.breb_key ? 'O consigna o transfiere' : 'Consignar o transferir'} a la <b>cuenta de ${esc(p.account_type || 'ahorros')} N.º ${esc(p.account_number)} de ${esc(p.bank)}</b>, a nombre de ${esc(p.issuer_name)}.</p>` : ''}
+    <p>Usa como referencia <b>${esc(number)}</b>. Cualquier inquietud: ${[p.phone && `celular ${esc(p.phone)}`, p.email && esc(p.email)].filter(Boolean).join(' o ')}.</p>
+    ${hasUsd ? '<p class="note">Los valores en dólares se convirtieron a pesos con la TRM oficial (Banco de la República) indicada en cada línea.</p>' : ''}</div>
+    ${wa ? '<div class="qr"><div id="qr"></div>Escanea para enviar el comprobante por WhatsApp</div>' : ''}</div>` : '';
+  const verif = `<div class="verify"><div id="qrv"></div><div><b>Valida este documento</b>Escanea el código o entra a<br>${esc(new URL(origin || 'https://x').host)}/validar<br><code>${esc(vcode)}</code></div></div>`;
+  return `<!doctype html><html lang="es"><head>${cabeza(fileName)}<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script><style>${estilos(K, p, { marca, contacto })}</style></head><body>${barra}
+<div class="doc">${stamp ? `<div class="stamp ${stamp[0]}">${stamp[1]}</div>` : ''}
+${hero({ marca, tagline: p.tagline, logo, tipo: p.title.toUpperCase(), numero: `N.º ${number}`, lineasMeta: [fecha(inv.issue_date), inv.due_date ? `Pagar antes del ${fecha(inv.due_date)}` : '', p.city || ''].filter(Boolean), titulo: `${p.title} ${number}`, sub: `Emitida por ${emisor} para ${inv.counterparty}` })}
+${kpisHtml([{ label: 'Total a pagar', valor: pesos(total) }, { label: 'Pagar antes del', valor: fecha(inv.due_date) || 'A convenir' }, { label: 'Estado', valor: inv.status === 'pagada' ? 'Pagada' : inv.status === 'anulada' ? 'Anulada' : 'Pendiente' }, { label: 'Conceptos', valor: String(items.length) }])}
+<div class="cards"><div class="card"><h3>Cobrar a</h3><p class="big">${esc(inv.counterparty)}</p>${inv.tax_id ? `<p>NIT ${esc(inv.tax_id)}</p>` : ''}${inv.client_city ? `<p>${esc(inv.client_city)}</p>` : ''}${inv.client_email ? `<p>${esc(inv.client_email)}</p>` : ''}</div>
+<div class="card"><h3>El monto es adeudado a</h3><p class="big">${esc(p.issuer_name)}</p>${p.issuer_doc ? `<p>${esc(p.issuer_doc_label || 'NIT')} ${esc(p.issuer_doc)}${p.issuer_doc_city ? ` de ${esc(p.issuer_doc_city)}` : ''}</p>` : ''}<p>${[p.phone, p.email].filter(Boolean).map(esc).join(' · ')}</p></div></div>
+${inv.concept ? `<h2>Por concepto de</h2><p>${rich(inv.concept)}</p>` : ''}
+<h2>Detalle</h2>${bloque(tabla)}<div class="note">Son: <b>${esc(enLetras(total))}</b></div>
+${pago}
+${p.legal ? `<p class="legal">${esc(p.legal)}</p>` : ''}
+${firmaHtml(p, emisor, verif)}
+${pieHtml({ marca, contacto, logo })}
+</div>
 <script>
 try{var v=qrcode(0,'M');v.addData(${JSON.stringify(vurl)});v.make();document.getElementById('qrv').innerHTML=v.createSvgTag({cellSize:3,margin:0,scalable:true});}catch(e){}
 ${wa ? `try{var q=qrcode(0,'M');q.addData(${JSON.stringify(wa)});q.make();document.getElementById('qr').innerHTML=q.createSvgTag({cellSize:3,margin:0,scalable:true});}catch(e){}` : ''}
-${autoprint ? "addEventListener('load',function(){setTimeout(function(){print()},400)});" : ''}
+${autoprint ? "addEventListener('load',function(){setTimeout(function(){print()},500)});" : ''}
 </script></body></html>`;
 }
 
