@@ -103,6 +103,7 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
     return `Respuesta de prueba: ${ult ? lastUser.slice(ult.index + ult[0].length) : lastUser}`;
   }
   const plat = await plataformaIA(env), orden = ordenIA(env, plat);
+  let falloGemini = '';
   for (const p of orden) {
     if (p === 'workers-ai') break;
     for (const clave of clavesDe(env, plat, p)) try {   // varias claves por proveedor: si una falla (límite, revocada) sigue con la siguiente
@@ -110,27 +111,36 @@ export async function llamarIA(env, org, system, history, { fuente = 'chat', max
         const o = await viaClaude(env, { system, history, maxTokens, temperature, modelo: modeloDe(env, plat, 'claude'), clave });
         await registrarUso(env, org, { fuente, proveedor: 'claude', tin: o.tin || est(system), tout: o.tout || est(o.text) }); return o.text;
       }
-      const model = modeloDe(env, plat, 'gemini');
-      const generationConfig = { maxOutputTokens: maxTokens };
-      if (!/gemini-3/.test(model)) generationConfig.temperature = temperature;   // Gemini 3.x no admite temperature: Google pide quitarla
-      if (/2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: history.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig }),
-      });
-      if (r.ok) {
-        const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((p2) => p2.text).join('').trim(), u = d.usageMetadata || {};
-        if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: u.promptTokenCount ?? est(system), tout: (u.candidatesTokenCount ?? est(text)) + (u.thoughtsTokenCount || 0) }); return text; }
-        console.error('gemini sin texto', model, d.promptFeedback?.blockReason || d.candidates?.[0]?.finishReason || '');
-      } else console.error('gemini', r.status, model, (await r.text()).slice(0, 300));   // antes el fallo se perdía sin rastro
-    } catch (e) { console.error(p, e.message); }
+      // El modelo elegido primero y, si Google lo rechaza (cuota o límite de ese modelo), los demás Gemini antes de pasar a Workers AI
+      const elegido = modeloDe(env, plat, 'gemini');
+      for (const model of [elegido, ...PROVEEDORES.gemini.modelos.filter((m) => m !== elegido)]) {
+        const generationConfig = { maxOutputTokens: maxTokens };
+        if (!/gemini-3/.test(model)) generationConfig.temperature = temperature;   // Gemini 3.x no admite temperature: Google pide quitarla
+        if (/2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave },
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: history.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig }),
+        });
+        if (r.ok) {
+          const d = await r.json(), text = d.candidates?.[0]?.content?.parts?.map((p2) => p2.text).join('').trim(), u = d.usageMetadata || {};
+          if (text) { await registrarUso(env, org, { fuente, proveedor: 'gemini', tin: u.promptTokenCount ?? est(system), tout: (u.candidatesTokenCount ?? est(text)) + (u.thoughtsTokenCount || 0) }); return text; }
+          falloGemini = `${model} no devolvió texto (${d.promptFeedback?.blockReason || d.candidates?.[0]?.finishReason || 'vacío'})`;
+          console.error('gemini sin texto', model, falloGemini);
+        } else {
+          const t = (await r.text()).replace(/\s+/g, ' '), msg = /"message":\s*"([^"]{1,200})/.exec(t)?.[1] || t.slice(0, 200);
+          falloGemini = `Gemini ${r.status} (${model}): ${msg}`;
+          console.error('gemini', r.status, model, t.slice(0, 300));   // antes el fallo se perdía sin rastro
+          if (r.status === 401 || r.status === 403) break;   // la clave no sirve: no tiene caso probar otros modelos con ella
+        }
+      }
+    } catch (e) { if (p === 'gemini') falloGemini = e.message; console.error(p, e.message); }
     // si falla seguimos con el siguiente de la lista y, al final, con Workers AI
   }
   if (!env.AI) throw new HttpError(503, 'La IA no está configurada');
   let out;
   try { out = await env.AI.run(env.AI_MODEL || MODELO, { messages: [{ role: 'system', content: system }, ...history], max_tokens: maxTokens, temperature }); }
   catch (e) {
-    if (/4006|daily free allocation/i.test(e.message)) throw new HttpError(429, 'La IA de Diwilo llegó a su cuota diaria. Intenta de nuevo más tarde.', 'IA_CUOTA');
+    if (/4006|daily free allocation/i.test(e.message)) throw new HttpError(429, `${falloGemini ? `${falloGemini}. ` : ''}La IA de Diwilo llegó a su cuota diaria${falloGemini ? ' (Workers AI, el respaldo)' : ''}. Intenta de nuevo más tarde.`, 'IA_CUOTA');
     throw e;
   }
   // Workers AI devuelve `response` ya convertido en objeto cuando el modelo contesta un JSON: se vuelve a texto

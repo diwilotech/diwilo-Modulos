@@ -1,5 +1,9 @@
 # IA (`ai`) — cambios
 
+## 1.10.2 — Gemini: respaldo entre modelos y error claro
+- Si Google rechaza el modelo elegido (cuota o límite de ese modelo), se prueban los demás Gemini antes de pasar a Workers AI.
+- Si todo falla, el mensaje dice el error real de Gemini en vez de culpar solo a la cuota de Workers AI.
+
 ## 1.10.1 — Gemini: elegir modelo y errores visibles
 - «Modelo de IA»: el modelo de Claude y el de Gemini se escogen de una lista (3.6, 3.8, 3.5, 2.5…).
 - Gemini 3.x ya no recibe `temperature` (Google la rechaza) y los fallos de Google se registran y salen en «Probar».
