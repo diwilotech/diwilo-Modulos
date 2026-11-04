@@ -1,5 +1,9 @@
 # Proyectos — cambios
 
+## 1.4.1 — PDF más compacto
+- Cotización y cuenta de cobro con espacios y letras más compactos: la cuenta de cobro cabe en una hoja; la cotización, en una o dos bien repartidas (sin cortar tarjetas ni filas).
+- El PDF adjunto al correo sale en una sola hoja si cabe con un ajuste pequeño; si no, en hojas cortadas entre bloques.
+
 ## 1.4.0 — Correo con adjuntos y firma corregida
 - Al enviar por correo se adjuntan el PDF del documento (armado en el navegador) y, a elección, el RUT y la certificación bancaria. Mensajes acepta `adjuntos` en `/api/whatsapp/correo/enviar` (Gmail multipart y Cloudflare Email).
 - La firma de la cuenta de cobro y de la cotización quedaba al lado de la línea: ahora va encima.

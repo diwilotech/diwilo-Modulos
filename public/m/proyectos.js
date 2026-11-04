@@ -118,7 +118,12 @@ DW.ready.then((me) => {
       const cortes = [...doc.querySelectorAll(':scope > *, tr, li, p, .card')].map((e) => Math.round(e.getBoundingClientRect().top - base.top)).filter((y) => y > 0).sort((a, b) => a - b);
       const canvas = await window.html2canvas(doc, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
       const k = canvas.width / W, total = Math.round(canvas.height / k);
-      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' }), mw = 210 - 16;
+      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' }), mw = 210 - 16, hmm = 297 - 16;
+      if (total <= pageH * 1.3) {   // cabe en una hoja con un ajuste pequeño: todo en una sola página
+        const ancho = Math.min(mw, hmm * canvas.width / canvas.height);
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.93), 'JPEG', (210 - ancho) / 2, 8, ancho, ancho * canvas.height / canvas.width);
+        return pdf.output('datauristring').replace(/^data:application\/pdf;filename=[^;]*;base64,/, 'data:application/pdf;base64,');
+      }
       for (let y = 0, n = 0; y < total; n++) {
         let fin = Math.min(total, y + pageH);
         if (fin < total) { const c = cortes.filter((v) => v > y + 120 && v <= fin).pop(); if (c) fin = c; }
