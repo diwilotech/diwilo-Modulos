@@ -100,7 +100,7 @@ export { api };
 // Aprueba la cotización y crea su cuenta de cobro en Finanzas (una sola vez)
 export async function cobrarCotizacion(c, id, { fecha, vence, lineas } = {}) {
   const q = await api.get(c, 'quotes', id);
-  if (q.invoice_id) throw new HttpError(409, 'Esa cotización ya tiene su cuenta de cobro');
+  if (q.invoice_id && await one(c.env, 'SELECT id FROM fin_invoices WHERE id = ? AND business_id = ?', q.invoice_id, c.businessId)) throw new HttpError(409, 'Esa cotización ya tiene su cuenta de cobro');
   if (q.status === 'rechazada') throw new HttpError(409, 'Esa cotización está rechazada');
   let items = []; try { items = JSON.parse(q.items || '[]'); } catch { /* sin líneas */ }
   if (Array.isArray(lineas) && lineas.length) items = items.filter((_, i) => lineas.includes(i));   // cobrar solo algunas líneas (p. ej. un anticipo)
@@ -203,7 +203,7 @@ export function routes(r) {
   r.get(`${B}/projects/:id/detalle`, `tenant:${MOD}`, async (c) => {
     const id = Number(c.params.id), proyecto = await api.get(c, 'projects', id);
     return json({ proyecto,
-      cotizaciones: await all(c.env, 'SELECT id, number, title, issue_date, valid_until, total, status, invoice_id FROM pr_quotes WHERE business_id = ? AND project_id = ? ORDER BY id DESC', c.businessId, id),
+      cotizaciones: await all(c.env, 'SELECT id, number, title, issue_date, valid_until, total, status, (SELECT f.id FROM fin_invoices f WHERE f.id = pr_quotes.invoice_id AND f.business_id = pr_quotes.business_id) AS invoice_id FROM pr_quotes WHERE business_id = ? AND project_id = ? ORDER BY id DESC', c.businessId, id),
       cuentas_de_cobro: await all(c.env, "SELECT id, number, issue_date, due_date, total, paid, status FROM fin_invoices WHERE business_id = ? AND project_id = ? AND kind = 'emitida' ORDER BY id DESC", c.businessId, id) });
   });
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => {

@@ -116,39 +116,59 @@ DW.ready.then((me) => {
     });
   }
 
-  // Empresas a la izquierda; a la derecha, sus cotizaciones (los trabajos) con Ver, Cuenta de cobro y Enviar
+  // Mismo diseño de Mensajes: lista de empresas a la izquierda y, a la derecha, el detalle con sus cotizaciones como tarjetas
+  if (!document.getElementById('pj-css')) document.head.insertAdjacentHTML('beforeend', `<style id="pj-css">
+.pj-box{display:grid;grid-template-columns:340px 1fr;height:calc(100dvh - 230px);min-height:480px;border:1px solid var(--bs-border-color);border-radius:14px;overflow:hidden;background:var(--bs-body-bg)}
+.pj-list{display:flex;flex-direction:column;border-right:1px solid var(--bs-border-color);min-height:0}.pj-search{padding:10px}
+.pj-items{overflow-y:auto;flex:1}.pj-it{display:flex;gap:10px;padding:11px 12px;border:0;border-bottom:1px solid var(--bs-border-color-translucent);background:none;width:100%;text-align:left;color:inherit;align-items:center}
+.pj-it:hover{background:rgba(var(--bs-emphasis-color-rgb),.04)}.pj-it.on{background:rgba(var(--bs-primary-rgb),.12)}
+.pj-av{flex:none;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:600;background:rgba(var(--bs-emphasis-color-rgb),.1)}
+.pj-it .t{min-width:0;flex:1}.pj-it .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.pj-sub{display:block;font-size:.78rem;color:var(--bs-secondary-color);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pj-n{background:var(--bs-primary);color:#fff;border-radius:999px;font-size:.7rem;padding:1px 7px}
+.pj-det{display:flex;flex-direction:column;min-width:0;min-height:0}.pj-cab{display:flex;flex-direction:column;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bs-border-color);background:var(--bs-body-bg)}
+.pj-cab1{display:flex;gap:10px;align-items:center;min-width:0}.pj-cab1 .t{flex:1;min-width:0}.pj-cab1 .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:1.02rem;line-height:1.2}
+.pj-tb{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.pj-tb .btn{--bs-btn-padding-y:.22rem;--bs-btn-padding-x:.55rem;--bs-btn-font-size:.8rem;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.pj-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:rgba(var(--bs-emphasis-color-rgb),.03)}
+.pj-q{background:var(--bs-body-bg);border:1px solid var(--bs-border-color-translucent);border-radius:14px;padding:10px 14px}.pj-q1{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pj-q1 .tot{margin-left:auto;font-weight:600;font-size:1.05rem}
+.pj-qa{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.pj-qa .btn{--bs-btn-padding-y:.2rem;--bs-btn-padding-x:.55rem;--bs-btn-font-size:.8rem;display:inline-flex;align-items:center;gap:5px}
+.pj-vacio{margin:auto;text-align:center;color:var(--bs-secondary-color);padding:24px}.pj-back{display:none}
+@media (max-width:767px){.pj-box{grid-template-columns:1fr;height:calc(100dvh - 190px)}.pj-box .pj-det{display:none}.pj-box.abierto{height:calc(100dvh - 90px)}.pj-box.abierto .pj-list{display:none}.pj-box.abierto .pj-det{display:flex}.pj-back{display:inline-block}}
+</style>`);
   function proyectos(el) {
     let lista = [], sel = null;
-    el.innerHTML = `<div class="row g-3"><div class="col-lg-4"><div class="card"><div class="card-body p-2">
-        <div class="d-flex gap-2 mb-2"><input class="form-control form-control-sm" data-q placeholder="Buscar empresa…" aria-label="Buscar empresa">${RO ? '' : '<button class="btn btn-sm btn-primary text-nowrap" data-new><i class="bi bi-plus-lg me-1"></i>Empresa</button>'}</div>
-        <div class="list-group list-group-flush" data-list></div></div></div></div>
-      <div class="col-lg-8" data-der></div></div>`;
-    const der = $('[data-der]', el), box = $('[data-list]', el);
+    el.innerHTML = `<div class="pj-box"><aside class="pj-list"><div class="pj-search d-flex gap-2"><input class="form-control form-control-sm" data-bus placeholder="Buscar empresa…" aria-label="Buscar empresa">${RO ? '' : '<button class="btn btn-sm btn-primary text-nowrap" data-new><i class="bi bi-plus-lg me-1"></i>Empresa</button>'}</div><div class="pj-items" data-items></div></aside>
+      <section class="pj-det" data-der><div class="pj-vacio"><i class="bi bi-buildings fs-1 d-block mb-2"></i>Elige una empresa para ver sus cotizaciones y cuentas de cobro.</div></section></div>`;
+    const caja = $('.pj-box', el), der = $('[data-der]', el), box = $('[data-items]', el);
+    const ini = (r) => esc(String(r.name || '?').trim()[0]?.toUpperCase() || '?');
     const pintaLista = () => {
-      box.innerHTML = lista.length ? lista.map((r) => `<button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${r.id === sel ? 'active' : ''}" data-id="${r.id}"><span class="text-truncate">${esc(r.name)}</span><span class="badge ${r.id === sel ? 'text-bg-light' : 'text-bg-secondary'} ms-2">${r.cotizaciones}</span></button>`).join('')
-        : '<div class="p-3 small text-body-secondary">Sin empresas. Crea la primera o pídeselo a la IA.</div>';
+      box.innerHTML = lista.length ? lista.map((r) => `<button type="button" class="pj-it ${r.id === sel ? 'on' : ''}" data-id="${r.id}"><span class="pj-av">${ini(r)}</span><div class="t"><b>${esc(r.name)}</b><span class="pj-sub">${money(r.cotizado)} cotizado · ${money(r.cobrado)} cobrado</span></div>${r.cotizaciones ? `<span class="pj-n">${r.cotizaciones}</span>` : ''}</button>`).join('')
+        : '<div class="pj-vacio">Sin empresas. Crea la primera o pídeselo a la IA.</div>';
     };
     async function cargaLista(q = '') {
       try { lista = (await api(`${B}/projects?limit=200${q ? `&q=${encodeURIComponent(q)}` : ''}`)).rows; } catch (x) { toast(x.message, false); lista = []; }
-      if (!sel && lista.length) sel = lista[0].id;
-      pintaLista(); if (sel) detalle(sel); else der.innerHTML = '';
+      if (sel && !lista.some((r) => r.id === sel)) sel = null;
+      pintaLista(); if (sel) detalle(sel);
     }
     async function detalle(id) {
-      sel = id; pintaLista();
-      let d; try { d = await api(`${B}/projects/${id}/detalle`); } catch (x) { der.innerHTML = `<div class="text-danger small">${esc(x.message)}</div>`; return; }
-      const p = d.proyecto, cuentas = new Map(d.cuentas_de_cobro.map((x) => [x.id, x]));
-      const recarga = () => { cargaLista($('[data-q]', el).value.trim()); };
-      der.innerHTML = `<div class="card"><div class="card-body">
-        <div class="d-flex flex-wrap justify-content-between gap-2 mb-3"><div><h2 class="h5 mb-1">${esc(p.name)}</h2><div class="small text-body-secondary">${[p.tax_id && `NIT ${esc(p.tax_id)}`, p.client_email && esc(p.client_email), p.client_city && esc(p.client_city)].filter(Boolean).join(' · ') || 'Sin NIT, correo ni ciudad: agrégalos en «Datos»'}</div></div>
-          ${RO ? '' : '<div class="d-flex gap-2 align-items-start"><button class="btn btn-sm btn-outline-secondary" data-edit><i class="bi bi-pencil me-1"></i>Datos</button><button class="btn btn-sm btn-primary" data-cot><i class="bi bi-plus-lg me-1"></i>Cotización</button></div>'}</div>
-        ${d.cotizaciones.length ? `<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Cotización</th><th>Fecha</th><th class="text-end">Total</th><th>Estado</th><th></th></tr></thead><tbody>
-          ${d.cotizaciones.map((x) => { const cu = cuentas.get(x.invoice_id); return `<tr data-q="${x.id}"><td><a href="#" data-act="edit">${esc(x.number)}</a>${sub(x.title)}</td><td>${day(x.issue_date)}</td><td class="text-end">${money(x.total)}</td>
-            <td>${chip(...(COT[x.status] || ['free', x.status]))}${cu ? sub(`${esc(cu.number)} · ${(COB[cu.status] || [, cu.status])[1]}`) : ''}</td>
-            <td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-primary" data-act="ver" title="Ver PDF"><i class="bi bi-eye me-1"></i>Ver</button>
-              ${RO ? '' : x.invoice_id ? `<button class="btn btn-sm btn-outline-primary" data-act="vercuenta" data-inv="${x.invoice_id}"><i class="bi bi-receipt me-1"></i>Cuenta</button> <button class="btn btn-sm btn-outline-secondary" data-act="enviarcuenta" data-inv="${x.invoice_id}" title="Enviar la cuenta de cobro por correo"><i class="bi bi-send"></i></button>`
-                : `<button class="btn btn-sm btn-primary" data-act="cobrar"><i class="bi bi-receipt me-1"></i>Cuenta de cobro</button> <button class="btn btn-sm btn-outline-secondary" data-act="enviar" title="Enviar la cotización por correo"><i class="bi bi-send"></i></button>`}</td></tr>`; }).join('')}
-          </tbody></table></div>` : '<div class="text-body-secondary small py-3">Sin cotizaciones todavía. Crea la primera con «Cotización» o pídeselo a la IA.</div>'}</div></div>`;
-      $('[data-edit]', der)?.addEventListener('click', () => empresa(p, (id2) => (id2 ? (id2 === id ? recarga() : (sel = id2, recarga())) : (sel = null, recarga()))));
+      sel = id; pintaLista(); caja.classList.add('abierto');
+      let d; try { d = await api(`${B}/projects/${id}/detalle`); } catch (x) { der.innerHTML = `<div class="pj-vacio text-danger">${esc(x.message)}</div>`; return; }
+      const p = d.proyecto, cuentas = new Map(d.cuentas_de_cobro.map((x) => [x.id, x])), recarga = () => cargaLista($('[data-bus]', el).value.trim());
+      const datos = [p.tax_id && `NIT ${esc(p.tax_id)}`, p.client_email && esc(p.client_email), p.client_city && esc(p.client_city)].filter(Boolean).join(' · ');
+      der.innerHTML = `<div class="pj-cab"><div class="pj-cab1"><button class="btn btn-sm btn-outline-secondary pj-back" data-back aria-label="Volver"><i class="bi bi-arrow-left"></i></button><span class="pj-av">${ini(p)}</span>
+          <div class="t"><b>${esc(p.name)}</b><span class="pj-sub">${datos || 'Sin NIT, correo ni ciudad: agrégalos en «Datos»'}</span></div></div>
+          ${RO ? '' : '<div class="pj-tb"><button class="btn btn-sm btn-primary" data-cot><i class="bi bi-plus-lg"></i>Cotización</button><button class="btn btn-sm btn-outline-secondary" data-edit><i class="bi bi-pencil"></i>Datos</button></div>'}</div>
+        <div class="pj-log">${d.cotizaciones.length ? d.cotizaciones.map((x) => {
+          const cu = cuentas.get(x.invoice_id);
+          return `<div class="pj-q" data-q="${x.id}"><div class="pj-q1"><a href="#" data-act="edit" class="fw-semibold text-decoration-none">${esc(x.number)}</a>${chip(...(COT[x.status] || ['free', x.status]))}<span class="tot">${money(x.total)}</span></div>
+            <div class="small text-body-secondary">${esc(x.title || 'Sin título')} · ${day(x.issue_date)}${x.valid_until ? ` · válida hasta ${day(x.valid_until)}` : ''}</div>
+            ${cu ? `<div class="small mt-1"><i class="bi bi-receipt me-1"></i>${esc(cu.number)} · ${money(cu.total)} · ${chip(...(COB[cu.status] || ['free', cu.status]))}</div>` : ''}
+            <div class="pj-qa"><button class="btn btn-outline-primary" data-act="ver"><i class="bi bi-eye"></i>Ver cotización</button>
+              ${RO ? '' : cu ? `<button class="btn btn-outline-primary" data-act="vercuenta" data-inv="${cu.id}"><i class="bi bi-receipt"></i>Ver cuenta</button><button class="btn btn-outline-secondary" data-act="enviarcuenta" data-inv="${cu.id}"><i class="bi bi-send"></i>Enviar cuenta</button>`
+                : `<button class="btn btn-primary" data-act="cobrar"><i class="bi bi-receipt"></i>Cuenta de cobro</button>`}
+              ${RO ? '' : '<button class="btn btn-outline-secondary" data-act="enviar"><i class="bi bi-send"></i>Enviar cotización</button>'}</div></div>`; }).join('')
+          : '<div class="pj-vacio"><i class="bi bi-file-earmark-text fs-1 d-block mb-2"></i>Sin cotizaciones todavía.<br>Crea la primera con «Cotización» o pídeselo a la IA.</div>'}</div>`;
+      $('[data-back]', der)?.addEventListener('click', () => caja.classList.remove('abierto'));
+      $('[data-edit]', der)?.addEventListener('click', () => empresa(p, (id2) => { if (!id2) sel = null; else sel = id2; recarga(); }));
       $('[data-cot]', der)?.addEventListener('click', () => cotizacion({ project_id: p.id, counterparty: p.name, tax_id: p.tax_id, client_city: p.client_city, client_email: p.client_email }, recarga));
       der.onclick = async (e) => {
         const b = e.target.closest('[data-act]'); if (!b) return; e.preventDefault();
@@ -162,7 +182,7 @@ DW.ready.then((me) => {
       };
     }
     box.onclick = (e) => { const b = e.target.closest('[data-id]'); if (b) detalle(+b.dataset.id); };
-    $('[data-q]', el).addEventListener('input', debounce((e) => { sel = null; cargaLista(e.target.value.trim()); }));
+    $('[data-bus]', el).addEventListener('input', debounce((e) => cargaLista(e.target.value.trim())));
     $('[data-new]', el)?.addEventListener('click', () => empresa(null, (id) => { sel = id; cargaLista(); }));
     cargaLista();
   }

@@ -1,5 +1,9 @@
 # Proyectos — cambios
 
+## 1.2.1 — Pantalla como Mensajes
+- Proyectos usa el mismo diseño de Mensajes: empresas a la izquierda, detalle con cotizaciones como tarjetas a la derecha (en celular, lista y detalle con botón volver).
+- Si se borra la cuenta de cobro de una cotización, la cotización vuelve a poder cobrarse.
+
 ## 1.2.0 — Proyectos = empresas, envío por correo y cuenta de cobro con el diseño nuevo
 - Un proyecto es una empresa (solo su nombre), enlazada a su contacto de Marketing (`pr_projects.contact_id`, migración 0045). Editar su NIT, correo o ciudad actualiza sus cotizaciones y cuentas de cobro.
 - Pantalla en dos paneles: empresas a la izquierda y, a la derecha, sus cotizaciones con Ver, Cuenta de cobro (modal de líneas) y Enviar.
