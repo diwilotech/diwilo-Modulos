@@ -132,12 +132,16 @@ const b64url = (s) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=
 const deB64url = (s) => { const b = atob(String(s || '').replace(/-/g, '+').replace(/_/g, '/')); return new TextDecoder().decode(Uint8Array.from(b, (c) => c.charCodeAt(0))); };
 const encCab = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${utf8b64(s)}?=`);
 // Correo listo para la API de Gmail (texto plano UTF-8)
-export function armarCorreo({ de, nombre, para, copia, responderA, asunto, texto, enReplyA, referencias }) {
-  const cab = [`From: ${nombre ? `${encCab(nombre)} <${de}>` : de}`, `To: ${para}`, ...(copia ? [`Cc: ${copia}`] : []), ...(responderA ? [`Reply-To: ${responderA}`] : []), `Subject: ${encCab(asunto)}`, ...(enReplyA ? [`In-Reply-To: ${enReplyA}`] : []), ...(referencias ? [`References: ${referencias}`] : []), 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64'];
-  return `${cab.join('\r\n')}\r\n\r\n${(utf8b64(texto).match(/.{1,76}/g) || []).join('\r\n')}`;
+export function armarCorreo({ de, nombre, para, copia, responderA, asunto, texto, enReplyA, referencias, adjuntos = [] }) {
+  const cab = [`From: ${nombre ? `${encCab(nombre)} <${de}>` : de}`, `To: ${para}`, ...(copia ? [`Cc: ${copia}`] : []), ...(responderA ? [`Reply-To: ${responderA}`] : []), `Subject: ${encCab(asunto)}`, ...(enReplyA ? [`In-Reply-To: ${enReplyA}`] : []), ...(referencias ? [`References: ${referencias}`] : []), 'MIME-Version: 1.0'];
+  const cuerpo = (utf8b64(texto).match(/.{1,76}/g) || []).join('\r\n');
+  if (!adjuntos.length) return `${[...cab, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64'].join('\r\n')}\r\n\r\n${cuerpo}`;
+  const B = `dw_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  const partes = adjuntos.map((a) => `--${B}\r\nContent-Type: ${a.type || 'application/octet-stream'}; name="${encCab(a.filename)}"\r\nContent-Disposition: attachment; filename="${encCab(a.filename)}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${(String(a.content).match(/.{1,76}/g) || []).join('\r\n')}`);
+  return `${[...cab, `Content-Type: multipart/mixed; boundary="${B}"`].join('\r\n')}\r\n\r\n--${B}\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${cuerpo}\r\n${partes.join('\r\n')}\r\n--${B}--`;
 }
 // Responde por Gmail en el mismo hilo (si encuentra el correo original en Gmail) y queda en «Enviados». Desde la dirección de la bandeja si es un alias «Enviar como»; si no, desde la cuenta conectada con Reply-To a la bandeja.
-export async function enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo = false, desde = null } = {}) {
+export async function enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo = false, desde = null, adjuntos = [] } = {}) {
   const org = bandeja.business_id, cu = bandeja.cuenta_google ? await one(env, 'SELECT * FROM wa_google_cuentas WHERE id = ? AND business_id = ?', bandeja.cuenta_google, org) : await cuentaPara(env, org, 'gmail');
   if (!cu) throw new GoogleError('La cuenta de Google de esta bandeja ya no está vinculada: vuelve a vincularla o elige otra');
   const uso = cu.id;
@@ -150,7 +154,7 @@ export async function enviarGmail(env, bandeja, para, texto, { asunto, ref, nuev
   if (ref && !nuevo) { try { const id = String(ref).replace(/^<|>$/g, ''); threadId = (await gapi(env, org, `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(`rfc822msgid:${id}`)}&maxResults=1`, {}, uso))?.messages?.[0]?.threadId || null; } catch { /* sin hilo: sale como correo nuevo con Re: */ } }
   const subject = nuevo ? (asunto || 'Mensaje') : /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
   const cc = (await agendaDe(env, org)).copia;   // copia de cada respuesta (p. ej. hola@): si responden a todos, también llega a la bandeja
-  const raw = b64url(armarCorreo({ de, nombre, para, copia: cc && cc !== String(para).toLowerCase() && cc !== String(de).toLowerCase() ? cc : null, responderA: deseada && String(de).toLowerCase() !== deseada ? deseada : null, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: nuevo ? null : ref || null, referencias: nuevo ? null : ref || null }));
+  const raw = b64url(armarCorreo({ de, nombre, para, copia: cc && cc !== String(para).toLowerCase() && cc !== String(de).toLowerCase() ? cc : null, responderA: deseada && String(de).toLowerCase() !== deseada ? deseada : null, asunto: subject.slice(0, 200), texto: String(texto).slice(0, 20000), enReplyA: nuevo ? null : ref || null, referencias: nuevo ? null : ref || null, adjuntos }));
   await gapi(env, org, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }) }, uso);
   return { de, cuenta: cu.email, alias: String(de).toLowerCase() !== String(cu.email).toLowerCase(), deseada };
 }

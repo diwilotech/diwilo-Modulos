@@ -29,7 +29,7 @@ import { importarEquipo } from './modulos/nomina/api.js';
 import { linkBySlug, countClick, registrarLead, marcarMatriculado } from './modulos/marketing/api.js';
 import { publicCard } from './modulos/marketing/tarjetas.js';
 import { validatePage } from './modulos/finanzas/api.js';
-import { documentoPublico } from './modulos/proyectos/api.js';
+import { documentoPublico, archivoPublico } from './modulos/proyectos/api.js';
 import { kitOf } from './lib/marca.js';
 import { REG, ejecutarHerramienta } from './lib/registro.js';
 import { guiasDe } from './lib/guias.js';
@@ -138,6 +138,9 @@ export class Modulos extends WorkerEntrypoint {
   nominaImportar(app, negocio, datos) { return importarEquipo(this.env, app, negocio, datos || {}); }
   lead(app, negocio, datos) { return registrarLead(this.env, app, negocio, datos || {}); }
   matriculado(app, negocio, datos) { return marcarMatriculado(this.env, app, negocio, datos || {}); }
+
+  // RUT o certificación bancaria del negocio que emitió el documento: { status, mime, nombre, bytes }
+  async archivoPublico(app, code, kind) { return archivoPublico(this.env, app, code, kind); }
 
   async validar(app, code, origin, documento = false) {
     if (documento) return documentoPublico(this.env, app, code, origin);

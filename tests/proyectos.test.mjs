@@ -47,6 +47,17 @@ export default async function ({ check, newBusiness }) {
   check('Proyectos: el borrador del correo trae destinatario, redacción y enlace público', bqe.status === 200 && bqe.data.para === 'compras@madetableros.co' && /\/validar\/[A-Z0-9]{8,}\/documento/.test(bqe.data.mensaje) && bce.status === 200 && bce.data.mensaje.includes(cbe.data.numero));
   check('Proyectos: enviar sin bandeja de correo da un aviso claro', (await A.app(`${P}/correo/enviar`, { method: 'POST', body: { tipo: 'cuenta', id: cbe.data.id } })).status === 400);
 
+  // RUT y certificación bancaria
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  const sr = await A.app(`${P}/documentos/rut`, { method: 'POST', body: { nombre: 'rut.png', data: png } });
+  const sx = await A.app(`${P}/documentos/banco`, { method: 'POST', body: { nombre: 'x.exe', data: 'data:application/x-msdownload;base64,AAAA' } });
+  const ls = (await A.app(`${P}/documentos`)).data.rows, gt = await A.app(`${P}/documentos/rut`);
+  check('Proyectos: sube el RUT, rechaza archivos raros y lo puede ver', sr.status === 200 && sx.status === 400 && ls.length === 1 && ls[0].kind === 'rut' && gt.data?.data === png);
+  const bd = await A.app(`${P}/correo/borrador?tipo=cotizacion&id=${qe.data.id}`);
+  check('Proyectos: el correo menciona el RUT subido', /RUT: .*\/validar\/[A-Z0-9]+\/rut/.test(bd.data?.mensaje || ''));
+  check('Proyectos: otro negocio no ve mis documentos', (await B.app(`${P}/documentos`)).data.rows.length === 0 && (await B.app(`${P}/documentos/rut`)).status === 404);
+  check('Proyectos: quitar el RUT', (await A.app(`${P}/documentos/rut`, { method: 'DELETE' })).status === 200 && (await A.app(`${P}/documentos`)).data.rows.length === 0);
+
   // Aislamiento entre negocios
   check('Proyectos: otro negocio no ve ni toca nada', (await B.app(`${P}/quotes`)).data.rows.length === 0 && (await B.app(`${P}/quotes/${q2.data.id}/pdf`)).status === 404 && (await B.app(`${P}/quotes/${q2.data.id}/cobrar`, { method: 'POST', body: {} })).status === 404);
 }

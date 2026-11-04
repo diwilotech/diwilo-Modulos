@@ -15,10 +15,45 @@ DW.ready.then((me) => {
   const pdf = (url) => window.open(url, '_blank', 'noopener');
   const root = $('[data-view]');
 
+  // RUT y certificación bancaria: se suben una vez y viajan con el enlace de cada cotización y cuenta de cobro
+  async function documentos() {
+    const NOM = { rut: 'RUT', banco: 'Certificación bancaria' };
+    const { el: d } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">RUT y certificado bancario</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body"><p class="small text-body-secondary">Súbelos una vez (PDF o imagen, máx. 4 MB). Quien reciba una cotización o cuenta de cobro por correo los ve y descarga desde el mismo enlace, y el correo los menciona.</p><div data-lista></div><div class="small text-danger mt-2" data-err></div></div>
+      <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button></div>`, { size: 'modal-lg' });
+    const lista = $('[data-lista]', d), err = $('[data-err]', d);
+    const pinta = async () => {
+      let rows = []; try { rows = (await api(`${B}/documentos`)).rows; } catch (x) { err.textContent = x.message; }
+      lista.innerHTML = Object.entries(NOM).map(([k, n]) => { const f = rows.find((r) => r.kind === k); return `<div class="border rounded p-3 mb-2 d-flex flex-wrap align-items-center gap-2" data-k="${k}">
+        <div class="flex-grow-1"><b>${n}</b><div class="small text-body-secondary">${f ? `${esc(f.name)} · ${(f.size / 1024).toFixed(0)} KB · subido ${day(new Date(f.updated_at).toISOString().slice(0, 10))}` : 'Aún no lo subes'}</div></div>
+        ${f ? '<button class="btn btn-sm btn-outline-primary" data-ver><i class="bi bi-eye me-1"></i>Ver</button>' : ''}
+        <label class="btn btn-sm ${f ? 'btn-outline-secondary' : 'btn-primary'} mb-0"><i class="bi bi-upload me-1"></i>${f ? 'Reemplazar' : 'Subir'}<input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" hidden data-file></label>
+        ${f ? '<button class="btn btn-sm btn-outline-danger" data-del aria-label="Quitar"><i class="bi bi-trash"></i></button>' : ''}</div>`; }).join('');
+    };
+    lista.addEventListener('change', async (e) => {
+      const inp = e.target.closest('[data-file]'); if (!inp?.files[0]) return;
+      const k = inp.closest('[data-k]').dataset.k, f = inp.files[0]; err.textContent = '';
+      if (f.size > 4 * 1024 * 1024) { err.textContent = 'El archivo pesa más de 4 MB'; return; }
+      const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f); });
+      try { await api(`${B}/documentos/${k}`, { method: 'POST', body: { nombre: f.name, data } }); toast(`${NOM[k]} guardado`); pinta(); } catch (x) { err.textContent = x.message; }
+    });
+    lista.addEventListener('click', async (e) => {
+      const k = e.target.closest('[data-k]')?.dataset.k; if (!k) return;
+      if (e.target.closest('[data-ver]')) {
+        try { const f = await api(`${B}/documentos/${k}`), b = await (await fetch(f.data)).blob(); window.open(URL.createObjectURL(b), '_blank', 'noopener'); } catch (x) { err.textContent = x.message; }
+      } else if (e.target.closest('[data-del]')) {
+        if (!await confirm(`¿Quitar tu ${NOM[k]}?`)) return;
+        try { await api(`${B}/documentos/${k}`, { method: 'DELETE' }); toast('Quitado'); pinta(); } catch (x) { err.textContent = x.message; }
+      }
+    });
+    pinta();
+  }
+
   // Resumen en una línea y botón a los datos y la firma (viven en Finanzas)
   const cabecera = async () => {
     const s = await api(`${B}/summary`).catch(() => null);
-    $('[data-acciones]').innerHTML = `<a class="btn btn-outline-primary btn-sm" href="${location.pathname.startsWith('/admin/m/') ? '/admin/#finanzas' : '/staff/finanzas.html'}"><i class="bi bi-pen me-1"></i>Mi firma y datos de cobro</a>`;
+    $('[data-acciones]').innerHTML = `${RO ? '' : '<button class="btn btn-outline-primary btn-sm" data-docs><i class="bi bi-paperclip me-1"></i>RUT y certificado bancario</button>'}<a class="btn btn-outline-primary btn-sm" href="${location.pathname.startsWith('/admin/m/') ? '/admin/#finanzas' : '/staff/finanzas.html'}"><i class="bi bi-pen me-1"></i>Mi firma y datos de cobro</a>`;
+    $('[data-docs]')?.addEventListener('click', documentos);
     $('[data-seg]').insertAdjacentHTML('beforebegin', s ? `<p class="text-body-secondary small mb-2">${s.proyectos_abiertos} proyectos abiertos · ${s.por_aprobar.cantidad} cotizaciones por aprobar (${money(s.por_aprobar.total)}) · ${s.cuentas_de_cobro_pendientes.cantidad} cuentas de cobro sin pagar (${money(s.cuentas_de_cobro_pendientes.saldo)})</p>` : '');
   };
 
@@ -68,6 +103,35 @@ DW.ready.then((me) => {
     });
   }
 
+  // PDF del documento para adjuntarlo al correo: se dibuja la misma página que ves en «Ver» y se corta en hojas A4 entre bloques
+  const cargaLib = (src) => new Promise((ok, no) => { if ([...document.scripts].some((x) => x.src === src)) return ok(); const t = document.createElement('script'); t.src = src; t.onload = ok; t.onerror = () => no(new Error('No se pudo cargar el generador de PDF')); document.head.appendChild(t); });
+  async function pdfDe(url) {
+    await Promise.all([cargaLib('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'), cargaLib('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')]);
+    const fr = document.createElement('iframe');
+    fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:820px;height:1200px;border:0;visibility:hidden';
+    document.body.appendChild(fr);
+    try {
+      await new Promise((ok, no) => { fr.onload = ok; fr.onerror = no; fr.src = url; });
+      const dc = fr.contentDocument; await dc.fonts?.ready; await new Promise((r) => setTimeout(r, 1200));   // fuentes y códigos QR
+      const doc = dc.querySelector('.doc'); if (!doc) throw new Error('No se pudo armar el PDF');
+      const base = doc.getBoundingClientRect(), W = doc.offsetWidth, pageH = Math.floor(W * 297 / 210 - 40);
+      const cortes = [...doc.querySelectorAll(':scope > *, tr, li, p, .card')].map((e) => Math.round(e.getBoundingClientRect().top - base.top)).filter((y) => y > 0).sort((a, b) => a - b);
+      const canvas = await window.html2canvas(doc, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      const k = canvas.width / W, total = Math.round(canvas.height / k);
+      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' }), mw = 210 - 16;
+      for (let y = 0, n = 0; y < total; n++) {
+        let fin = Math.min(total, y + pageH);
+        if (fin < total) { const c = cortes.filter((v) => v > y + 120 && v <= fin).pop(); if (c) fin = c; }
+        const t = document.createElement('canvas'); t.width = canvas.width; t.height = Math.max(1, Math.round((fin - y) * k));
+        t.getContext('2d').drawImage(canvas, 0, Math.round(y * k), canvas.width, t.height, 0, 0, canvas.width, t.height);
+        if (n) pdf.addPage();
+        pdf.addImage(t.toDataURL('image/jpeg', 0.92), 'JPEG', 8, 8, mw, mw * t.height / canvas.width);
+        y = fin;
+      }
+      return pdf.output('datauristring').replace(/^data:application\/pdf;filename=[^;]*;base64,/, 'data:application/pdf;base64,');
+    } finally { fr.remove(); }
+  }
+
   // Enviar por correo (Mensajes): redacción lista, editable, con el enlace público al PDF
   async function enviar(tipo, id, despues) {
     let b;
@@ -79,15 +143,24 @@ DW.ready.then((me) => {
         <div class="row g-2"><div class="col-sm-7"><label class="form-label small mb-1">Para</label><input class="form-control" name="para" type="email" value="${esc(b.para)}" placeholder="correo@empresa.com"></div>
           <div class="col-sm-5"><label class="form-label small mb-1">Enviar desde</label><select class="form-select" name="bandeja">${b.bandejas.map((x) => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
           <div class="col-12"><label class="form-label small mb-1">Asunto</label><input class="form-control" name="asunto" value="${esc(b.asunto)}"></div>
-          <div class="col-12"><label class="form-label small mb-1">Mensaje <span class="text-body-secondary">· lleva el enlace para ver y descargar el PDF</span></label><textarea class="form-control" name="mensaje" rows="11">${esc(b.mensaje)}</textarea></div></div>
+          <div class="col-12"><label class="form-label small mb-1">Mensaje <span class="text-body-secondary">· lleva el enlace para ver y descargar el PDF</span></label><textarea class="form-control" name="mensaje" rows="11">${esc(b.mensaje)}</textarea></div>
+          <div class="col-12"><label class="form-label small mb-1">Adjuntos</label>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="adjpdf" name="adjpdf" checked><label class="form-check-label" for="adjpdf">PDF ${tipo === 'cuenta' ? 'de la cuenta de cobro' : 'de la cotización'} ${esc(b.numero || '')}</label></div>
+            ${(b.docs || []).map((x) => `<div class="form-check"><input class="form-check-input" type="checkbox" id="adj_${x.kind}" data-doc="${x.kind}" checked><label class="form-check-label" for="adj_${x.kind}">${esc(x.nombre)}</label></div>`).join('')}
+            ${(b.docs || []).length < 2 ? '<div class="small text-body-secondary mt-1">Sube tu RUT y tu certificado bancario en «RUT y certificado bancario» para adjuntarlos también.</div>' : ''}</div></div>
         <div class="small text-danger mt-2" data-err></div></div>
       <div class="modal-footer border-0 pt-0 justify-content-between"><a class="btn btn-outline-secondary" href="${esc(b.enlace)}" target="_blank" rel="noopener"><i class="bi bi-filetype-pdf me-1"></i>Ver PDF</a>
         <span><button type="button" class="btn btn-light" data-bs-dismiss="modal">Ahora no</button> <button class="btn btn-primary" ${b.bandejas.length ? '' : 'disabled'}><i class="bi bi-send me-1"></i>Enviar</button></span></div></form>`, { size: 'modal-lg' });
     const f = $('form', d);
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
-      try { await api(`${B}/correo/enviar`, { method: 'POST', body: { tipo, id, para: f.para.value.trim(), asunto: f.asunto.value.trim(), mensaje: f.mensaje.value.trim(), bandeja_id: +f.bandeja.value } }); hide(d); toast('Enviado: queda en tus chats de Mensajes'); despues?.(); }
-      catch (x) { $('[data-err]', d).textContent = x.message; }
+      const btn = $('button:not([type=button])', f), txt = btn.innerHTML; btn.disabled = true; $('[data-err]', d).textContent = '';
+      try {
+        let pdfAdj; if (f.adjpdf.checked) { btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Armando el PDF…'; pdfAdj = { nombre: `${tipo === 'cuenta' ? 'Cuenta de cobro' : 'Cotización'} ${b.numero || ''}`.trim(), data: await pdfDe(tipo === 'cuenta' ? `${F}/invoices/${id}/pdf` : `${B}/quotes/${id}/pdf`) }; }
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+        await api(`${B}/correo/enviar`, { method: 'POST', body: { tipo, id, para: f.para.value.trim(), asunto: f.asunto.value.trim(), mensaje: f.mensaje.value.trim(), bandeja_id: +f.bandeja.value, pdf: pdfAdj, incluir: $$('[data-doc]', d).filter((x) => x.checked).map((x) => x.dataset.doc) } });
+        hide(d); toast('Enviado con sus adjuntos: queda en tus chats de Mensajes'); despues?.();
+      } catch (x) { $('[data-err]', d).textContent = x.message; btn.disabled = false; btn.innerHTML = txt; }
     });
   }
 

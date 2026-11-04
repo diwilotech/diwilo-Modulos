@@ -54,16 +54,17 @@ export async function enviarWeb(bandeja, evento, datos) {
 
 const escHtml = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 // Responde un correo por Cloudflare Email Sending, en el mismo hilo (Re: asunto, In-Reply-To / References)
-export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref, nuevo = false, desde = null } = {}) {
+export async function enviarCorreo(env, bandeja, para, texto, { asunto, ref, nuevo = false, desde = null, adjuntos = [] } = {}) {
   // Con Google conectado, la respuesta sale por Gmail (queda en «Enviados» y en el mismo hilo); si no, por Cloudflare Email Sending
   if ((await conectado(env, bandeja.business_id).catch(() => false)) && (await agendaDe(env, bandeja.business_id).catch(() => ({}))).envio !== 'cloudflare') {
-    try { await enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo, desde }); return { estado: 'enviado' }; }
+    try { await enviarGmail(env, bandeja, para, texto, { asunto, ref, nuevo, desde, adjuntos }); return { estado: 'enviado' }; }
     catch (e) { console.error('gmail envío', e.message); return { estado: 'error', error: `Gmail no lo envió: ${String(e.message).slice(0, 200)}` }; }
   }
   if (!env.EMAIL?.send) return { estado: 'error', error: 'El envío de correo no está configurado en Diwilo Modulos' };
   try {
     const t = String(texto).slice(0, 20000), subject = nuevo ? (asunto || 'Mensaje') : /^\s*re:/i.test(asunto || '') ? asunto : `Re: ${asunto || 'tu mensaje'}`;
     await env.EMAIL.send({ to: para, from: { email: bandeja.phone_number_id, name: bandeja.nombre }, subject: subject.slice(0, 200), text: t, html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap">${escHtml(t)}</div>`,
+      ...(adjuntos.length ? { attachments: adjuntos.map((a) => ({ content: a.content, filename: a.filename, type: a.type, disposition: 'attachment' })) } : {}),
       ...(ref ? { headers: { 'In-Reply-To': ref, References: ref } } : {}) });
     return { estado: 'enviado' };
   } catch (e) { console.error('correo envío', e.message); return { estado: 'error', error: `${String(e.message || e).slice(0, 220)}. Revisa que el dominio esté activado en Cloudflare Email Sending.` }; }

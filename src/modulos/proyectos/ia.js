@@ -1,5 +1,5 @@
 // Herramientas de IA del módulo Proyectos (MCP, IA Diwilo, agentes y el chat de administrador). Mismas reglas de la API: validaciones, negocio y bitácora.
-import { api, cobrarCotizacion, resumen, borradorCorreo, enviarPorCorreo } from './api.js';
+import { api, cobrarCotizacion, resumen, borradorCorreo, enviarPorCorreo, documentosDe, DOCS } from './api.js';
 import { today, addDays, all, one } from '../../lib/crud.js';
 import { HttpError } from '../../lib/http.js';
 
@@ -83,4 +83,8 @@ export default [
     description: 'Envía por correo (desde Mensajes) una cotización o cuenta de cobro con el enlace al PDF y una redacción. Si no pasas asunto o mensaje usa el borrador de preparar_correo. La cotización pasa a «enviada».',
     inputSchema: S({ tipo: { type: 'string', enum: ['cotizacion', 'cuenta'] }, id: num(), para: str('Correo; por defecto el de la empresa'), asunto: str(), mensaje: str() }, ['tipo', 'id']),
     run: (c, a) => enviarPorCorreo(c, { tipo: a.tipo === 'cuenta' ? 'cuenta' : 'cotizacion', id: Number(a.id), para: a.para, asunto: a.asunto, mensaje: a.mensaje }) },
+  { name: 'proyectos.ver_documentos', modulo: 'proyectos', rol: 'staff', tipo: 'lectura',
+    description: 'Dice si ya están subidos el RUT y la certificación bancaria del negocio (se suben desde Proyectos → «RUT y certificado bancario»; la IA no sube archivos). Cuando existen, los correos de cotizaciones y cuentas de cobro los enlazan solos.',
+    inputSchema: S({}),
+    run: async (c) => { const f = await documentosDe(c.env, c.businessId); return { rut: f.some((x) => x.kind === 'rut'), certificacion_bancaria: f.some((x) => x.kind === 'banco'), faltan: Object.keys(DOCS).filter((k) => !f.some((x) => x.kind === k)).map((k) => DOCS[k]) }; } },
 ];

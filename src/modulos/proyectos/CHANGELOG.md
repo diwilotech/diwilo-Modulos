@@ -1,5 +1,14 @@
 # Proyectos — cambios
 
+## 1.4.0 — Correo con adjuntos y firma corregida
+- Al enviar por correo se adjuntan el PDF del documento (armado en el navegador) y, a elección, el RUT y la certificación bancaria. Mensajes acepta `adjuntos` en `/api/whatsapp/correo/enviar` (Gmail multipart y Cloudflare Email).
+- La firma de la cuenta de cobro y de la cotización quedaba al lado de la línea: ahora va encima.
+
+## 1.3.0 — RUT y certificación bancaria
+- Se suben desde Proyectos → «RUT y certificado bancario» (PDF o imagen, 4 MB; R2, tabla `pr_docs`, migración 0046).
+- El enlace público de cada cotización y cuenta de cobro los ofrece para descargar (`/validar/<código>/rut` y `/banco`) y el borrador del correo los menciona.
+- Herramienta de IA `proyectos.ver_documentos`.
+
 ## 1.2.1 — Pantalla como Mensajes
 - Proyectos usa el mismo diseño de Mensajes: empresas a la izquierda, detalle con cotizaciones como tarjetas a la derecha (en celular, lista y detalle con botón volver).
 - Si se borra la cuenta de cobro de una cotización, la cotización vuelve a poder cobrarse.

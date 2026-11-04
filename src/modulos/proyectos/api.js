@@ -124,6 +124,37 @@ export async function resumen(c) {
     por_aprobar: { cantidad: por('enviada').n + por('borrador').n, total: por('enviada').total + por('borrador').total }, cuentas_de_cobro_pendientes: { cantidad: cobro?.n || 0, saldo: cobro?.saldo || 0 } };
 }
 
+// RUT y certificación bancaria del negocio: se suben una vez (R2) y viajan con el enlace público de cada cotización o cuenta de cobro
+export const DOCS = { rut: 'RUT', banco: 'Certificación bancaria' };
+const MIMES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'], MAX_DOC = 4 * 1024 * 1024;
+const aBase64 = (buf) => { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); };
+export const documentosDe = (env, org) => all(env, 'SELECT kind, name, mime, size, updated_at FROM pr_docs WHERE business_id = ?', org);
+const tipoDoc = (c) => { const k = c.params.kind; if (!DOCS[k]) throw new HttpError(404, 'Documento no válido: rut o banco'); return k; };
+async function guardarDoc(c, kind, { nombre, data }) {
+  const m = /^data:([\w/+.-]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(data || ''));
+  if (!m || !MIMES.includes(m[1])) throw new HttpError(400, 'Sube un PDF o una imagen (PNG, JPG o WEBP)');
+  const bytes = Uint8Array.from(atob(m[2]), (ch) => ch.charCodeAt(0));
+  if (bytes.length > MAX_DOC) throw new HttpError(400, 'El archivo pesa más de 4 MB');
+  const viejo = await one(c.env, 'SELECT key FROM pr_docs WHERE business_id = ? AND kind = ?', c.businessId, kind);
+  const key = `proyectos/${c.businessId}/${kind}-${crypto.randomUUID().slice(0, 8)}`;
+  await c.env.MEDIA.put(key, bytes, { httpMetadata: { contentType: m[1] } });
+  await c.env.DB.prepare('INSERT INTO pr_docs (business_id, kind, name, mime, size, key, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(business_id, kind) DO UPDATE SET name = excluded.name, mime = excluded.mime, size = excluded.size, key = excluded.key, updated_at = excluded.updated_at')
+    .bind(c.businessId, kind, String(nombre || DOCS[kind]).slice(0, 120), m[1], bytes.length, key, now()).run();
+  if (viejo?.key) await c.env.MEDIA.delete(viejo.key).catch(() => {});
+  await audit(c, `Subió el documento ${DOCS[kind]}`, { modulo: MOD });
+}
+// Archivo para quien recibe el correo: se pide con el código del documento (cotización o cuenta de cobro) del mismo negocio
+export async function archivoPublico(env, app, code, kind) {
+  const cod = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), nf = { status: 404 };
+  if (cod.length < 8 || !DOCS[kind]) return nf;
+  const d = (await env.DB.prepare('SELECT business_id FROM fin_invoices WHERE verify_code = ? AND business_id LIKE ?').bind(cod, `${app}:%`).first())
+    || (await env.DB.prepare('SELECT business_id FROM pr_quotes WHERE verify_code = ? AND business_id LIKE ?').bind(cod, `${app}:%`).first());
+  if (!d) return nf;
+  const f = await env.DB.prepare('SELECT * FROM pr_docs WHERE business_id = ? AND kind = ?').bind(d.business_id, kind).first();
+  const o = f ? await env.MEDIA.get(f.key) : null;
+  return o ? { status: 200, mime: f.mime, nombre: f.name, bytes: await o.arrayBuffer() } : nf;
+}
+
 const fechaLarga = (d) => (d ? new Date(d + 'T12:00:00Z').toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 const cop = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO');
 async function codigoCotizacion(c, q) {
@@ -149,13 +180,15 @@ export async function borradorCorreo(c, tipo, id) {
     const pago = [perfil.breb_key && `Bre-B: llave ${perfil.breb_key}`, perfil.account_number && `${perfil.bank || 'Cuenta'} · ${perfil.account_type || 'ahorros'} N.º ${perfil.account_number} a nombre de ${perfil.issuer_name}`].filter(Boolean);
     cuerpo = `Hola, equipo de ${nombre},\n\nTe envío la cuenta de cobro ${inv.number} por ${cop(inv.total)} COP${inv.due_date ? `, para pagar antes del ${fechaLarga(inv.due_date)}` : ''}.\n\nPuedes verla y descargarla en PDF aquí:\n${enlace}\n\n${pago.length ? `Formas de pago:\n${pago.map((x) => `• ${x}`).join('\n')}\n\n` : ''}Cuando hagas el pago, por favor envíame el comprobante por este medio.`;
   }
+  const docsOk = await documentosDe(c.env, c.businessId), base = enlace.replace(/\/documento$/, '');
+  if (docsOk.length) cuerpo += `\n\nDocumentos para tu proceso:\n${docsOk.map((x) => `• ${DOCS[x.kind]}: ${base}/${x.kind}`).join('\n')}`;
   cuerpo += `\n\nGracias,\n${perfil.issuer_name || perfil.brand || ''}${perfil.phone ? `\n${perfil.phone}` : ''}`;
   let bandejas = [];
   try { bandejas = (await llamar(c, 'GET', '/api/whatsapp/bandejas')).rows.filter((b) => b.canal === 'correo' && b.activo).map((b) => ({ id: b.id, nombre: b.nombre })); } catch { /* Mensajes no activo */ }
-  return { tipo, id, para: email || '', empresa: nombre, proyecto_id: proyecto || null, asunto, mensaje: cuerpo, enlace, bandejas, numero: doc.number };
+  return { tipo, id, docs: docsOk.map((x) => ({ kind: x.kind, nombre: DOCS[x.kind] })), para: email || '', empresa: nombre, proyecto_id: proyecto || null, asunto, mensaje: cuerpo, enlace, bandejas, numero: doc.number };
 }
 // Manda el correo por Mensajes (queda en sus chats); la cotización pasa a «enviada»
-export async function enviarPorCorreo(c, { tipo, id, para, asunto, mensaje, bandeja_id }) {
+export async function enviarPorCorreo(c, { tipo, id, para, asunto, mensaje, bandeja_id, pdf, incluir }) {
   const b = await borradorCorreo(c, tipo, id);
   if (!b.bandejas.length) throw new HttpError(400, 'Necesitas una bandeja de correo activa en Mensajes (Mensajes → Bandejas)');
   para = TXT(para || b.para).toLowerCase();
@@ -163,10 +196,20 @@ export async function enviarPorCorreo(c, { tipo, id, para, asunto, mensaje, band
   const proy = b.proyecto_id ? await one(c.env, 'SELECT * FROM pr_projects WHERE id = ? AND business_id = ?', b.proyecto_id, c.businessId) : null;
   const k = await contactoDe(c, { id: proy?.contact_id, name: b.empresa, email: para });
   if (proy && !proy.contact_id) await c.env.DB.prepare('UPDATE pr_projects SET contact_id = ? WHERE id = ? AND business_id = ?').bind(k.id, proy.id, c.businessId).run();
-  const out = await llamar(c, 'POST', '/api/whatsapp/correo/enviar', { body: { bandeja_id: Number(bandeja_id) || b.bandejas[0].id, asunto: TXT(asunto) || b.asunto, mensaje: TXT(mensaje) || b.mensaje, contactos: [k.id] } });
+  // Adjuntos: el PDF del documento (lo arma la pantalla) y, si existen, el RUT y la certificación bancaria subidos
+  const adjuntos = [];
+  const pm = /^data:application\/pdf;base64,([A-Za-z0-9+/=]+)$/.exec(String(pdf?.data || ''));
+  if (pm) adjuntos.push({ filename: `${String(pdf.nombre || `${b.numero}.pdf`).replace(/[^\w .()-]/g, '').slice(0, 100) || 'documento'}`.replace(/\.pdf$/i, '') + '.pdf', type: 'application/pdf', content: pm[1] });
+  for (const f of await all(c.env, 'SELECT * FROM pr_docs WHERE business_id = ?', c.businessId)) {
+    if (Array.isArray(incluir) && !incluir.includes(f.kind)) continue;
+    const o = await c.env.MEDIA.get(f.key); if (!o) continue;
+    const ext = f.mime === 'application/pdf' ? '.pdf' : f.mime === 'image/png' ? '.png' : f.mime === 'image/webp' ? '.webp' : '.jpg';
+    adjuntos.push({ filename: `${DOCS[f.kind]}${ext}`, type: f.mime, content: aBase64(await o.arrayBuffer()) });
+  }
+  const out = await llamar(c, 'POST', '/api/whatsapp/correo/enviar', { body: { bandeja_id: Number(bandeja_id) || b.bandejas[0].id, asunto: TXT(asunto) || b.asunto, mensaje: TXT(mensaje) || b.mensaje, contactos: [k.id], adjuntos } });
   if (tipo === 'cotizacion') await c.env.DB.prepare("UPDATE pr_quotes SET status = 'enviada', updated_at = ? WHERE id = ? AND business_id = ? AND status = 'borrador'").bind(now(), id, c.businessId).run();
   await audit(c, `Envió por correo ${tipo === 'cotizacion' ? 'la cotización' : 'la cuenta de cobro'} ${b.numero} a ${para}`, { modulo: MOD });
-  return { ok: true, para, ...out };
+  return { ok: true, para, adjuntos: adjuntos.map((a) => a.filename), ...out };
 }
 // Página pública /validar/<código>/documento: el PDF de la cotización o cuenta de cobro que se envió por correo
 export async function documentoPublico(env, app, code, origin) {
@@ -175,9 +218,14 @@ export async function documentoPublico(env, app, code, origin) {
   const nf = () => ({ status: 404, headers: H('text/plain; charset=utf-8'), body: 'Documento no encontrado' });
   if (cod.length < 8) return nf();
   const inv = await env.DB.prepare('SELECT * FROM fin_invoices WHERE verify_code = ? AND business_id LIKE ?').bind(cod, `${app}:%`).first();
-  if (inv) return { status: 200, headers: H('text/html; charset=utf-8'), body: await invoiceDocument(env, inv.business_id, inv, { origin }) };
+  const conDocs = async (html, org) => {
+    const ds = await documentosDe(env, org); if (!ds.length) return html;
+    const bloque = `<style>@media print{.adj{display:none}}.adj{margin-top:16px;border:1px solid #ddd;border-radius:12px;padding:10px 14px;font:13px Inter,sans-serif}.adj a{display:inline-block;margin:4px 8px 0 0;padding:5px 12px;border-radius:999px;background:#1F1A2E;color:#fff;text-decoration:none}</style><div class="adj"><b>Documentos para tu proceso de pago</b><br>${ds.map((x) => `<a href="${origin}/validar/${cod}/${x.kind}" target="_blank" rel="noopener">${DOCS[x.kind]}</a>`).join('')}</div>`;
+    return html.replace('<section class="sign">', bloque + '<section class="sign">');
+  };
+  if (inv) return { status: 200, headers: H('text/html; charset=utf-8'), body: await conDocs(await invoiceDocument(env, inv.business_id, inv, { origin }), inv.business_id) };
   const q = await env.DB.prepare('SELECT * FROM pr_quotes WHERE verify_code = ? AND business_id LIKE ?').bind(cod, `${app}:%`).first();
-  if (q) return { status: 200, headers: H('text/html; charset=utf-8'), body: await cotizacionDocument(env, q.business_id, q) };
+  if (q) return { status: 200, headers: H('text/html; charset=utf-8'), body: await conDocs(await cotizacionDocument(env, q.business_id, q), q.business_id) };
   return nf();
 }
 
@@ -190,6 +238,18 @@ export function routes(r) {
   });
 
   r.get(`${B}/quotes/:id`, `tenant:${MOD}`, async (c) => json(await api.get(c, 'quotes', Number(c.params.id))));
+  r.get(`${B}/documentos`, `tenant:${MOD}`, async (c) => json({ rows: await documentosDe(c.env, c.businessId) }));
+  r.get(`${B}/documentos/:kind`, `tenant:${MOD}`, async (c) => {
+    const k = tipoDoc(c), f = await one(c.env, 'SELECT * FROM pr_docs WHERE business_id = ? AND kind = ?', c.businessId, k), o = f ? await c.env.MEDIA.get(f.key) : null;
+    if (!o) throw new HttpError(404, `Aún no subes tu ${DOCS[k]}`);
+    return json({ nombre: f.name, mime: f.mime, data: `data:${f.mime};base64,${aBase64(await o.arrayBuffer())}` });
+  });
+  r.post(`${B}/documentos/:kind`, `tenant:${MOD}`, async (c) => { await guardarDoc(c, tipoDoc(c), await readJson(c.req)); return json({ ok: true }); });
+  r.delete(`${B}/documentos/:kind`, `tenant:${MOD}`, async (c) => {
+    const k = tipoDoc(c), f = await one(c.env, 'SELECT key FROM pr_docs WHERE business_id = ? AND kind = ?', c.businessId, k);
+    if (f) { await c.env.MEDIA.delete(f.key).catch(() => {}); await c.env.DB.prepare('DELETE FROM pr_docs WHERE business_id = ? AND kind = ?').bind(c.businessId, k).run(); }
+    return json({ ok: true });
+  });
   r.get(`${B}/contactos`, `tenant:${MOD}`, async (c) => {
     const q = `%${TXT(c.url.searchParams.get('q'))}%`;
     return json({ rows: await all(c.env, 'SELECT id, name, email, company FROM mk_contacts WHERE business_id = ? AND (name LIKE ? OR company LIKE ?) ORDER BY name LIMIT 8', c.businessId, q, q) });

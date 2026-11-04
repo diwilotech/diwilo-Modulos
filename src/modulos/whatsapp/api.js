@@ -464,6 +464,8 @@ export function routes(r) {
     if (!asunto || !mensaje || mensaje.length > 8000) throw new HttpError(400, 'Escribe el asunto y el mensaje (máximo 8000 letras)');
     const ids = [...new Set((Array.isArray(body.contactos) ? body.contactos : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, MAX_ENVIO);
     if (!ids.length) throw new HttpError(400, 'Elige al menos un contacto con correo');
+    const adjuntos = (Array.isArray(body.adjuntos) ? body.adjuntos : []).slice(0, 5).map((a) => ({ filename: String(a.filename || 'archivo').replace(/[\r\n"\\/]/g, '_').slice(0, 120), type: String(a.type || 'application/octet-stream').slice(0, 80), content: String(a.content || '').replace(/[^A-Za-z0-9+/=]/g, '') })).filter((a) => a.content);
+    if (adjuntos.reduce((t, a) => t + a.content.length * 0.75, 0) > 14 * 1024 * 1024) throw new HttpError(400, 'Los adjuntos pesan más de 14 MB');
     const enviados = [], fallidos = [];
     for (const id of ids) {
       const k = await contactoPorId(c.env, c.businessId, id);
@@ -471,9 +473,9 @@ export function routes(r) {
       const para = k.email.toLowerCase(), primero = String(k.name || '').split(/\s+/)[0];
       const yo = (t) => String(t).replace(/\s*\{nombre\}/gi, primero ? ` ${primero}` : '').replace(/\{empresa\}/gi, k.company || '').trim();
       const texto = yo(mensaje), tema = yo(asunto);
-      const { estado, error } = await enviarCorreo(c.env, b, para, texto, { asunto: tema, nuevo: true });
+      const { estado, error } = await enviarCorreo(c.env, b, para, texto, { asunto: tema, nuevo: true, adjuntos });
       if (estado !== 'enviado') { fallidos.push({ nombre: k.name, error: error || 'No se pudo enviar' }); continue; }
-      const contenido = `Asunto: ${tema}\n\n${texto}`;
+      const contenido = `Asunto: ${tema}\n\n${texto}${adjuntos.length ? `\n\n📎 ${adjuntos.map((a) => a.filename).join(', ')}` : ''}`;
       await guardarMensaje(c.env, { org: c.businessId, bandeja: b.id, contacto: para, nombre: k.name, rol: 'humano', contenido, estado });
       const conv = await tocarChat(c.env, { org: c.businessId, bandeja: b, contacto: para, nombre: k.name, rol: 'humano', contenido, iaInicial: 0 });
       await c.env.DB.prepare('UPDATE wa_conversaciones SET asunto = ?, contact_id = COALESCE(contact_id, ?) WHERE id = ?').bind(tema, k.id, conv.id).run();
