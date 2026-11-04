@@ -42,11 +42,13 @@ export default [
   { name: 'proyectos.crear_cotizacion', modulo: 'proyectos', rol: 'staff', tipo: 'escritura',
     description: 'Crea una cotización (queda en borrador) con consecutivo COT-0001 y PDF con tu firma. Si la persona da un solo valor, pásalo en `valor` (y `titulo`/`concepto`) sin pedir más detalle. Vigencia por defecto: 15 días.',
     inputSchema: S({ cliente: str(), nit: str(), correo: str(), ciudad: str(), titulo: str('Nombre del trabajo, p. ej. «Landing de campaña»'), concepto: str('Resumen del alcance'), valor: num('Valor total en pesos si no hay líneas'), lineas: LINEAS,
-      fecha: str('AAAA-MM-DD'), vigencia_dias: num(), condiciones: str('Forma de pago, tiempos, qué no incluye'), proyecto: str('Id o nombre de un proyecto existente') }, ['cliente']),
+      fecha: str('AAAA-MM-DD'), vigencia_dias: num(), condiciones: str('Forma de pago, tiempos, qué no incluye'), proyecto: str('Id o nombre de un proyecto existente'),
+      incluye: { type: 'array', items: { type: 'string' }, description: 'Qué incluye la propuesta (una frase por ítem): sale como lista en el PDF' }, necesitamos: { type: 'array', items: { type: 'string' }, description: 'Lo que se necesita del cliente (accesos, textos, logos…)' }, plazo: str('Tiempo de entrega, p. ej. «3 semanas»') }, ['cliente']),
     validar: mal,
     run: async (c, a) => {
       const fecha = a.fecha || today(), pid = await proyectoId(c, a.proyecto);
-      const r = await api.create(c, 'quotes', { project_id: pid, counterparty: a.cliente, tax_id: a.nit, client_email: a.correo, client_city: a.ciudad, title: a.titulo, concept: a.concepto, issue_date: fecha, valid_until: addDays(fecha, Number(a.vigencia_dias) || 15), items: lineasDe(a), conditions: a.condiciones });
+      const r = await api.create(c, 'quotes', { project_id: pid, counterparty: a.cliente, tax_id: a.nit, client_email: a.correo, client_city: a.ciudad, title: a.titulo, concept: a.concepto, issue_date: fecha, valid_until: addDays(fecha, Number(a.vigencia_dias) || 15), items: lineasDe(a), conditions: a.condiciones,
+        extra: (a.incluye?.length || a.necesitamos?.length || a.plazo) ? { secciones: a.incluye?.length ? [{ titulo: 'Qué incluye', bloques: [...(a.concepto ? [{ tipo: 'texto', texto: a.concepto }] : []), { tipo: 'lista', items: a.incluye }] }] : [], necesitamos: a.necesitamos || [], plazo: a.plazo || '' } : undefined });
       const q = await api.get(c, 'quotes', r.id);
       return { id: r.id, numero: q.number, total: q.total, pdf: pdf(c, r.id) };
     } },

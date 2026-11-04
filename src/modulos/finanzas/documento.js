@@ -148,7 +148,7 @@ export function enLetras(value) {
 /* ---------------- documento ---------------- */
 
 // Colores, tipografía y logo de la marca del negocio (Marca e IA): los documentos se ven como el negocio, no con un color fijo.
-async function skin(env, org) {
+export async function skin(env, org) {
   const b = await brandOf(env, org), t = TEMAS[b.color_efectivo], f = FUENTES[b.tipografia], pal = paleta(t.ui);
   return { c500: t.ui, c700: pal[700], c400: pal[400], c100: pal[100], c50: pal[50], fam: f.familia, gfont: `https://fonts.googleapis.com/css2?family=${f.google}&display=swap` };
 }

@@ -1,7 +1,7 @@
 {
   "id": "proyectos",
   "nombre": "Proyectos",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "descripcion": "Proyectos y clientes con sus cotizaciones y cuentas de cobro en un solo lugar: cotizaciones con consecutivo, líneas en pesos o dólares, vigencia, condiciones y PDF con tu firma; al aprobar una cotización se crea su cuenta de cobro (sin pagar) en Finanzas, ligada al proyecto. Todo se puede pedir a la IA.",
   "icono": "bi-kanban",
   "menu": { "ruta": "/staff/proyectos.html", "orden": 45 },

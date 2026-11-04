@@ -10,7 +10,8 @@ import { crud, today, addDays, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
 import { Router } from '../../router.js';
 import { ENTITIES as FIN, trm } from '../finanzas/api.js';
-import { priceItems, invoiceDocument } from '../finanzas/documento.js';
+import { priceItems } from '../finanzas/documento.js';
+import { cotizacionDocument } from './documento.js';
 
 const MOD = 'proyectos', B = '/api/proyectos';
 const fin = crud(new Router(), { base: '/ia/finanzas', modulo: 'finanzas', entities: { invoices: FIN.invoices } });
@@ -39,7 +40,7 @@ export const ENTITIES = {
     } },
   quotes: { table: 'pr_quotes', label: 'la cotización', title: 'number', search: ['number', 'counterparty', 'title', 'tax_id'], order: 'issue_date DESC, id DESC',
     fields: { project_id: 'int', number: 'text', counterparty: 'text!', tax_id: 'text', client_email: 'text', client_city: 'text', title: 'text', concept: 'long', issue_date: 'date!', valid_until: 'date',
-      items: 'json', subtotal: 'money', tax: 'money', total: 'money', conditions: 'long', status: ['borrador', 'enviada', 'aprobada', 'rechazada'], ref: 'text' },
+      items: 'json', subtotal: 'money', tax: 'money', total: 'money', conditions: 'long', extra: 'json', status: ['borrador', 'enviada', 'aprobada', 'rechazada'], ref: 'text' },
     refs: { project_id: 'pr_projects' },
     async beforeCreate(c, row) {
       await precio(c, row);
@@ -87,9 +88,7 @@ export function routes(r) {
   crud(r, { base: B, modulo: MOD, entities: ENTITIES });
   r.get(`${B}/quotes/:id/pdf`, `tenant:${MOD}`, async (c) => {
     const q = await api.get(c, 'quotes', Number(c.params.id));
-    const inv = { id: q.id, number: q.number, counterparty: q.counterparty, tax_id: q.tax_id, client_email: q.client_email, client_city: q.client_city, issue_date: q.issue_date, due_date: q.valid_until,
-      concept: [q.title, q.concept].filter(Boolean).join('\n\n'), items: q.items, subtotal: q.subtotal, tax: q.tax, total: q.total, status: 'pendiente' };
-    const html = await invoiceDocument(c.env, c.businessId, inv, { autoprint: c.url.searchParams.has('imprimir'), origin: c.url.origin, logo: c.ctx?.business?.logo || null, cot: { titulo: 'Cotización', condiciones: q.conditions } });
+    const html = await cotizacionDocument(c.env, c.businessId, q, { autoprint: c.url.searchParams.has('imprimir'), logo: c.ctx?.business?.logo || null });
     return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
   });
   r.post(`${B}/quotes/:id/cobrar`, `tenant:${MOD}`, async (c) => json(await cobrarCotizacion(c, Number(c.params.id), await readJson(c.req).catch(() => ({})))));
