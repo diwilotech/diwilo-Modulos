@@ -32,5 +32,8 @@ Las apps usan los módulos centrales de arriba (ya al estándar) y además tiene
 | Control de Residentes | Cartera con antigüedad y recaudo, detalle de unidad, portería con pestañas por estado, reservas con calendario | **PQRS en tablero** (arrastrar cambia el estado, abiertas por categoría, cerradas por semana) e **historia de cada unidad** (pagos, mora, PQRS, solicitudes, reservas) |
 | Diwilo Web Admin | Negocios con suscripciones, módulos y pagos; Resumen en vivo del sitio | **Tablero de la plataforma** en Negocios (al día / por vencer / solo lectura, cobrado del mes, negocios por app, próximos vencimientos) |
 
-Pendiente en las apps: kanban de solicitudes de Portería y de matrículas por curso, ficha 360 del estudiante con línea de tiempo, tablero de Mascotas y de Cursos (cupos), y blog/contenido del panel de Diwilo.
-Otros repos en la carpeta (Control de Citas, HCosto, Inventario, Nutricion, Pedidos) todavía no están en la arquitectura común (sin páginas `/staff` ni módulos centrales): primero hay que migrarlos y después se les aplica este estándar.
+Segunda tanda (hecha): **Residentes** → Portería en tablero (solicitudes por estado, arrastrar cambia el estado) y gráficas de Mascotas (especie y vacunación); **Academia** → ficha del estudiante con KPIs e historia en línea de tiempo y «Cursos con más gente» en el tablero.
+Pendiente en las apps: kanban de matrículas por curso, tablero de cupos de Cursos y blog/contenido del panel de Diwilo.
+### Otras apps (no están en la arquitectura común)
+- **Citas, Nutrición, Pedidos**: apps funcionales con su propio panel (`/admin`, HTML sueltos), conectadas a Diwilo por RPC pero sin el shell común, sin `/staff/<módulo>.html`, sin módulos centrales (Finanzas, Marketing, Mensajes…) y sin Inicio por módulos. Migrarlas es un proyecto por app (mover sus pantallas al shell, activar módulos centrales, decidir qué hacer con lo que ya duplican: p. ej. inventario y clientes de Pedidos, pacientes y agenda de Nutrición). Después se les aplica el estándar de profundidad.
+- **HCosto (Brújula) e Inventario**: prototipos de un solo HTML sin backend; se construyen como apps nuevas con la skill `diwilo-nueva-app`.
