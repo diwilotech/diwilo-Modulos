@@ -7,7 +7,7 @@ DW.ready.then((me) => {
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
-  const VIEWS = [['tablero', 'Tablero'], ['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['archivos', 'Archivos'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
+  const VIEWS = [['tablero', 'Tablero'], ['chats', 'Chats'], ['etapas', 'Embudo'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['archivos', 'Archivos'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
   let view = (location.hash || '#tablero').slice(1), timers = [], abrirId = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'tablero';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
@@ -59,7 +59,7 @@ DW.ready.then((me) => {
     el.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; nav(); render(); };
   }
-  function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ tablero: tableroView, chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, archivos: archivosView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
+  function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ tablero: tableroView, chats: chatsView, etapas: etapasView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, archivos: archivosView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
   const cada = (ms, f) => timers.push(setInterval(() => { if (!document.hidden) f(); }, ms));
 
   /* ---------- archivos ---------- */
@@ -122,6 +122,31 @@ DW.ready.then((me) => {
       w.addEventListener('click', (e) => { const b = e.target.closest('[data-chat]'); if (b) { abrirId = +b.dataset.chat; view = 'chats'; location.hash = 'chats'; render(); } }); }
   }
 
+  // Embudo: cada chat en su etapa; arrastrar lo cambia (marcar atendido, encender o apagar la IA)
+  async function etapasView(el) {
+    await new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); });
+    const V = window.DwViz; if (!V) return;
+    V.esqueleto(el, 3);
+    let rows; try { rows = (await api(`${B}/chats`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    if (!rows.length) { V.vacio(el, { icono: 'bi-kanban', titulo: 'Aún no hay chats', texto: 'Cuando alguien escriba por una bandeja, su chat aparecerá aquí según quién lo atiende.' }); return; }
+    const etapa = (x) => (x.atencion || (x.ultimo_rol === 'user' && !x.ia_activa) ? 'persona' : x.ia_activa ? 'ia' : 'listo');
+    const COLS = [['persona', 'Esperan a una persona', '#F87171'], ['ia', 'Atiende la IA', '#60A5FA'], ['listo', 'Respondidos', '#34D399']];
+    const ago = (ts) => { const m = Math.max(0, Math.round((Date.now() - ts) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
+    el.innerHTML = `<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2"><span class="small text-body-secondary">${RO ? '' : 'Arrastra un chat para cambiarlo de etapa. '}A <b>Respondidos</b> lo marca atendido; a <b>Atiende la IA</b> enciende la IA; a <b>Esperan a una persona</b> la apaga.</span><button class="btn btn-sm btn-outline-secondary" data-csv><i class="bi bi-download me-1"></i>Exportar CSV</button></div><div data-kb></div>`;
+    $('[data-csv]', el).onclick = async () => { try { await window.App.Crud.download(`${B}/exportar`, 'chats.csv'); } catch (x) { toast(x.message, false); } };
+    const pintar = () => V.kanban($('[data-kb]', el), {
+      columnas: COLS.map(([id, titulo, color]) => ({ id, titulo, color, items: rows.filter((x) => etapa(x) === id).map((x) => ({ id: x.id, titulo: x.nombre || x.contacto, detalle: `${(CAN_[x.canal] || {}).n || x.canal} · ${x.ultimo_texto || ''}`.slice(0, 90), etiqueta: x.ultimo_ts ? `hace ${ago(x.ultimo_ts)}` : '' })) })),
+      abrir: (id) => { abrirId = +id; view = 'chats'; location.hash = 'chats'; nav(); render(); },
+      mover: RO ? undefined : async (id, desde, hasta) => {
+        const x = rows.find((r) => String(r.id) === String(id)); if (!x || desde === hasta) return false;
+        const cuerpo = hasta === 'listo' ? { atencion: false } : hasta === 'ia' ? { ia_activa: true, atencion: false } : { ia_activa: false };
+        try { await api(`${B}/chats/${x.id}`, { method: 'PATCH', body: cuerpo }); } catch (e) { toast(e.message, false); return false; }
+        if (hasta === 'listo') { x.atencion = null; if (x.ultimo_rol === 'user') x.ultimo_rol = 'assistant'; } else if (hasta === 'ia') { x.ia_activa = 1; x.atencion = null; } else { x.ia_activa = 0; x.atencion = x.atencion || 'pide_asesor'; }
+        toast('Chat movido'); pintar();
+      } });
+    pintar();
+  }
+
   async function chatsView(el) {
     el.innerHTML = `<div class="wa-box"><aside class="wa-list"><div class="wa-search d-flex gap-2"><input class="form-control form-control-sm" data-q placeholder="Buscar chats…" aria-label="Buscar chats">${RO ? '' : '<button class="btn btn-sm btn-primary text-nowrap" data-nuevo title="Escribir a un contacto: WhatsApp o correo"><i class="bi bi-plus-lg"></i> Nuevo</button>'}</div><div class="wa-fil" data-fil></div><div class="wa-items" data-items></div></aside><section class="wa-chat" data-chat></section></div>`;
     const box = $('.wa-box', el), cont = $('[data-chat]', el), lista = $('[data-items]', el);
@@ -179,6 +204,7 @@ DW.ready.then((me) => {
       const acc1 = $('[data-acc1]', cont);
       acc1.innerHTML = `<button class="btn btn-sm btn-outline-primary" data-cto title="Datos del contacto (Marketing)"><i class="bi bi-person-lines-fill"></i><span class="wa-bt ms-1 d-inline-block text-truncate align-bottom" style="max-width:130px">${conv ? esc(conv.name) : 'Contacto'}</span></button>
         ${c.canal === 'whatsapp' && !RO ? '<button class="btn btn-sm btn-outline-success" data-tpl title="Enviar una plantilla de Meta"><i class="bi bi-file-earmark-text"></i><span class="wa-bt ms-1">Plantilla</span></button>' : ''}
+        <button class="btn btn-sm btn-outline-secondary" data-exp aria-label="Descargar conversación" title="Descargar esta conversación en CSV"><i class="bi bi-download"></i></button>
         ${CAN ? '<button class="btn btn-sm btn-outline-danger" data-del aria-label="Borrar chat" title="Borrar chat"><i class="bi bi-trash"></i></button>' : ''}`;
       acc.innerHTML = RO ? '' : `<button class="btn btn-outline-primary" data-sug title="La IA lee la conversación y te propone una respuesta para que la revises (no se envía)"><i class="bi bi-stars"></i><span class="wa-bt">Sugerir</span></button>
         <button class="btn btn-outline-warning" data-iaya title="La IA responde ya al último mensaje, aunque la IA de este chat esté apagada"><i class="bi bi-lightning-charge"></i><span class="wa-bt">Responder con IA</span></button>
@@ -277,6 +303,7 @@ DW.ready.then((me) => {
       if (e.target.closest('[data-agbtn]')) return elegirAgente({ ...det.chat, agente_id: det.chat.agente_id });
       if (e.target.closest('[data-cto]')) return contacto(det, async () => { await cargarChat(true); cargarLista(); }, (id) => abrir(id));
       if (e.target.closest('[data-tpl]')) return plantillaChat(det, async () => { await cargarChat(true); cargarLista(); });
+      if (e.target.closest('[data-exp]')) { try { await window.App.Crud.download(`${B}/chats/${sel}/exportar`, 'chat.csv'); } catch (x) { toast(x.message, false); } return; }
       if (e.target.closest('[data-del]')) {
         if (!(await confirm({ title: '¿Borrar este chat?', text: 'Se borran sus mensajes. No se puede deshacer.', ok: 'Borrar' }))) return;
         try { await api(`${B}/chats/${sel}`, { method: 'DELETE' }); toast('Chat borrado'); sel = null; det = null; vacioChat(); box.classList.remove('abierto'); cargarLista(); } catch (x) { toast(x.message, false); }

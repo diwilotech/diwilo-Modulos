@@ -1,5 +1,9 @@
 # WhatsApp — cambios
 
+## 3.15.0 — Embudo de chats y exportar
+- Nueva vista «Embudo»: los chats en tres etapas (esperan a una persona · atiende la IA · respondidos); arrastrar un chat lo marca atendido o enciende/apaga la IA.
+- Exportar a CSV la lista de chats (`GET /api/whatsapp/exportar`) y cada conversación (`GET /api/whatsapp/chats/:id/exportar`), con bitácora.
+
 ## 3.14.0 — Tablero de Mensajes
 - Nueva vista «Tablero» (la primera): mensajes recibidos y enviados de 14 días, tiempo típico de respuesta, canales, horas de mayor escritura, % de chats que llegan a ser contacto y los chats que esperan a una persona (`GET /api/whatsapp/tablero`).
 

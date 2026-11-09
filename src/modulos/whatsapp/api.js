@@ -291,6 +291,22 @@ export function routes(r) {
 
   /* chats */
   r.get(`${B}/chats`, `tenant:${MOD}`, async (c) => { sincronizarSiToca(c.env, c.businessId, c.waitUntil); return json({ rows: await chats(c, { bandeja: c.url.searchParams.get('bandeja'), canal: c.url.searchParams.get('canal'), q: (c.url.searchParams.get('q') || '').trim().slice(0, 60) }) }); });
+  // Exportar: la lista de chats (CSV) o una conversación completa (CSV), con los mismos permisos que verlas
+  const csvCel = (v) => { const t = String(v ?? '').replace(/\r?\n/g, ' ↵ '); return /[",;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const csvRes = (filas, nombre) => new Response('\uFEFF' + filas.map((f) => f.map(csvCel).join(',')).join('\r\n'), { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${nombre}.csv"`, 'cache-control': 'no-store' } });
+  const fechaCsv = (ts) => (ts ? new Date(ts).toISOString().replace('T', ' ').slice(0, 19) : '');
+  r.get(`${B}/exportar`, `tenant:${MOD}`, async (c) => {
+    const rows = await chats(c, { bandeja: c.url.searchParams.get('bandeja'), canal: c.url.searchParams.get('canal') });
+    const etapa = (x) => (x.atencion || (x.ultimo_rol === 'user' && !x.ia_activa) ? 'Espera a una persona' : x.ia_activa ? 'Atiende la IA' : 'Respondido');
+    await audit(c, `Exportó ${rows.length} chats de Mensajes a CSV`, { modulo: MOD });
+    return csvRes([['Nombre', 'Contacto', 'Canal', 'Bandeja', 'Etapa', 'Agente', 'IA activa', 'País', 'Último mensaje', 'Fecha del último'], ...rows.map((x) => [x.nombre || '', x.contacto, x.canal, x.bandeja, etapa(x), x.agente || '', x.ia_activa ? 'Sí' : 'No', x.pais || '', x.ultimo_texto || '', fechaCsv(x.ultimo_ts)])], `chats-${new Date().toISOString().slice(0, 10)}`);
+  });
+  r.get(`${B}/chats/:id/exportar`, `tenant:${MOD}`, async (c) => {
+    const ch = await chatDe(c, c.params.id), ms = await mensajesDe(c, ch);
+    await audit(c, `Exportó la conversación de ${ch.nombre || ch.contacto} (${ch.bandeja}) a CSV`, { modulo: MOD });
+    const quien = { user: ch.nombre || ch.contacto, assistant: 'IA', agent: 'Equipo' };
+    return csvRes([['Fecha', 'Quién', 'Tipo', 'Mensaje'], ...ms.map((m) => [fechaCsv(m.ts), quien[m.rol] || m.rol, m.tipo || 'texto', m.contenido || m.media_nombre || ''])], `chat-${String(ch.nombre || ch.contacto).replace(/[^\w-]+/g, '_').slice(0, 40)}`);
+  });
   r.get(`${B}/chats/:id`, `tenant:${MOD}`, async (c) => json(await chatCompleto(c, c.params.id)));
   // Archivos de los chats: la IA los entiende (botón «Entender con IA») y el equipo puede guardarlos en la biblioteca
   r.post(`${B}/mensajes/:id/entender`, `tenant:${MOD}`, async (c) => {
