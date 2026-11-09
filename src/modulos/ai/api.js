@@ -44,6 +44,23 @@ const revisarChat = (row) => {
   if (row.webhook_url && !webhookValido(row.webhook_url)) throw new HttpError(400, 'El webhook debe ser una dirección https pública');
   if (row.limite_dia != null && (row.limite_dia < 1 || row.limite_dia > TOPE_DIA)) throw new HttpError(400, `El tope diario debe estar entre 1 y ${TOPE_DIA}`);
 };
+// Tablero de IA: chats y conversaciones por día, agentes y sus ejecuciones, y propuestas por aprobar
+export async function tableroIA(c) {
+  const org = c.businessId, ahora = Date.now(), DIA = 864e5, col = (t) => new Date(t - 5 * 3600e3).toISOString().slice(0, 10);
+  const desde = ahora - 14 * DIA, seguro = (q, ...a) => all(c.env, q, ...a).catch(() => []);
+  const [conv, ejec, agentes, pend] = await Promise.all([
+    seguro('SELECT started_at created_at FROM ia_conversaciones WHERE business_id = ? AND started_at >= ? LIMIT 5000', org, desde),
+    seguro('SELECT agente_id, estado, created_at, pendientes FROM ia_ejecuciones WHERE business_id = ? AND created_at >= ? LIMIT 5000', org, desde),
+    seguro('SELECT id, nombre, activo, programacion, autonomia, ejecuciones, ultima_ejecucion FROM ia_agentes WHERE business_id = ? ORDER BY ejecuciones DESC', org),
+    one(c.env, 'SELECT COALESCE(SUM(pendientes),0) n FROM ia_ejecuciones WHERE business_id = ? AND estado = ?', org, 'ok').catch(() => ({ n: 0 })),
+  ]);
+  const dias = []; for (let i = 13; i >= 0; i--) dias.push(col(ahora - i * DIA));
+  const cuenta = (l) => Object.fromEntries(dias.map((d) => [d, l.filter((x) => col(x.created_at) === d).length]));
+  const cv = cuenta(conv), ej = cuenta(ejec);
+  const porAgente = agentes.map((a) => ({ id: a.id, nombre: a.nombre, activo: !!a.activo, programacion: a.programacion, autonomia: a.autonomia, total: a.ejecuciones, semana: ejec.filter((x) => x.agente_id === a.id && x.created_at >= ahora - 7 * DIA).length, errores: ejec.filter((x) => x.agente_id === a.id && x.estado === 'error').length, ultima: a.ultima_ejecucion }));
+  return { dias: dias.map((d) => ({ dia: d, conversaciones: cv[d], ejecuciones: ej[d] })), agentes: porAgente, ejecuciones_14d: ejec.length, errores_14d: ejec.filter((x) => x.estado === 'error').length, conversaciones_14d: conv.length, propuestas_pendientes: pend?.n || 0 };
+}
+
 export const ENTITIES = {
   chats: {
     table: 'ia_chats', label: 'el chat', title: 'nombre', search: ['nombre', 'slug'], order: 'created_at',
@@ -216,6 +233,7 @@ export function routes(r) {
   });
 
   /* consumo */
+  r.get(`${B}/tablero`, `tenant:${MOD}`, async (c) => json(await tableroIA(c)));
   r.get(`${B}/uso`, `tenant:${MOD}`, async (c) => {
     const hoy = await usoDelDia(c.env, c.businessId), aj = await ajustesDe(c.env, c.businessId), dia = dayCo(), mes = dia.slice(0, 7);
     const desde = new Date(Date.now() - 5 * 3600000 - 29 * 86400000).toISOString().slice(0, 10);

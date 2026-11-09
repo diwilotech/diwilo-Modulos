@@ -22,6 +22,49 @@ import { KINDS, paramsDe, liquidarEmpleado, prestacion, liquidacionFinal, dias36
 const MOD = 'nomina', B = '/api/nomina';
 const HALF = ['M', '1', '2'];
 
+// Tablero de Nómina: costo laboral de 6 meses, composición, personas por contrato, contratos por vencer y corridas por estado
+export async function tableroNomina(c) {
+  const org = c.businessId, hoy = today(), d = new Date(`${hoy}T12:00:00Z`);
+  const meses = []; for (let i = 5; i >= 0; i--) meses.push(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
+  const [corr, emps, runs] = await Promise.all([
+    all(c.env, "SELECT period, COALESCE(SUM(devengado),0) dev, COALESCE(SUM(aportes),0) apo, COALESCE(SUM(provisiones),0) pro, COALESCE(SUM(neto),0) neto FROM nom_runs WHERE business_id = ? AND tipo = 'nomina' AND period >= ? GROUP BY period", org, meses[0]),
+    all(c.env, "SELECT id, name, position, contract_type, salary, contract_end FROM nom_employees WHERE business_id = ? AND status = 'activo'", org),
+    all(c.env, 'SELECT id, tipo, period, half, status, neto, devengado FROM nom_runs WHERE business_id = ? ORDER BY period DESC, id DESC LIMIT 12', org),
+  ]);
+  const costo = (r) => (r ? r.dev + r.apo + r.pro : 0), por = (m) => corr.find((x) => x.period === m);
+  const orden = [...corr].sort((a, b) => b.period.localeCompare(a.period)), ultimo = orden[0], en60 = new Date(d.getTime() + 60 * 864e5).toISOString().slice(0, 10);
+  const contratos = {}; for (const e of emps) contratos[e.contract_type] = (contratos[e.contract_type] || 0) + 1;
+  return { meses: meses.map((m) => ({ mes: m, devengado: por(m)?.dev || 0, aportes: por(m)?.apo || 0, provisiones: por(m)?.pro || 0, neto: por(m)?.neto || 0, costo: costo(por(m)) })),
+    kpis: { personas: emps.length, salarios_mes: emps.reduce((t, e) => t + e.salary, 0), costo_ultimo: costo(ultimo), periodo_ultimo: ultimo?.period || null, costo_anterior: costo(orden[1]) },
+    composicion: ultimo ? [{ nombre: 'Devengado', valor: ultimo.dev }, { nombre: 'Aportes', valor: ultimo.apo }, { nombre: 'Provisiones', valor: ultimo.pro }] : [],
+    por_contrato: Object.entries(contratos).map(([tipo, n]) => ({ tipo, n })),
+    mayores: [...emps].sort((a, b) => b.salary - a.salary).slice(0, 6).map((e) => ({ nombre: e.name, cargo: e.position || '', valor: e.salary })),
+    vencen: emps.filter((e) => e.contract_end && e.contract_end >= hoy && e.contract_end <= en60).sort((a, b) => a.contract_end.localeCompare(b.contract_end)).map((e) => ({ id: e.id, nombre: e.name, fecha: e.contract_end })),
+    corridas: runs };
+}
+// Ficha del empleado: sus datos, lo que ha recibido en cada corrida, novedades, liquidación e historia
+export async function fichaEmpleado(c, id) {
+  const org = c.businessId, e = await one(c.env, 'SELECT * FROM nom_employees WHERE id = ? AND business_id = ?', id, org);
+  if (!e) throw new HttpError(404, 'No encontrado');
+  const seguro = (q, ...a) => all(c.env, q, ...a).catch(() => []);
+  const [pagos, novs, liqs] = await Promise.all([
+    seguro('SELECT r.id run_id, r.tipo, r.period, r.half, r.status, l.devengado, l.deducciones, l.neto, l.aportes, l.provisiones, r.created_at FROM nom_run_lines l JOIN nom_runs r ON r.id = l.run_id WHERE l.business_id = ? AND l.employee_id = ? ORDER BY r.period DESC, r.id DESC LIMIT 36', org, id),
+    seguro('SELECT id, period, kind, quantity, amount, note, created_at FROM nom_novedades WHERE business_id = ? AND employee_id = ? ORDER BY period DESC, id DESC LIMIT 30', org, id),
+    seguro('SELECT id, end_date, reason, total, status, created_at FROM nom_settlements WHERE business_id = ? AND employee_id = ? ORDER BY id DESC', org, id),
+  ]);
+  const suma = (a, f) => a.reduce((t, x) => t + (f(x) || 0), 0), mes = (p) => `${p}-28`;
+  const eventos = [
+    { fecha: e.start_date, titulo: `Ingresó como ${e.position || 'empleado'}`, detalle: `Contrato ${e.contract_type}`, icono: 'bi-person-plus', tono: 'ok' },
+    ...pagos.map((p) => ({ fecha: mes(p.period), titulo: `${{ nomina: 'Nómina', prima: 'Prima', cesantias: 'Cesantías' }[p.tipo] || p.tipo} ${p.period}`, detalle: `Neto pagado · ${p.status}`, valor: p.neto, icono: 'bi-cash-stack' })),
+    ...novs.map((n) => ({ fecha: mes(n.period), titulo: `Novedad: ${n.kind}`, detalle: n.note || (n.quantity ? `${n.quantity} ${n.quantity === 1 ? 'unidad' : 'unidades'}` : ''), valor: n.amount || undefined, icono: 'bi-lightning-charge', tono: 'aviso' })),
+    ...liqs.map((l) => ({ fecha: l.end_date, titulo: `Liquidación (${l.reason})`, detalle: l.status, valor: l.total, icono: 'bi-door-open', tono: 'mal' })),
+    ...(e.contract_end ? [{ fecha: e.contract_end, titulo: 'Termina su contrato', icono: 'bi-calendar-x', tono: e.contract_end < today() ? 'mal' : 'aviso' }] : []),
+  ].filter((x) => x.fecha).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).slice(0, 40);
+  const { account_number, ...seguroE } = e;
+  return { empleado: { ...seguroE, account_number: account_number ? `••••${String(account_number).slice(-4)}` : null }, pagos, novedades: novs, liquidaciones: liqs, eventos,
+    totales: { neto_pagado: suma(pagos.filter((p) => p.tipo === 'nomina'), (p) => p.neto), costo_empresa: suma(pagos, (p) => p.devengado + p.aportes + p.provisiones), corridas: pagos.length, novedades: novs.length } };
+}
+
 export const ENTITIES = {
   employees: { table: 'nom_employees', label: 'el empleado', title: 'name', search: ['name', 'doc_number', 'position'], order: "status, name", leer: 'manager', crear: 'manager',
     fields: { name: 'text!', doc_type: ['CC', 'NIT', 'CE', 'PPT', 'PEP', 'PA', 'TI'], doc_number: 'text', email: 'email', phone: 'text', position: 'text',
@@ -159,6 +202,8 @@ export function routes(r) {
     return json({ ...(await paramsNegocio(c.env, c.businessId, year)), kinds: Object.fromEntries(Object.entries(KINDS).map(([k, [label, unidad]]) => [k, { label, unidad }])) });
   });
 
+  r.get(`${B}/tablero`, `tenant:${MOD}`, async (c) => json(await tableroNomina(c)));
+  r.get(`${B}/employees/:id/ficha`, `manager:${MOD}`, async (c) => json(await fichaEmpleado(c, Number(c.params.id))));
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => {
     const period = MONTH.test(c.url.searchParams.get('period') || '') ? c.url.searchParams.get('period') : today().slice(0, 7);
     const p = await paramsNegocio(c.env, c.businessId, +period.slice(0, 4));

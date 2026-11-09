@@ -1,5 +1,8 @@
 # Marca e IA — cambios
 
+## 2.4.0 — Resumen de la marca
+- Pestaña «Resumen»: qué tan completa está la marca (logo, lema, tono, color, plantillas, tarjeta) y las tarjetas más vistas.
+
 ## 2.3.0 · 2026-10-26
 - **Identidad y Logos juntos**: una sola pestaña con el nombre de la marca, la descripción y el lema, y las 6 tarjetas de logo (el cuadrado de la app —que antes estaba en Color y letra— más horizontal, vertical, solo ícono, solo letras y para fondo oscuro). Cada tarjeta explica para qué sirve y, mientras no se sube el logo, muestra un dibujo de ejemplo de qué va ahí. La pestaña «Logos» desaparece; «Color y letra» ya no pide logo.
 - Dentro de Diwilo Admin el logo cuadrado también se puede subir (queda la copia del módulo para el kit).

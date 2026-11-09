@@ -450,11 +450,29 @@ DW.ready.then((me) => {
     if (editarId) { const c = rows.find((x) => x.id === editarId); if (c) editar(c); }
   }
 
+  /* ---------- Resumen: qué tan completa está la marca y cómo rinden las tarjetas ---------- */
+  async function resumen(h) {
+    await (new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); })); const V = window.DwViz; if (!V) return;
+    V.esqueleto(h, 2);
+    const [g, lg, ks] = await Promise.all([api(B).catch(() => null), api(`${B}/logos`).catch(() => ({ rows: [] })), api(`${MK}/cards`).catch(() => ({ rows: [] }))]);
+    if (!g) { h.innerHTML = '<p class="text-danger">No se pudo leer la marca.</p>'; return; }
+    const m = g.marca || {}, tarjetas = ks.rows || [], logos = lg.rows || [];
+    const pasos = [['Logo', !!(g.negocio?.logo || logos.length), 'Súbelo en «Logos»'], ['Lema o descripción', !!(m.lema || m.descripcion), 'Cuéntalo en «Identidad»'], ['Tono de voz', !!m.tono, 'Elígelo en «Identidad»'], ['Tema de color', !!m.tema_app, 'Escógelo en «Color y letra»'], ['Plantillas de mensajes', (g.plantillas?.rows?.length || g.plantillas?.length || 0) > 0, 'Créalas para tus mensajes'], ['Tarjeta de presentación', tarjetas.length > 0, 'Crea una en «Tarjetas»']];
+    const hechos = pasos.filter((p) => p[1]).length, vistas = tarjetas.reduce((t, x) => t + (x.views || 0), 0);
+    h.innerHTML = '<div data-k></div><div class="dv-g"><div data-a></div><div data-b></div></div>';
+    V.kpis($('[data-k]', h), [{ titulo: 'Marca completa', valor: `${Math.round((hechos / pasos.length) * 100)}%`, icono: 'bi-palette', tono: hechos === pasos.length ? 'ok' : 'aviso', detalle: `${hechos} de ${pasos.length} pasos` }, { titulo: 'Tarjetas', valor: String(tarjetas.length), icono: 'bi-person-vcard' }, { titulo: 'Vistas de tarjetas', valor: vistas.toLocaleString('es-CO'), icono: 'bi-eye' }, { titulo: 'Logos', valor: String(logos.length), icono: 'bi-image' }]);
+    $('[data-a]', h).innerHTML = V.tarjeta('Qué le falta a tu marca', `<div class="mb-2" data-av></div>${pasos.map((p) => `<div class="d-flex gap-2 align-items-center py-1 small border-bottom"><i class="bi ${p[1] ? 'bi-check-circle-fill text-success' : 'bi-circle text-body-secondary'}"></i><span class="flex-grow-1">${esc(p[0])}</span>${p[1] ? '' : `<span class="text-body-secondary">${esc(p[2])}</span>`}</div>`).join('')}`);
+    V.avance($('[data-av]', h), { valor: hechos, total: pasos.length, titulo: 'Avance', fmt: (v) => String(v) });
+    $('[data-b]', h).innerHTML = V.tarjeta('Tarjetas más vistas', '<div data-in></div>', { sub: 'Visitas a cada tarjeta pública' });
+    if (!tarjetas.length) V.vacio($('[data-in]', h), { icono: 'bi-person-vcard', titulo: 'Aún no tienes tarjetas', texto: 'Una tarjeta digital con tu QR es lo primero que ve un cliente.' });
+    else V.ranking($('[data-in]', h), [...tarjetas].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 6).map((x) => ({ nombre: x.name || x.slug, valor: x.views || 0, detalle: x.predeterminada ? 'principal' : '' })), { fmt: (v) => `${v.toLocaleString('es-CO')} vistas` });
+  }
+
   /* ---------- Pantalla ---------- */
   let host = null, tabAct = 'marca', editarPend = null, irAEditar = () => {};
   function pagina() {
     const seg = $('[data-seg]'), view = $('[data-view]'), ext = window.DwMarcaTabs || [];
-    const items = [['identidad', 'Identidad', 'bi-card-text'], ...ext.map((e) => [e.id, e.label, e.icon || 'bi-grid']), ['marca', 'Color y letra', 'bi-palette'], ['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['kit', 'Usar en otros lados', 'bi-box-arrow-up-right']];
+    const items = [['resumen', 'Resumen', 'bi-speedometer2'], ['identidad', 'Identidad', 'bi-card-text'], ...ext.map((e) => [e.id, e.label, e.icon || 'bi-grid']), ['marca', 'Color y letra', 'bi-palette'], ['tarjetas', 'Tarjetas', 'bi-person-vcard'], ['kit', 'Usar en otros lados', 'bi-box-arrow-up-right']];
     const ok = items.map((x) => x[0]);
     let cur = ok.includes(location.hash.slice(1)) ? location.hash.slice(1) : ok[0];
     const go = async (k) => {
@@ -463,6 +481,7 @@ DW.ready.then((me) => {
       try {
         const e = ext.find((x) => x.id === k);
         if (e) await e.mount(h, { me, can: CAN });
+        else if (k === 'resumen') await resumen(h);
         else if (k === 'tarjetas') { const id = editarPend; editarPend = null; await cards(h, { editarId: id }); }
         else { host = h; tabAct = k; await load(); }
       } catch (x) { h.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; }

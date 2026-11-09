@@ -107,6 +107,11 @@ export default async function ({ check, diwilo, newBusiness, newMember }) {
   check('Nómina: B no ve el desprendible de A', (await B.app(`${N}/runs/${run.data.id}/desprendible/${e2.data.id}`)).status === 404);
   check('Nómina: B no apunta a empleados de A', (await B.app(`${N}/novedades`, { method: 'POST', body: { employee_id: e2.data.id, period: mes, kind: 'comision', amount: 1 } })).status === 400);
 
+  const tn = await A.app(`${N}/tablero`), fe = await A.app(`${N}/employees/${e1.data.id}/ficha`);
+  check('Nómina: el tablero resume 6 meses, personas y composición', tn.status === 200 && tn.data.meses.length === 6 && tn.data.kpis.personas >= 2 && Array.isArray(tn.data.corridas));
+  check('Nómina: la ficha del empleado trae su historia y oculta la cuenta completa', fe.status === 200 && fe.data.empleado.name === 'Laura Gómez' && fe.data.eventos.length >= 1 && !/\d{6,}/.test(String(fe.data.empleado.account_number || '')));
+  check('Nómina: otro negocio no ve la ficha ni el tablero de A', (await B.app(`${N}/employees/${e1.data.id}/ficha`)).status === 404 && (await B.app(`${N}/tablero`)).data.kpis.personas === 0);
+
   // Permisos y módulo inactivo
   const staff = await newMember(A.id, 'staff');
   check('Nómina: el personal no tiene acceso (403)', (await staff.app(`${N}/employees`)).status === 403);

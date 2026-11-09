@@ -8,9 +8,11 @@ DW.ready.then((me) => {
   const B = '/api/nomina', RO = me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const hoy = C.todayCo(), mesHoy = hoy.slice(0, 7);
-  const VIEWS = [['resumen', 'Resumen y calendario', 'bi-calendar3'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['prestaciones', 'Prestaciones', 'bi-piggy-bank'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
-  let view = (location.hash || '#resumen').slice(1);
-  if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
+  const VIEWS = [['tablero', 'Tablero', 'bi-speedometer2'], ['resumen', 'Resumen y calendario', 'bi-calendar3'], ['empleados', 'Empleados', 'bi-people'], ['contratistas', 'Contratistas', 'bi-person-badge'], ['prestaciones', 'Prestaciones', 'bi-piggy-bank'], ['novedades', 'Novedades', 'bi-lightning-charge'], ['corridas', 'Nómina', 'bi-cash-stack'], ['liquidaciones', 'Liquidaciones', 'bi-door-open'], ['parametros', 'Parámetros', 'bi-sliders']];
+  let view = (location.hash || '#tablero').slice(1);
+  if (!VIEWS.some(([k]) => k === view)) view = 'tablero';
+  const kit = new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); });
+  const CONTRATOS = { indefinido: 'Indefinido', fijo: 'Fijo', obra_labor: 'Obra o labor', aprendizaje: 'Aprendizaje', prestacion: 'Prestación de servicios' };
   const ESTADO = { borrador: ['soon', 'Borrador'], aprobada: ['ok', 'Aprobada'], pagada: ['free', 'Pagada'] };
   const TIPO = { nomina: 'Nómina', prima: 'Prima de servicios', cesantias: 'Cesantías' };
   const HALF = { M: 'Mes completo', 1: 'Primera quincena', 2: 'Segunda quincena' };
@@ -72,9 +74,45 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     $('[data-acciones]').innerHTML = '';
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
-    ({ resumen, empleados, contratistas, prestaciones, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
+    ({ tablero, resumen, empleados, contratistas, prestaciones, novedades, corridas, liquidaciones, parametros })[view](el).catch((x) => { el.innerHTML = `<div class="dw-card text-danger">${esc(x.message)}</div>`; });
   }
   const cuentas = async () => (await api('/api/finanzas/accounts?limit=200').catch(() => ({ rows: [] }))).rows;
+
+  /* ---------------- tablero: costo, composición, contratos y corridas por estado ---------------- */
+  async function tablero(el) {
+    await kit; const V = window.DwViz; if (!V) return;
+    V.esqueleto(el, 3);
+    const t = await api(`${B}/tablero`), k = t.kpis, mes = (m) => new Date(`${m}-15T12:00:00Z`).toLocaleDateString('es-CO', { month: 'short', timeZone: 'UTC' }).replace('.', '');
+    if (!k.personas && !t.corridas.length) { V.vacio(el, { icono: 'bi-people', titulo: 'Tu tablero de nómina empieza con la primera persona', texto: 'Registra tus empleados y liquida un mes: aquí verás el costo laboral, la composición y los vencimientos.', accion: RO ? null : { texto: 'Ir a Empleados', hacer: () => { view = 'empleados'; location.hash = 'empleados'; render(); } } }); return; }
+    el.innerHTML = `${t.vencen.length ? `<div class="alert alert-warning py-2 d-flex gap-2 align-items-center"><i class="bi bi-calendar-x"></i><span>${t.vencen.length} ${t.vencen.length === 1 ? 'contrato vence' : 'contratos vencen'} en 60 días: ${t.vencen.slice(0, 3).map((x) => `${esc(x.nombre)} (${day(x.fecha)})`).join(', ')}.</span></div>` : ''}
+      <div data-k></div><div class="dv-g"><div data-a></div><div data-b></div></div><div class="dv-g"><div data-c></div><div data-d></div></div><div data-e></div>`;
+    V.kpis($('[data-k]', el), [{ titulo: 'Personas activas', valor: String(k.personas), icono: 'bi-people' }, { titulo: 'Salarios del mes', valor: money(k.salarios_mes), icono: 'bi-cash-coin', detalle: 'Base mensual de todos' },
+      { titulo: `Costo laboral${k.periodo_ultimo ? ` · ${k.periodo_ultimo}` : ''}`, valor: k.periodo_ultimo ? money(k.costo_ultimo) : '—', icono: 'bi-building', delta: V.variacion(k.costo_ultimo, k.costo_anterior), serie: t.meses.map((m) => m.costo), detalle: 'Devengado + aportes + provisiones' },
+      { titulo: 'Contratos por vencer', valor: String(t.vencen.length), icono: 'bi-calendar-x', tono: t.vencen.length ? 'aviso' : 'ok', detalle: 'En 60 días' }]);
+    const box = (id, titulo, sub) => { $(`[data-${id}]`, el).innerHTML = V.tarjeta(titulo, '<div data-in></div>', { sub }); return $('[data-in]', $(`[data-${id}]`, el)); };
+    V.barras(box('a', 'Costo laboral por mes', 'Lo liquidado en los últimos 6 meses'), { etiquetas: t.meses.map((m) => mes(m.mes)), series: [{ nombre: 'Devengado', datos: t.meses.map((m) => m.devengado) }, { nombre: 'Aportes', datos: t.meses.map((m) => m.aportes), color: '#22D3EE' }, { nombre: 'Provisiones', datos: t.meses.map((m) => m.provisiones), color: '#FBBF24' }], fmt: money, apiladas: true });
+    V.dona(box('b', 'En qué se va el costo', k.periodo_ultimo ? `Mes ${k.periodo_ultimo}` : ''), t.composicion.map((x) => ({ nombre: x.nombre, valor: x.valor })), { fmt: money, centro: 'Costo' });
+    V.ranking(box('c', 'Quién cuesta más en salario', 'Base mensual'), t.mayores.map((x) => ({ nombre: x.nombre, valor: x.valor, detalle: x.cargo })), { fmt: money });
+    V.dona(box('d', 'Personas por contrato', ''), t.por_contrato.map((x) => ({ nombre: CONTRATOS[x.tipo] || x.tipo, valor: x.n })), { fmt: (n) => String(n), centro: 'Personas' });
+    const cols = [['borrador', 'Borrador', '#94a3b8'], ['aprobada', 'Aprobada', '#FBBF24'], ['pagada', 'Pagada', '#34D399']];
+    $('[data-e]', el).innerHTML = V.tarjeta('Corridas por estado', '<div data-in></div>', { sub: 'Tocar una la abre' });
+    V.kanban($('[data-in]', $('[data-e]', el)), { fmt: money, abrir: (id) => detalle(+id), columnas: cols.map(([id, titulo, color]) => ({ id, titulo, color, items: t.corridas.filter((r) => r.status === id).map((r) => ({ id: r.id, titulo: `${TIPO[r.tipo] || r.tipo} ${r.period}`, detalle: r.tipo === 'nomina' ? HALF[r.half] : '', valor: r.neto })) })) });
+  }
+
+  /* ---------------- ficha del empleado ---------------- */
+  async function fichaEmp(id) {
+    await kit; const V = window.DwViz;
+    const { el: d } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5" data-t>Ficha</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body" data-c><div class="dv-sk"></div><div class="dv-sk"></div></div>`, { size: 'modal-xl' });
+    let f; try { f = await api(`${B}/employees/${id}/ficha`); } catch (x) { $('[data-c]', d).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const e = f.empleado, t = f.totales;
+    $('[data-t]', d).textContent = e.name;
+    $('[data-c]', d).innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-3">${chip(e.status === 'activo' ? 'ok' : 'free', e.status === 'activo' ? 'Activo' : 'Retirado')}<span class="small text-body-secondary">${[e.position, CONTRATOS[e.contract_type], `desde ${day(e.start_date)}`, e.contract_end && `termina ${day(e.contract_end)}`, e.email, e.phone].filter(Boolean).map(esc).join(' · ')}</span></div>
+      <div data-k></div><div class="row g-3"><div class="col-lg-7" data-l></div><div class="col-lg-5" data-h></div></div>`;
+    V.kpis($('[data-k]', d), [{ titulo: 'Salario mensual', valor: money(e.salary), icono: 'bi-cash-coin' }, { titulo: 'Neto pagado', valor: money(t.neto_pagado), icono: 'bi-wallet2', tono: 'ok', detalle: `${t.corridas} corridas` }, { titulo: 'Costo para la empresa', valor: money(t.costo_empresa), icono: 'bi-building' }, { titulo: 'Novedades', valor: String(t.novedades), icono: 'bi-lightning-charge' }]);
+    $('[data-l]', d).innerHTML = V.tarjeta('Pagos por corrida', f.pagos.length ? f.pagos.map((p) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span>${esc(TIPO[p.tipo] || p.tipo)} ${esc(p.period)} ${chip(ESTADO[p.status][0], ESTADO[p.status][1])}</span><b>${money(p.neto)}</b></div>`).join('') : '<p class="small text-body-secondary mb-0">Aún no ha sido incluido en una corrida.</p>');
+    $('[data-h]', d).innerHTML = V.tarjeta('Historia', '<div data-in></div>', { sub: 'Lo último primero' });
+    V.linea_de_tiempo($('[data-in]', d), f.eventos.map((x) => ({ ...x, fecha: day(x.fecha) })), { fmt: money });
+  }
 
   /* ---------------- resumen y calendario (juntos) ---------------- */
   const FREQ = { mensual: 'Mensual · último día del mes', quincenal: 'Quincenal · el 15 y el último día', semanal: 'Semanal · cada viernes' };
@@ -205,6 +243,7 @@ DW.ready.then((me) => {
     if (!RO) $('[data-acciones]').innerHTML = '<button class="btn btn-primary" data-nuevo><i class="bi bi-person-plus me-1"></i>Nuevo empleado</button>';
     const CONTRATO = { indefinido: 'Indefinido', fijo: 'Fijo', obra_labor: 'Obra o labor', aprendizaje: 'Aprendizaje', prestacion: 'Prestación de servicios' };
     el.innerHTML = '<div class="d-flex gap-2 mb-3"><input class="form-control" style="max-width:260px" data-q placeholder="Buscar…" aria-label="Buscar"><select class="form-select w-auto" data-st aria-label="Estado"><option value="activo">Activos</option><option value="retirado">Retirados</option><option value="">Todos</option></select></div><div class="nom-grid" data-g></div>';
+    el.addEventListener('click', (e) => { const b = e.target.closest('[data-ficha]'); if (b) { e.stopPropagation(); fichaEmp(+b.dataset.ficha); } }, true);
     let rows = [];
     const pinta = () => {
       const q = $('[data-q]', el).value.trim().toLowerCase(), st = $('[data-st]', el).value;
@@ -212,7 +251,7 @@ DW.ready.then((me) => {
       $('[data-g]', el).innerHTML = v.map((r) => `<div class="nom-card nom-click" data-id="${r.id}"><div class="d-flex align-items-center gap-2"><span class="nom-av ${r.contract_type === 'prestacion' ? 'nom-av--c' : ''}">${esc(iniciales(r.name))}</span>
           <div class="flex-grow-1" style="min-width:0"><b class="d-block text-truncate">${esc(r.name)}</b><span class="small text-body-secondary">${esc(r.position || '—')}${r.doc_number ? ` · ${esc(r.doc_type)} ${esc(r.doc_number)}` : ''}</span></div>${r.status === 'activo' ? '' : chip('free', 'Retirado')}</div>
         <div><div class="nom-big">${r.contract_type === 'prestacion' && !r.salary ? '<span class="fs-6 text-body-secondary fw-normal">Por clases o servicios</span>' : money(r.salary)}</div><div class="small text-body-secondary">${r.contract_type === 'prestacion' ? 'honorarios' : r.salary_type === 'integral' ? 'salario integral' : `al mes · ${esc(r.pay_freq)}`}</div></div>
-        <div class="d-flex flex-wrap gap-1">${chip(r.contract_type === 'prestacion' ? 'soon' : 'ok', CONTRATO[r.contract_type])}<span class="small text-body-secondary align-self-center">desde ${day(r.start_date)}</span></div>
+        <div class="d-flex flex-wrap gap-1">${chip(r.contract_type === 'prestacion' ? 'soon' : 'ok', CONTRATO[r.contract_type])}<button type="button" class="btn btn-sm btn-outline-primary py-0" data-ficha="${r.id}"><i class="bi bi-person-vcard"></i> Ficha</button><span class="small text-body-secondary align-self-center">desde ${day(r.start_date)}</span></div>
         ${!RO && r.status === 'activo' ? '<div class="d-flex gap-1 justify-content-end"><button class="btn btn-sm btn-outline-secondary" data-liq title="Liquidar contrato" aria-label="Liquidar contrato"><i class="bi bi-door-open"></i></button></div>' : ''}</div>`).join('') || '<div class="dw-card text-body-secondary">Sin personas con este filtro. Se traen solas desde Equipo.</div>';
     };
     const cargar = async () => { rows = (await api(`${B}/employees?limit=1000`)).rows; pinta(); };

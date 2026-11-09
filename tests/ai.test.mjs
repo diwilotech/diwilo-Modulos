@@ -102,6 +102,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('IA: B no conversa con el agente de A (404)', (await B.app(`${X}/agentes/${mk.id}/chat`, { method: 'POST', body: { mensajes: [{ role: 'user', content: 'hola' }] } })).status === 404);
   check('IA: el agente de módulo no se borra (400) y se puede vaciar su Estrategia', (await A.app(`${X}/agentes/${mk.id}`, { method: 'DELETE' })).status === 400 && (await A.app(`${X}/agentes/${mk.id}`, { method: 'PATCH', body: { instrucciones: '' } })).status === 200);
   check('IA: un agente libre sigue exigiendo instrucciones', (await A.app(`${X}/agentes`, { method: 'POST', body: { nombre: 'Sin texto', herramientas: JSON.stringify(['marketing.resumen']) } })).status === 400);
+  const tia = await A.app(`${X}/tablero`);
+  check('IA: el tablero trae 14 días, agentes y propuestas', tia.status === 200 && tia.data.dias?.length === 14 && Array.isArray(tia.data.agentes) && typeof tia.data.propuestas_pendientes === 'number');
   const gest = await A.app('/api/ai/herramientas');   // la lista para agentes libres no ofrece escrituras del módulo ai
   check('IA: los agentes libres no pueden gestionar otros agentes', !gest.data.herramientas.some((t) => t.name === 'ai.gestionar_agente_modulo'));
   check('IA: el personal no ejecuta agentes (403)', (await staff.app(`${X}/agentes/${ag.data.id}/ejecutar`, { method: 'POST' })).status === 403);

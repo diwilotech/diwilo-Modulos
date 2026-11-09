@@ -1,5 +1,9 @@
 # Nómina — cambios
 
+## 1.6.0 — Tablero y ficha del empleado
+- Vista «Tablero»: costo laboral de 6 meses (devengado, aportes, provisiones), en qué se va el costo, quién cuesta más, personas por contrato, contratos por vencer y las corridas en columnas Borrador / Aprobada / Pagada (`GET /api/nomina/tablero`).
+- Botón «Ficha» en cada empleado: pagos por corrida, novedades, liquidación y su historia en línea de tiempo; la cuenta bancaria sale enmascarada (`GET /api/nomina/employees/:id/ficha`, solo administradores).
+
 ## 1.5.0 · 2026-10-22
 - **Resumen y calendario en una sola vista.** Al tocar un día, un pago o un color de la gráfica se abre su detalle (quién cobra ese día y cómo se reparte; quién aporta a cada destino).
 - **Gráfica del dinero:** barra apilada «¿a quién llega el costo?» (empleado, EPS, pensión, ARL, caja/SENA/ICBF, DIAN, provisiones, otros descuentos) con su leyenda en pesos y porcentaje; por empleado, además, cuánto le llega y cuánto se le descuenta de lo que gana. Paleta categórica validada, con valores al pasar el cursor.

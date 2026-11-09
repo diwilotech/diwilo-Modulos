@@ -40,11 +40,11 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   const CAN = me.canManage && !me.business.readOnly;
   // «Modelo de IA» (qué IA responde en TODAS las apps) solo existe en Diwilo Admin: el negocio de Diwilo dentro del panel
   const ES_DIWILO = me.app?.id === 'diwilo' && me.business?.id === 'diwilo' && me.canManage;
-  const VIEWS = [['agentes', 'Agentes', 'bi-lightning-charge'], ['asistente', 'IA Diwilo', 'bi-stars'], ['consumo', 'Consumo', 'bi-speedometer2'], ['chats', 'Chats y conversaciones', 'bi-chat-dots'],
+  const VIEWS = [['tablero', 'Tablero', 'bi-speedometer'], ['agentes', 'Agentes', 'bi-lightning-charge'], ['asistente', 'IA Diwilo', 'bi-stars'], ['consumo', 'Consumo', 'bi-speedometer2'], ['chats', 'Chats y conversaciones', 'bi-chat-dots'],
     ['conexiones', 'Conexiones y API', 'bi-plug'], ...(ES_DIWILO ? [['modelo', 'Modelo de IA', 'bi-cpu']] : [])];
-  let view = (location.hash || '#agentes').slice(1), filtroChat = null;
+  let view = (location.hash || '#tablero').slice(1), filtroChat = null;
   if (view === 'conversaciones') view = 'chats';
-  if (!VIEWS.some(([k]) => k === view)) view = 'agentes';
+  if (!VIEWS.some(([k]) => k === view)) view = 'tablero';
   const hasMkt = me.modules.some((m) => m.id === 'marketing');
   // Con el módulo Mensajes activo, las conversaciones de los chats se ven y se atienden allí (aquí queda solo la configuración del chat)
   const hasMsg = me.modules.some((m) => m.id === 'whatsapp');
@@ -101,9 +101,32 @@ body.ia-page{--hi:var(--bs-emphasis-color);--ink:var(--bs-body-color);--ink2:var
   function render() {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el);
-    ({ chats: chatsYConversaciones, asistente, agentes, consumo, conexiones, modelo })[view](el);
+    ({ tablero, chats: chatsYConversaciones, asistente, agentes, consumo, conexiones, modelo })[view](el);
   }
   const go = (k) => { view = k; $$('[data-seg] .btn').forEach((b) => b.classList.toggle('active', b.dataset.k === k)); render(); };
+
+  /* ================= Tablero ================= */
+  async function tablero(el) {
+    await (new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); })); const V = window.DwViz; if (!V) return;
+    V.esqueleto(el, 3);
+    let t, u; try { [t, u] = await Promise.all([api(`${B}/tablero`), api(`${B}/uso`)]); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const n = (x) => Number(x || 0).toLocaleString('es-CO'), aj = u.ajustes, cop = (usd) => `$${Math.round(usd * aj.usd_cop).toLocaleString('es-CO')}`, dia = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace('.', '');
+    const FUENTE = { chat: 'Chats de clientes', agente: 'Agentes', asistente: 'Asistente', informes: 'Informes' }, hoyT = u.hoy.tin + u.hoy.tout, pct = aj.tope_tokens ? Math.min(100, Math.round((hoyT / aj.tope_tokens) * 100)) : 0;
+    if (!t.agentes.length && !t.conversaciones_14d && !u.mes.calls) { V.vacio(el, { icono: 'bi-stars', titulo: 'Tu IA aún no ha trabajado', texto: 'Crea un chat para tu sitio o un agente y aquí verás cuánto responde, cuánto cuesta y qué te propone.' }); return; }
+    el.innerHTML = `${t.propuestas_pendientes ? `<div class="alert alert-warning py-2 d-flex gap-2 align-items-center"><i class="bi bi-hourglass-split"></i><span>Tus agentes dejaron ${t.propuestas_pendientes} ${t.propuestas_pendientes === 1 ? 'propuesta' : 'propuestas'} por aprobar.</span></div>` : ''}
+      <div data-k></div><div class="dv-g"><div data-a></div><div data-b></div></div><div class="dv-g"><div data-c></div><div data-d></div></div>`;
+    V.kpis($('[data-k]', el), [{ titulo: 'Costo del mes', valor: cop(u.mes.usd), icono: 'bi-cash-coin', detalle: `Proyección ${cop(u.mes.proyeccion_usd)}`, serie: u.dias.map((d) => d.usd) },
+      { titulo: 'Tokens hoy', valor: n(hoyT), icono: 'bi-speedometer2', tono: pct >= 100 ? 'mal' : pct >= 80 ? 'aviso' : 'ok', detalle: aj.tope_tokens ? `${pct}% del tope diario` : 'Sin tope diario' },
+      { titulo: 'Conversaciones (14 días)', valor: n(t.conversaciones_14d), icono: 'bi-chat-dots', serie: t.dias.map((d) => d.conversaciones) },
+      { titulo: 'Ejecuciones de agentes', valor: n(t.ejecuciones_14d), icono: 'bi-lightning-charge', tono: t.errores_14d ? 'aviso' : 'ok', detalle: t.errores_14d ? `${t.errores_14d} con error` : 'Sin errores', serie: t.dias.map((d) => d.ejecuciones) }]);
+    const box = (id, titulo, sub) => { $(`[data-${id}]`, el).innerHTML = V.tarjeta(titulo, '<div data-in></div>', { sub }); return $('[data-in]', $(`[data-${id}]`, el)); };
+    V.linea(box('a', 'Gasto diario de IA', 'Últimos 30 días, en pesos'), { etiquetas: u.dias.map((d) => dia(d.day)), series: [{ nombre: 'Costo', datos: u.dias.map((d) => Math.round(d.usd * aj.usd_cop)) }], fmt: (v) => `$${n(v)}` });
+    V.dona(box('b', 'Quién gasta este mes', 'Por origen'), u.fuentes.map((f) => ({ nombre: FUENTE[f.fuente] || f.fuente, valor: f.tin + f.tout })), { fmt: n, centro: 'Tokens' });
+    V.barras(box('c', 'Conversaciones y ejecuciones', 'Últimos 14 días'), { etiquetas: t.dias.map((d) => dia(d.dia)), series: [{ nombre: 'Conversaciones', datos: t.dias.map((d) => d.conversaciones) }, { nombre: 'Ejecuciones', datos: t.dias.map((d) => d.ejecuciones), color: '#34D399' }], fmt: n });
+    const w = box('d', 'Tus agentes', 'Los que más trabajan primero');
+    if (!t.agentes.length) V.vacio(w, { icono: 'bi-robot', titulo: 'Sin agentes todavía', texto: 'Se crean solos al activar módulos, o puedes crear uno propio en la pestaña Agentes.' });
+    else w.innerHTML = t.agentes.slice(0, 8).map((a) => `<div class="d-flex align-items-center gap-2 py-2 border-bottom small"><i class="bi bi-robot ${a.activo ? 'text-success' : 'text-body-secondary'}"></i><span class="flex-grow-1 text-truncate"><b>${esc(a.nombre)}</b><span class="d-block text-body-secondary">${a.programacion} · ${a.autonomia === 'ejecutar' ? 'actúa solo' : 'propone'}</span></span><span class="text-end"><b>${n(a.semana)}</b> esta semana${a.errores ? `<span class="d-block text-danger">${a.errores} con error</span>` : ''}</span></div>`).join('');
+  }
 
   /* ================= Chats de clientes ================= */
   async function chats(el) {

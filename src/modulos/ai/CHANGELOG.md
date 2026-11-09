@@ -1,5 +1,8 @@
 # IA (`ai`) — cambios
 
+## 1.11.0 — Tablero de IA
+- Vista «Tablero»: costo diario y proyección, tokens contra el tope, quién gasta, conversaciones y ejecuciones de 14 días, y cada agente con lo que trabajó esta semana y sus errores (`GET /api/ai/tablero`).
+
 ## 1.10.2 — Gemini: respaldo entre modelos y error claro
 - Si Google rechaza el modelo elegido (cuota o límite de ese modelo), se prueban los demás Gemini antes de pasar a Workers AI.
 - Si todo falla, el mensaje dice el error real de Gemini en vez de culpar solo a la cuota de Workers AI.
