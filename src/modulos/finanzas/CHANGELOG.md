@@ -1,5 +1,10 @@
 # Finanzas — cambios
 
+## 1.13.0 — Clientes y proveedores, tablero de cobros y gráficas nuevas
+- Vista «Clientes y proveedores»: cada tercero con facturado, cobrado, por cobrar y vencido, ranking de quién más paga y ficha con su historia en línea de tiempo (`GET /api/finanzas/terceros` y `/terceros/ficha?nombre=`).
+- Vista «Tablero de cobros»: cuentas de cobro en columnas Al día / Vencidas / Pagadas con totales; tocar una abre su PDF.
+- El Resumen usa el kit visual: flujo de caja en líneas con proyección y gastos por categoría en dona.
+
 ## 1.12.0 · 2026-10-20
 - **Control total por IA**: facturas y cuentas de cobro (crear, editar, borrar, pagar con su recibo, ver detalle), recibos (listar, anular), presupuestos, borrar movimientos y gastos recurrentes, pagar un gasto recurrente, cuentas y centros (editar, borrar, totales), conciliación bancaria (extracto, importar, conciliar), exportar CSV, datos de cobro, TRM y pagos del mes. Cada herramienta llama a la misma ruta de la API (`src/lib/interno.js`), con sus mismos permisos, validaciones y bitácora.
 

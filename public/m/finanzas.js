@@ -25,7 +25,7 @@ DW.ready.then((me) => {
   const usdLine = (r) => (r.currency === 'USD' && r.amount_usd ? `<div class="small text-body-secondary fw-normal">${usd(r.amount_usd)}${r.fx_rate ? ` · TRM ${Number(r.fx_rate).toLocaleString('es-CO', { maximumFractionDigits: 2 })}` : ''}</div>` : '');
   const sub = (t) => (t ? `<div class="small text-body-secondary fw-normal">${esc(t)}</div>` : '');
 
-  const VIEWS = [['resumen', 'Resumen', 'bi-pie-chart'], ['movimientos', 'Movimientos', 'bi-arrow-down-up'], ['facturas', 'Cobros', 'bi-receipt'],
+  const VIEWS = [['resumen', 'Resumen', 'bi-pie-chart'], ['movimientos', 'Movimientos', 'bi-arrow-down-up'], ['facturas', 'Cobros', 'bi-receipt'], ['tablerocobros', 'Tablero de cobros', 'bi-kanban'], ['clientes', 'Clientes y proveedores', 'bi-people'],
     ['recurrentes', 'Gastos recurrentes', 'bi-arrow-repeat'], ['centros', 'Centros de costo y presupuestos', 'bi-diagram-3'], ['bancos', 'Bancos y conciliación', 'bi-bank'], ['informes', 'Informes', 'bi-journal-text'], ['exportar', 'Exportar', 'bi-download']];
   const F = {
     movements: [
@@ -60,6 +60,7 @@ DW.ready.then((me) => {
       { k: 'bank', label: 'Banco' }, { k: 'last4', label: 'Últimos 4 dígitos' }, { k: 'opening_balance', label: 'Saldo inicial (COP)', type: 'money', hint: 'lo que tenía la cuenta antes de registrar movimientos aquí' }],
   };
 
+  const kit = new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); });
   const abrirPagar = /^#pagar:(\d+)$/.exec(location.hash)?.[1] || null;   // desde Equipo: abre el pago de ese gasto
   let view = abrirPagar ? 'recurrentes' : (location.hash || '#resumen').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'resumen';
@@ -67,7 +68,54 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false);
     old.replaceWith(el);
-    ({ resumen: summary, movimientos, facturas: invoices, recurrentes, centros, bancos: banks, informes: reports, exportar: exportView })[view](el);
+    ({ resumen: summary, movimientos, facturas: invoices, tablerocobros, clientes, recurrentes, centros, bancos: banks, informes: reports, exportar: exportView })[view](el);
+  }
+
+  // Tablero de cobros: las cuentas de cobro por etapa (al día, vencidas, pagadas); tocar una abre su PDF
+  async function tablerocobros(el) {
+    await kit; const V = window.DwViz; if (!V) return;
+    V.esqueleto(el, 2);
+    let rows; try { rows = (await api(`${B}/invoices?limit=1000`)).rows.filter((x) => x.kind === 'emitida' && x.status !== 'anulada'); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    if (!rows.length) { V.vacio(el, { icono: 'bi-kanban', titulo: 'Aún no hay cuentas de cobro', texto: 'Cuando emitas una, aparecerá aquí en su etapa: al día, vencida o pagada.' }); return; }
+    const hoy = C.todayCo(), etapa = (x) => (x.status === 'pagada' ? 'pagada' : x.due_date && x.due_date < hoy ? 'vencida' : 'aldia');
+    const por = (e) => rows.filter((x) => etapa(x) === e), saldo = (a) => a.reduce((t, x) => t + Math.max(0, x.total - x.paid), 0);
+    el.innerHTML = '<div data-k></div><div data-b></div>';
+    V.kpis($('[data-k]', el), [{ titulo: 'Por cobrar', valor: money(saldo(por('aldia')) + saldo(por('vencida'))), icono: 'bi-hourglass-split', detalle: `${por('aldia').length + por('vencida').length} cuentas` },
+      { titulo: 'Vencido', valor: money(saldo(por('vencida'))), icono: 'bi-exclamation-triangle', tono: por('vencida').length ? 'mal' : 'ok', detalle: por('vencida').length ? `${por('vencida').length} cuentas` : 'Todo al día' },
+      { titulo: 'Cobrado', valor: money(rows.reduce((t, x) => t + x.paid, 0)), icono: 'bi-cash-coin', tono: 'ok' }]);
+    V.kanban($('[data-b]', el), { fmt: money, abrir: (id) => window.open(`${B}/invoices/${id}/pdf`, '_blank', 'noopener'),
+      columnas: [['aldia', 'Al día', '#FBBF24'], ['vencida', 'Vencidas', '#FB7185'], ['pagada', 'Pagadas', '#34D399']].map(([id, titulo, color]) => ({ id, titulo, color,
+        items: por(id).map((x) => ({ id: x.id, titulo: `${x.number || '#' + x.id} · ${x.counterparty}`, detalle: id === 'pagada' ? `Emitida ${day(x.issue_date)}` : x.due_date ? `Vence ${day(x.due_date)}` : 'Sin fecha de pago', valor: id === 'pagada' ? x.total : Math.max(0, x.total - x.paid), etiqueta: x.paid && id !== 'pagada' ? `Abonado ${money(x.paid)}` : '' })) })) });
+  }
+
+  // Clientes y proveedores: cada tercero con su historia; «Ficha» abre todo lo que hay con él
+  async function clientes(el) {
+    await kit; const V = window.DwViz; if (!V) return;
+    V.esqueleto(el, 3);
+    let rows; try { rows = (await api(`${B}/terceros`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    if (!rows.length) { V.vacio(el, { icono: 'bi-people', titulo: 'Aún no hay clientes ni proveedores', texto: 'Aparecen solos cuando registras un movimiento, una cuenta de cobro o una factura con su nombre.' }); return; }
+    const top = [...rows].sort((a, b) => (b.facturado + b.ingresos) - (a.facturado + a.ingresos)).filter((x) => x.facturado + x.ingresos > 0).slice(0, 6);
+    el.innerHTML = `<div data-k></div><div class="dv-g"><div data-r></div><div data-t></div></div>`;
+    V.kpis($('[data-k]', el), [{ titulo: 'Clientes', valor: num(rows.filter((x) => x.cliente).length), icono: 'bi-person-check' }, { titulo: 'Proveedores', valor: num(rows.filter((x) => x.proveedor).length), icono: 'bi-truck' },
+      { titulo: 'Por cobrar', valor: money(rows.reduce((t, x) => t + x.por_cobrar, 0)), icono: 'bi-hourglass-split' }, { titulo: 'Vencido', valor: money(rows.reduce((t, x) => t + x.vencido, 0)), icono: 'bi-exclamation-triangle', tono: rows.some((x) => x.vencido) ? 'mal' : 'ok' }]);
+    $('[data-r]', el).innerHTML = V.tarjeta('Quién más te paga', '<div data-in></div>', { sub: 'Facturado e ingresos' });
+    V.ranking($('[data-in]', $('[data-r]', el)), top.map((x) => ({ nombre: x.nombre, valor: x.facturado + x.ingresos, detalle: x.vencido ? 'con deuda vencida' : '' })), { fmt: money });
+    $('[data-t]', el).innerHTML = V.tarjeta('Directorio', '<div data-lista></div>', { sub: 'Toca uno para ver su ficha' });
+    $('[data-lista]', el).innerHTML = rows.map((x, i) => `<button type="button" class="btn w-100 text-start d-flex align-items-center gap-2 py-2 border-bottom rounded-0" data-i="${i}"><i class="bi ${x.tipo === 'proveedor' ? 'bi-truck' : 'bi-person'}"></i><span class="flex-grow-1 text-truncate"><b>${esc(x.nombre)}</b><span class="d-block small text-body-secondary">${x.tipo === 'ambos' ? 'Cliente y proveedor' : x.tipo === 'cliente' ? 'Cliente' : 'Proveedor'}${x.ultimo ? ` · ${day(x.ultimo)}` : ''}</span></span>${x.vencido ? chip('bad', 'Vencido ' + money(x.vencido)) : x.por_cobrar ? chip('soon', 'Debe ' + money(x.por_cobrar)) : x.por_pagar ? chip('soon', 'Le debes ' + money(x.por_pagar)) : ''}</button>`).join('');
+    $('[data-lista]', el).addEventListener('click', (e) => { const b = e.target.closest('[data-i]'); if (b) ficha(rows[+b.dataset.i].nombre); });
+  }
+  async function ficha(nombre) {
+    await kit; const V = window.DwViz;
+    const { el: d } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${esc(nombre)}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body" data-c><div class="dv-sk"></div><div class="dv-sk"></div></div>`, { size: 'modal-xl' });
+    let f; try { f = await api(`${B}/terceros/ficha?nombre=${encodeURIComponent(nombre)}`); } catch (x) { $('[data-c]', d).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const t = f.totales;
+    $('[data-c]', d).innerHTML = '<div data-k></div><div class="row g-3"><div class="col-lg-7" data-l></div><div class="col-lg-5" data-h></div></div>';
+    V.kpis($('[data-k]', d), [{ titulo: 'Facturado', valor: money(t.facturado), icono: 'bi-receipt' }, { titulo: 'Cobrado', valor: money(t.cobrado + t.ingresos), icono: 'bi-cash-coin', tono: 'ok' },
+      { titulo: 'Por cobrar', valor: money(t.por_cobrar), icono: 'bi-hourglass-split', tono: t.por_cobrar ? 'aviso' : 'ok' }, { titulo: t.vencido ? 'Vencido' : 'Gastado con él', valor: money(t.vencido || t.gastos + t.por_pagar), icono: t.vencido ? 'bi-exclamation-triangle' : 'bi-arrow-up-circle', tono: t.vencido ? 'mal' : undefined }]);
+    const fila = (x) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span><i class="bi bi-receipt me-1"></i>${esc(x.number || '#' + x.id)} ${x.kind === 'recibida' ? '(recibida)' : ''} ${chip(x.status === 'pagada' ? 'ok' : 'soon', x.status === 'pagada' ? 'Pagada' : 'Pendiente')}${x.due_date ? `<span class="text-body-secondary"> · vence ${day(x.due_date)}</span>` : ''}</span><b>${money(x.total)}</b></div>`;
+    $('[data-l]', d).innerHTML = V.tarjeta('Cuentas y facturas', f.facturas.length ? f.facturas.map(fila).join('') : '<p class="small text-body-secondary mb-0">Solo hay movimientos sueltos con este nombre.</p>');
+    $('[data-h]', d).innerHTML = V.tarjeta('Historia', '<div data-in></div>', { sub: 'Lo último primero' });
+    V.linea_de_tiempo($('[data-in]', d), f.eventos.map((e) => ({ ...e, fecha: day(e.fecha) })), { fmt: money });
   }
 
   function movimientos(el) {
@@ -237,6 +285,15 @@ DW.ready.then((me) => {
         { label: 'Gasto', cls: 'text-end', html: (c) => money(c.expense) }, { label: 'Presupuesto', cls: 'text-end', html: (c) => money(c.budget) },
         { label: 'Uso', html: (c) => `<div style="min-width:120px">${C.meter(c.expense, c.budget)}</div>` }], s.cost_centers) : '<p class="small text-body-secondary mb-0">Sin movimientos ni presupuestos este mes.</p>';
       C.rank($('[data-cat]', el), s.expense_by_category, money);
+      kit.then(() => {
+        const V = window.DwViz; if (!V) return;
+        if (s.cash_flow.some((r) => r.income || r.expense)) {
+          const fl = $('[data-flow]', el);
+          V.linea(fl, { etiquetas: s.cash_flow.map((r) => monthName(r.month) + (r.projected ? '*' : '')), series: [{ nombre: 'Ingresos', datos: s.cash_flow.map((r) => r.income), color: '#34D399' }, { nombre: 'Gastos', datos: s.cash_flow.map((r) => r.expense), color: '#FB7185' }], fmt: money });
+          fl.insertAdjacentHTML('beforeend', '<p class="small text-body-secondary mb-0 mt-2">* mes proyectado con recurrentes y facturas por vencer</p>');
+        }
+        if (s.expense_by_category.length) V.dona($('[data-cat]', el), s.expense_by_category.map((x) => ({ nombre: x.k || 'Sin categoría', valor: x.n })), { fmt: money, centro: 'Gastos' });
+      });
       $('[data-ar]', el).innerHTML = aging(s.receivable, 'por cobrar');
       $('[data-ap]', el).innerHTML = aging(s.payable, 'por pagar');
       C.rank($('[data-rec]', el), Object.entries(s.recurring_monthly).map(([k, n]) => ({ k: REC_CAT[k] || k, n })), money);

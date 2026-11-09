@@ -1,5 +1,8 @@
 # WhatsApp — cambios
 
+## 3.14.0 — Tablero de Mensajes
+- Nueva vista «Tablero» (la primera): mensajes recibidos y enviados de 14 días, tiempo típico de respuesta, canales, horas de mayor escritura, % de chats que llegan a ser contacto y los chats que esperan a una persona (`GET /api/whatsapp/tablero`).
+
 ## 3.13.0 — Una bandeja de correo por cada cuenta de Google
 - Al abrir Mensajes se crea sola la bandeja de correo de cada cuenta de Google conectada con Gmail que aún no la tenga (hola@, ventas@…). Cada dirección tiene su bandeja: de ahí salen sus correos y ahí llegan las respuestas.
 - Los correos con adjuntos se pueden mandar desde `/api/whatsapp/correo/enviar` (`adjuntos`).

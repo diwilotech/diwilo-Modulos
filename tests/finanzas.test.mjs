@@ -181,6 +181,11 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('Finanzas: la IA guarda un informe', !(await T('finanzas_guardar_informe', { contenido: 'Mes estable' })).isError && (await A.app(`${F}/reports`)).data.rows?.length === 1);
   check('Finanzas: B no ve los informes de A', (await B.app(`${F}/reports`)).data.rows?.length === 0);
 
+  await A.app(`${F}/movements`, { method: 'POST', body: { kind: 'ingreso', date: hoy, amount: 120000, counterparty: 'Cliente Ficha SAS', category: 'ventas' } });
+  const tr = (await A.app(`${F}/terceros`)).data, fi = await A.app(`${F}/terceros/ficha?nombre=${encodeURIComponent('cliente ficha sas')}`);
+  check('Finanzas: clientes y proveedores agrupa por nombre y abre su ficha', tr.rows.some((x) => x.nombre === 'Cliente Ficha SAS' && x.cliente && x.ingresos === 120000) && fi.status === 200 && fi.data.totales.ingresos === 120000 && fi.data.eventos.length >= 1);
+  check('Finanzas: B no ve terceros de A ni su ficha', !(await B.app(`${F}/terceros`)).data.rows.some((x) => x.nombre === 'Cliente Ficha SAS') && (await B.app(`${F}/terceros/ficha?nombre=Cliente%20Ficha%20SAS`)).status === 404);
+
   // Suscripción vencida = solo lectura
   await diwilo('PATCH', `/businesses/${A.id}`, { paid_until: '2020-01-01' });
   check('Finanzas: vencida no deja registrar (402)', (await A.app(`${F}/movements`, { method: 'POST', body: { kind: 'gasto', date: hoy, amount: 1 } })).status === 402);

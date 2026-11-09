@@ -416,6 +416,8 @@ export default async function ({ check, diwilo, newBusiness, newMember, APP }) {
   check('Mensajes: el Inicio muestra el indicador y avisa de los chats en rojo', tb.status === 200 && tb.data.widgets.some((w) => w.modulo === 'whatsapp') && tb.data.alertas.some((a) => /Mensajes/.test(a.texto)), JSON.stringify([tb.data.widgets?.map((w) => w.modulo), tb.data.alertas]));
 
   /* ---------- permisos y módulo inactivo ---------- */
+  const tbm = (await A.app(`${X}/tablero`)).data;
+  check('Mensajes: el tablero trae 14 días, canales y tiempos', tbm.dias?.length === 14 && Array.isArray(tbm.por_canal) && tbm.horas?.length === 24 && Array.isArray(tbm.sin_atender) && typeof tbm.recibidos_14d === 'number');
   const staff = await newMember(A.id, 'staff');
   check('Mensajes: el personal no crea bandejas ni activa agentes (403)', (await staff.app(`${X}/bandejas`, { method: 'POST', body: { nombre: 'x' } })).status === 403 && (await staff.app(`${X}/agentes/${g1.data.id}`, { method: 'PATCH', body: { activo: true } })).status === 403);
   check('Mensajes: el personal no ve el token de verificación ni borra chats', (await staff.app(`${X}/bandejas`)).data.rows?.[0]?.verify_token == null && (await staff.app(`${X}/chats/${chA.id}`, { method: 'DELETE' })).status === 403);

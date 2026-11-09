@@ -77,6 +77,38 @@ export async function bandejasDeGoogle(c) {
   }
   return creadas;
 }
+// Tablero de Mensajes: volumen de 14 días, quién escribe más, tiempo en responder, chats sin atender y cuántos llegaron a ser contacto
+export async function tableroMensajes(c) {
+  const org = c.businessId, DIA = 864e5, ahora = now(), desde = ahora - 14 * DIA, desde30 = ahora - 30 * DIA;
+  const col = (t) => new Date(t - 5 * 3600e3).toISOString().slice(0, 10);   // día en Colombia (UTC-5)
+  const [msgs, bandejas, pendientes, conv] = await Promise.all([
+    all(c.env, 'SELECT bandeja_id, contacto, ts, rol FROM wa_mensajes WHERE business_id = ? AND ts >= ? ORDER BY bandeja_id, contacto, ts LIMIT 20000', org, desde30),
+    all(c.env, 'SELECT id, nombre, canal FROM wa_bandejas WHERE business_id = ?', org),
+    all(c.env, "SELECT id, nombre, contacto, ultimo_texto, ultimo_ts, bandeja_id FROM wa_conversaciones WHERE business_id = ? AND ultimo_rol = 'user' AND ia_activa = 0 ORDER BY ultimo_ts LIMIT 8", org),
+    one(c.env, 'SELECT COUNT(*) total, SUM(CASE WHEN contact_id IS NOT NULL THEN 1 ELSE 0 END) con_contacto FROM wa_conversaciones WHERE business_id = ? AND created_at >= ?', org, desde30),
+  ]);
+  const dias = [];
+  for (let i = 13; i >= 0; i--) dias.push(col(ahora - i * DIA));
+  const rec = Object.fromEntries(dias.map((d) => [d, 0])), env = { ...rec }, canal = {}, canalDe = Object.fromEntries(bandejas.map((b) => [b.id, b]));
+  const esperas = [], horas = Array(24).fill(0);
+  let prev = null;
+  for (const m of msgs) {
+    const d = col(m.ts), mio = m.rol !== 'user';
+    if (m.ts >= desde) { if (mio) { if (d in env) env[d]++; } else if (d in rec) rec[d]++; }
+    if (!mio) { const b = canalDe[m.bandeja_id]; const k = b?.canal || 'whatsapp'; canal[k] = (canal[k] || 0) + 1; horas[new Date(m.ts - 5 * 3600e3).getUTCHours()]++; }
+    const clave = `${m.bandeja_id}:${m.contacto}`;
+    if (!mio) { if (!prev || prev.clave !== clave || prev.respondido) prev = { clave, ts: m.ts, respondido: false }; }
+    else if (prev && prev.clave === clave && !prev.respondido) { esperas.push(m.ts - prev.ts); prev.respondido = true; }
+  }
+  esperas.sort((a, b) => a - b);
+  const mediana = esperas.length ? esperas[Math.floor(esperas.length / 2)] : null;
+  const total = (o) => Object.values(o).reduce((t, v) => t + v, 0);
+  return { dias: dias.map((d) => ({ dia: d, recibidos: rec[d], enviados: env[d] })), por_canal: Object.entries(canal).map(([canal, n]) => ({ canal, n })).sort((a, b) => b.n - a.n),
+    horas, respuesta_mediana_min: mediana == null ? null : Math.round(mediana / 60000), respuestas_medidas: esperas.length,
+    recibidos_14d: total(rec), enviados_14d: total(env), chats_nuevos_30d: conv?.total || 0, con_contacto_30d: conv?.con_contacto || 0,
+    sin_atender: pendientes.map((p) => ({ id: p.id, nombre: p.nombre || p.contacto, texto: (p.ultimo_texto || '').slice(0, 90), espera_min: Math.round((ahora - p.ultimo_ts) / 60000) })) };
+}
+
 export const ENTITIES = {
   bandejas: {
     async beforeList(c) { await bandejasDeGoogle(c).catch(() => []); },
@@ -250,6 +282,7 @@ export function routes(r) {
   });
 
   // Widget de Inicio: chats sin leer, chats en rojo (necesitan a una persona) y sin responder
+  r.get(`${B}/tablero`, `tenant:${MOD}`, async (c) => json(await tableroMensajes(c)));
   r.get(`${B}/resumen`, `tenant:${MOD}`, async (c) => {
     const f = await one(c.env, "SELECT COALESCE(SUM(CASE WHEN no_leidos > 0 THEN 1 ELSE 0 END), 0) sin_leer, COALESCE(SUM(CASE WHEN atencion IS NOT NULL THEN 1 ELSE 0 END), 0) rojos, COALESCE(SUM(CASE WHEN ultimo_rol = 'user' AND ultimo_ts > ? THEN 1 ELSE 0 END), 0) sin_responder FROM wa_conversaciones WHERE business_id = ? AND admin = 0", Date.now() - 86400000, c.businessId);
     const detalle = [f.rojos ? `${f.rojos} necesita${f.rojos === 1 ? '' : 'n'} a una persona` : '', f.sin_responder ? `${f.sin_responder} sin responder hoy` : ''].filter(Boolean).join(' · ') || 'Todo al día';

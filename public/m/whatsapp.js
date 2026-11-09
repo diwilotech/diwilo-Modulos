@@ -7,9 +7,9 @@ DW.ready.then((me) => {
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
-  const VIEWS = [['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['archivos', 'Archivos'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
-  let view = (location.hash || '#chats').slice(1), timers = [], abrirId = null;
-  if (!VIEWS.some(([k]) => k === view)) view = 'chats';
+  const VIEWS = [['tablero', 'Tablero'], ['chats', 'Chats'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['archivos', 'Archivos'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
+  let view = (location.hash || '#tablero').slice(1), timers = [], abrirId = null;
+  if (!VIEWS.some(([k]) => k === view)) view = 'tablero';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
   const cab = (t) => `<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${t}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>`;
   const campo = (n, l, v = '', extra = '') => `<label class="small text-body-secondary d-grid gap-1">${l}<input class="form-control" name="${n}" value="${esc(v)}" ${extra}></label>`;
@@ -59,7 +59,7 @@ DW.ready.then((me) => {
     el.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
     el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; nav(); render(); };
   }
-  function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, archivos: archivosView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
+  function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ tablero: tableroView, chats: chatsView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, archivos: archivosView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
   const cada = (ms, f) => timers.push(setInterval(() => { if (!document.hidden) f(); }, ms));
 
   /* ---------- archivos ---------- */
@@ -94,6 +94,34 @@ DW.ready.then((me) => {
   }
 
   /* ---------- chats ---------- */
+  // Tablero: cuánto se escribe, quién responde y en cuánto tiempo, y qué chat espera a una persona
+  async function tableroView(el) {
+    await new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); });
+    const V = window.DwViz; if (!V) return;
+    const num = (v) => Number(v || 0).toLocaleString('es-CO');
+    V.esqueleto(el, 3);
+    let t; try { t = await api('/api/whatsapp/tablero'); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    if (!t.recibidos_14d && !t.enviados_14d && !t.chats_nuevos_30d) { V.vacio(el, { icono: 'bi-chat-dots', titulo: 'Aún no hay conversaciones', texto: 'Conecta una bandeja (WhatsApp, Instagram, Messenger o correo) y aquí verás el volumen, los tiempos de respuesta y los chats pendientes.', accion: { texto: 'Ir a Bandejas', hacer: () => { view = 'bandejas'; location.hash = 'bandejas'; render(); } } }); return; }
+    const dia = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace('.', '');
+    const resp = t.respuesta_mediana_min, fmtMin = (m) => (m == null ? 'Sin datos' : m < 1 ? '< 1 min' : m < 60 ? `${m} min` : m < 1440 ? `${(m / 60).toFixed(1)} h` : `${Math.round(m / 1440)} d`);
+    const conv = t.chats_nuevos_30d ? Math.round((t.con_contacto_30d / t.chats_nuevos_30d) * 100) : null;
+    el.innerHTML = `${t.sin_atender.length ? `<div class="alert alert-warning d-flex gap-2 align-items-center py-2"><i class="bi bi-person-raised-hand"></i><span>${t.sin_atender.length} ${t.sin_atender.length === 1 ? 'chat espera' : 'chats esperan'} a una persona: respóndelos primero.</span></div>` : ''}
+      <div data-k></div><div class="dv-g"><div data-a></div><div data-b></div></div><div class="dv-g"><div data-c></div><div data-d></div></div>`;
+    V.kpis($('[data-k]', el), [
+      { titulo: 'Mensajes recibidos (14 días)', valor: num(t.recibidos_14d), icono: 'bi-inbox', serie: t.dias.map((x) => x.recibidos) },
+      { titulo: 'Respuestas enviadas', valor: num(t.enviados_14d), icono: 'bi-send', serie: t.dias.map((x) => x.enviados) },
+      { titulo: 'Tiempo típico de respuesta', valor: fmtMin(resp), icono: 'bi-stopwatch', tono: resp == null ? undefined : resp <= 15 ? 'ok' : resp <= 120 ? 'aviso' : 'mal', detalle: t.respuestas_medidas ? `${t.respuestas_medidas} respuestas medidas (30 días)` : 'Aún sin respuestas' },
+      { titulo: 'Chats que llegaron a contacto', valor: conv == null ? '—' : `${conv}%`, icono: 'bi-person-check', detalle: `${t.con_contacto_30d} de ${t.chats_nuevos_30d} chats nuevos (30 días)` }]);
+    const box = (id, titulo, sub) => { $(`[data-${id}]`, el).innerHTML = V.tarjeta(titulo, '<div data-in></div>', { sub }); return $('[data-in]', $(`[data-${id}]`, el)); };
+    V.barras(box('a', 'Mensajes por día', 'Recibidos y enviados'), { etiquetas: t.dias.map((x) => dia(x.dia)), series: [{ nombre: 'Recibidos', datos: t.dias.map((x) => x.recibidos) }, { nombre: 'Enviados', datos: t.dias.map((x) => x.enviados), color: '#34D399' }], fmt: num });
+    V.dona(box('b', 'Por dónde te escriben', 'Últimos 30 días'), t.por_canal.map((x) => ({ nombre: (CAN_[x.canal] || {}).n || x.canal, valor: x.n, color: (CAN_[x.canal] || {}).c })), { fmt: num, centro: 'Mensajes' });
+    V.barras(box('c', 'A qué hora escriben', 'Mensajes recibidos por hora del día'), { etiquetas: t.horas.map((_, h) => `${h}h`), series: [{ nombre: 'Mensajes', datos: t.horas }], fmt: num });
+    const w = box('d', 'Esperan respuesta', 'Chats donde el cliente escribió último y la IA está apagada');
+    if (!t.sin_atender.length) V.vacio(w, { icono: 'bi-emoji-smile', titulo: 'Todo atendido', texto: 'No hay chats esperando a una persona.' });
+    else { w.innerHTML = t.sin_atender.map((x) => `<button type="button" class="btn w-100 text-start d-flex gap-2 py-2 border-bottom rounded-0" data-chat="${x.id}"><i class="bi bi-chat-left-text"></i><span class="flex-grow-1 text-truncate"><b>${esc(x.nombre)}</b><span class="d-block small text-body-secondary text-truncate">${esc(x.texto)}</span></span><span class="small text-danger text-nowrap">${fmtMin(x.espera_min)}</span></button>`).join('');
+      w.addEventListener('click', (e) => { const b = e.target.closest('[data-chat]'); if (b) { abrirId = +b.dataset.chat; view = 'chats'; location.hash = 'chats'; render(); } }); }
+  }
+
   async function chatsView(el) {
     el.innerHTML = `<div class="wa-box"><aside class="wa-list"><div class="wa-search d-flex gap-2"><input class="form-control form-control-sm" data-q placeholder="Buscar chats…" aria-label="Buscar chats">${RO ? '' : '<button class="btn btn-sm btn-primary text-nowrap" data-nuevo title="Escribir a un contacto: WhatsApp o correo"><i class="bi bi-plus-lg"></i> Nuevo</button>'}</div><div class="wa-fil" data-fil></div><div class="wa-items" data-items></div></aside><section class="wa-chat" data-chat></section></div>`;
     const box = $('.wa-box', el), cont = $('[data-chat]', el), lista = $('[data-items]', el);

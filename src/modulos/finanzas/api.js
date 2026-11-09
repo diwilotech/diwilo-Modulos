@@ -184,6 +184,39 @@ ENTITIES.recurring.refs = { ...CC, account_id: 'fin_accounts' };
 ENTITIES.budgets.refs = CC;
 
 /* ---------------- resumen ---------------- */
+// Clientes y proveedores: cada tercero con lo facturado, cobrado/pagado, saldo y vencido (de cuentas de cobro, facturas y movimientos)
+export async function terceros(c) {
+  const org = c.businessId, hoy = today();
+  const [inv, mov] = await Promise.all([
+    all(c.env, "SELECT counterparty n, kind, COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(paid),0) paid, COALESCE(SUM(CASE WHEN status='pendiente' THEN total-paid ELSE 0 END),0) saldo, COALESCE(SUM(CASE WHEN status='pendiente' AND due_date IS NOT NULL AND due_date < ? THEN total-paid ELSE 0 END),0) vencido, MAX(issue_date) ultimo FROM fin_invoices WHERE business_id = ? AND status <> 'anulada' AND counterparty <> '' GROUP BY counterparty, kind", hoy, org),
+    all(c.env, "SELECT counterparty n, kind, COUNT(*) c, COALESCE(SUM(amount),0) total, MAX(date) ultimo FROM fin_movements WHERE business_id = ? AND counterparty IS NOT NULL AND counterparty <> '' GROUP BY counterparty, kind", org),
+  ]);
+  const mapa = new Map(), get = (n) => { const k = n.trim().toLowerCase(); if (!mapa.has(k)) mapa.set(k, { nombre: n.trim(), cliente: false, proveedor: false, facturado: 0, cobrado: 0, por_cobrar: 0, vencido: 0, facturas_recibidas: 0, por_pagar: 0, ingresos: 0, gastos: 0, documentos: 0, ultimo: '' }); return mapa.get(k); };
+  for (const r of inv) { const t = get(r.n); t.documentos += r.c; if (r.ultimo > t.ultimo) t.ultimo = r.ultimo;
+    if (r.kind === 'emitida') { t.cliente = true; t.facturado += r.total; t.cobrado += r.paid; t.por_cobrar += r.saldo; t.vencido += r.vencido; } else { t.proveedor = true; t.facturas_recibidas += r.total; t.por_pagar += r.saldo; } }
+  for (const r of mov) { const t = get(r.n); if (r.ultimo > t.ultimo) t.ultimo = r.ultimo; if (r.kind === 'ingreso') { t.cliente = true; t.ingresos += r.total; } else { t.proveedor = true; t.gastos += r.total; } }
+  return { rows: [...mapa.values()].map((t) => ({ ...t, tipo: t.cliente && t.proveedor ? 'ambos' : t.cliente ? 'cliente' : 'proveedor' })).sort((a, b) => (b.vencido - a.vencido) || ((b.facturado + b.gastos + b.ingresos) - (a.facturado + a.gastos + a.ingresos))) };
+}
+export async function fichaTercero(c, nombre) {
+  const org = c.businessId, hoy = today(), n = String(nombre || '').trim();
+  if (!n) throw new HttpError(400, 'Falta el nombre');
+  const [facturas, movs] = await Promise.all([
+    all(c.env, "SELECT id, kind, number, issue_date, due_date, total, paid, status, created_at FROM fin_invoices WHERE business_id = ? AND lower(counterparty) = lower(?) AND status <> 'anulada' ORDER BY id DESC LIMIT 60", org, n),
+    all(c.env, 'SELECT id, kind, date, amount, category, description, created_at FROM fin_movements WHERE business_id = ? AND lower(counterparty) = lower(?) ORDER BY date DESC, id DESC LIMIT 60', org, n),
+  ]);
+  if (!facturas.length && !movs.length) throw new HttpError(404, 'No encontrado');
+  const suma = (a, f) => a.reduce((t, x) => t + (f(x) || 0), 0);
+  const emit = facturas.filter((f) => f.kind === 'emitida'), rec = facturas.filter((f) => f.kind === 'recibida');
+  const eventos = [
+    ...facturas.map((f) => ({ fecha: f.issue_date, titulo: `${f.kind === 'emitida' ? 'Cuenta de cobro' : 'Factura recibida'} ${f.number || '#' + f.id}`, detalle: f.status === 'pagada' ? 'Pagada' : f.due_date && f.due_date < hoy ? `Vencida el ${f.due_date}` : `Vence ${f.due_date || 'sin fecha'}`, valor: f.total, icono: 'bi-receipt', tono: f.status === 'pagada' ? 'ok' : f.due_date && f.due_date < hoy ? 'mal' : 'aviso' })),
+    ...movs.map((m) => ({ fecha: m.date, titulo: `${m.kind === 'ingreso' ? 'Ingreso' : 'Gasto'}${m.category ? ` · ${m.category}` : ''}`, detalle: m.description || '', valor: m.amount, icono: m.kind === 'ingreso' ? 'bi-arrow-down-circle' : 'bi-arrow-up-circle', tono: m.kind === 'ingreso' ? 'ok' : undefined })),
+  ].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).slice(0, 40);
+  return { nombre: n, facturas, movimientos: movs, eventos,
+    totales: { facturado: suma(emit, (f) => f.total), cobrado: suma(emit, (f) => f.paid), por_cobrar: suma(emit.filter((f) => f.status === 'pendiente'), (f) => f.total - f.paid), vencido: suma(emit.filter((f) => f.status === 'pendiente' && f.due_date && f.due_date < hoy), (f) => f.total - f.paid),
+      por_pagar: suma(rec.filter((f) => f.status === 'pendiente'), (f) => f.total - f.paid), ingresos: suma(movs.filter((m) => m.kind === 'ingreso'), (m) => m.amount), gastos: suma(movs.filter((m) => m.kind === 'gasto'), (m) => m.amount) },
+  };
+}
+
 export async function financeSummary(c, monthParam) {
   const biz = c.businessId, env = c.env;
   const month = MONTH.test(monthParam || '') ? monthParam : today().slice(0, 7);
@@ -495,6 +528,8 @@ export function routes(r) {
   const api = crud(r, { base: B, modulo: MOD, entities: ENTITIES });
   r.get(`${B}/reports/datos`, `tenant:${MOD}`, async (c) => json(await reportData(c, c.url.searchParams.get('month'))));
 
+  r.get(`${B}/terceros`, `tenant:${MOD}`, async (c) => json(await terceros(c)));
+  r.get(`${B}/terceros/ficha`, `tenant:${MOD}`, async (c) => json(await fichaTercero(c, c.url.searchParams.get('nombre'))));
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => json(await financeSummary(c, c.url.searchParams.get('month'))));
   r.get(`${B}/resumen`, `tenant:${MOD}`, async (c) => {
     const s = await financeSummary(c);
