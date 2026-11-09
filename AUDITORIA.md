@@ -34,7 +34,20 @@ Las apps usan los módulos centrales de arriba (ya al estándar) y además tiene
 
 Segunda tanda (hecha): **Residentes** → Portería en tablero (solicitudes por estado, arrastrar cambia el estado) y gráficas de Mascotas (especie y vacunación); **Academia** → ficha del estudiante con KPIs e historia en línea de tiempo y «Cursos con más gente» en el tablero.
 Tercera tanda (hecha, oleada 5): **Academia** → pestaña «Embudo» de Matrículas (activas · terminadas · retiradas, filtro por curso, arrastrar cambia el estado) y vista «Cupos» en Cursos (campo `cupo`, migración 0023, ocupación por curso, llenos y por llenar); **Web Admin** → Blog con tablero (lo más leído, publicadas por mes, categorías), embudo de entradas (arrastrar publica o vuelve a borrador, `PATCH /admin/api/blog/:id`) y CSV; **Mensajes** → Embudo de chats y exportar a CSV.
-Pendiente en las apps: Residentes (reescribir páginas con componentes comunes, Equipo con módulos por persona) y migrar Citas, Nutrición y Pedidos.
+Cuarta tanda (oleada 6, 2026-11-08): **Residentes** → Equipo con módulos por persona (`PATCH /api/admin/team/:id`, catálogo asignable, prueba incluida) y Cartera con `dwviz`; la rama `migracion-comun` ya estaba fusionada y publicada.
+Pendiente en Residentes: reescribir el interior de unidades/conjuntos/mascotas con los componentes comunes (hoy se ven bien con el tema por CSS) y el portal de propietarios, que usa su propio `app.js`.
+
+### Apps fuera de la arquitectura común: profundidad dentro de su panel actual (oleada 6)
+Se les aplicó el estándar SIN migrarlas (la migración cambia URLs, sesiones y portales públicos y exige revisión visual). Cada una lleva su copia de `dwviz.js`.
+
+| App | Se sumó |
+|---|---|
+| Citas | Flujo con ranking de especialistas, días de la semana, mejores clientes y **embudo de citas** (arrastrar a «Completada»); CSV de citas y clientes |
+| Nutrición | **Tablero** (consultas y pacientes nuevos por mes, asistencia, pacientes que llevan 60+ días sin volver, quiénes más han avanzado), **embudo de citas** (`POST /appointments/:id/status`) y CSV de pacientes, consultas y citas |
+| Pedidos | Lo que más se vende, horas pico, stock bajo, sin rotación en 30 días y CSV de ventas, inventario y por cobrar |
+
+**Migración a la arquitectura común (pendiente, un proyecto por app).** Nutrición es la más cercana: comparte linaje con Residentes (usuarios globales + `memberships`, `tenantDb`, `authenticate`), así que el delta es mecánico (`modulos.app.json`, `modules.js`, `central.js`, `me.js`, `platform-modules.js`, `mcp.js`, `ia/*`, migración de `business_modules`/`audit_log`/`mcp_tokens`, shell con `panel.html` y páginas en `/staff/*`). El obstáculo es de URLs: hoy `/<slug>` es la tarjeta pública y el panel vive en `/<slug>/admin`, y el portal del paciente en `/<slug>/p/`; el shell común espera el panel en `/<slug>`. Citas tiene usuarios por negocio (no globales) y sesiones propias: migrar implica pasar `users` a global con `memberships`. Pedidos guarda su estado como JSON clave/valor (`estado`) con un dashboard propio: migrar implica modelar tablas reales antes de poder usar los módulos centrales.
+**HCosto e Inventario** siguen siendo prototipos de un solo HTML; se construyen como apps nuevas con la skill `diwilo-nueva-app` (la skill pide ficha y plan antes de escribir código).
 ### Otras apps (no están en la arquitectura común)
 - **Citas, Nutrición, Pedidos**: apps funcionales con su propio panel (`/admin`, HTML sueltos), conectadas a Diwilo por RPC pero sin el shell común, sin `/staff/<módulo>.html`, sin módulos centrales (Finanzas, Marketing, Mensajes…) y sin Inicio por módulos. Migrarlas es un proyecto por app (mover sus pantallas al shell, activar módulos centrales, decidir qué hacer con lo que ya duplican: p. ej. inventario y clientes de Pedidos, pacientes y agenda de Nutrición). Después se les aplica el estándar de profundidad.
 - **HCosto (Brújula) e Inventario**: prototipos de un solo HTML sin backend; se construyen como apps nuevas con la skill `diwilo-nueva-app`.
