@@ -9,9 +9,9 @@ DW.ready.then((me) => {
   const PROY = { propuesta: ['soon', 'Propuesta'], activo: ['ok', 'Activo'], terminado: ['free', 'Terminado'], cancelado: ['bad', 'Cancelado'] };
   const COT = { borrador: ['free', 'Borrador'], enviada: ['soon', 'Enviada'], aprobada: ['ok', 'Aprobada'], rechazada: ['bad', 'Rechazada'] };
   const COB = { pendiente: ['soon', 'Sin pagar'], vencida: ['bad', 'Vencida'], pagada: ['ok', 'Pagada'], anulada: ['free', 'Anulada'] };
-  const VIEWS = [['proyectos', 'Proyectos'], ['cotizaciones', 'Cotizaciones'], ['cobros', 'Cuentas de cobro']];
-  let view = (location.hash || '#proyectos').slice(1);
-  if (!VIEWS.some(([k]) => k === view)) view = 'proyectos';
+  const VIEWS = [['tablero', 'Tablero'], ['embudo', 'Embudo'], ['proyectos', 'Proyectos'], ['cotizaciones', 'Cotizaciones'], ['cobros', 'Cuentas de cobro']];
+  let view = (location.hash || '#tablero').slice(1);
+  if (!VIEWS.some(([k]) => k === view)) view = 'tablero';
   const pdf = (url) => window.open(url, '_blank', 'noopener');
   const root = $('[data-view]');
 
@@ -377,14 +377,56 @@ DW.ready.then((me) => {
     t.load();
   }
 
+  // Tablero: qué decidir hoy, con la tendencia de 6 meses y los clientes que más pesan
+  async function tablero(el) {
+    const V = window.DwViz; if (!V) { el.innerHTML = '<p class="text-body-secondary">Cargando…</p>'; return; }
+    V.esqueleto(el, 3);
+    let t; try { t = await api(`${B}/tablero`); } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const k = t.kpis, mes = (m) => new Date(`${m}-15T12:00:00Z`).toLocaleDateString('es-CO', { month: 'short', timeZone: 'UTC' }).replace('.', '');
+    if (!t.estados.some((e) => e.cantidad)) { V.vacio(el, { icono: 'bi-kanban', titulo: 'Tu tablero aparece con la primera cotización', texto: 'Crea una empresa, hazle una cotización y aquí verás lo cotizado, aprobado y cobrado mes a mes.', accion: RO ? null : { texto: 'Nueva empresa', hacer: () => { location.hash = 'proyectos'; view = 'proyectos'; render(); } } }); return; }
+    el.innerHTML = `${t.sugerencia ? `<div class="alert alert-info d-flex gap-2 align-items-center py-2"><i class="bi bi-stars"></i><span>${esc(t.sugerencia)}</span></div>` : ''}
+      <div data-k></div><div class="dv-g"><div data-a></div><div data-b></div></div><div class="dv-g"><div data-c></div><div data-d></div></div>`;
+    V.kpis($('[data-k]', el), [
+      { titulo: 'En juego (enviadas)', valor: money(k.en_juego), detalle: `${k.enviadas} esperando respuesta`, icono: 'bi-send', delta: V.variacion(k.cotizado_mes, k.cotizado_mes_anterior), serie: t.meses.map((m) => m.cotizado) },
+      { titulo: 'Aprobado', valor: money(k.aprobado), detalle: `${k.aprobadas} cotizaciones${k.tasa_aprobacion != null ? ` · ${k.tasa_aprobacion}% de éxito` : ''}`, icono: 'bi-patch-check', tono: 'ok' },
+      { titulo: 'Por cobrar', valor: money(k.por_cobrar), detalle: `${k.cuentas_abiertas} cuentas abiertas`, icono: 'bi-receipt', delta: V.variacion(k.cobrado_mes, k.cobrado_mes_anterior), serie: t.meses.map((m) => m.cobrado) },
+      { titulo: 'Vencido', valor: money(k.vencido), detalle: k.vencido ? 'Cóbralo primero' : 'Todo al día', icono: 'bi-exclamation-triangle', tono: k.vencido ? 'mal' : 'ok' }]);
+    const caja = (id, titulo, sub, cuerpo) => { $(`[data-${id}]`, el).innerHTML = V.tarjeta(titulo, `<div data-in></div>`, { sub }); return $('[data-in]', $(`[data-${id}]`, el)); };
+    V.barras(caja('a', 'Cotizado vs cobrado', 'Últimos 6 meses', ''), { etiquetas: t.meses.map((m) => mes(m.mes)), series: [{ nombre: 'Cotizado', datos: t.meses.map((m) => m.cotizado) }, { nombre: 'Cobrado', datos: t.meses.map((m) => m.cobrado), color: '#34D399' }], fmt: money });
+    V.dona(caja('b', 'Cotizaciones por estado', 'Valor de cada etapa', ''), t.estados.filter((e) => e.total).map((e) => ({ nombre: COT[e.estado][1], valor: e.total, color: { borrador: '#94a3b8', enviada: '#FBBF24', aprobada: '#34D399', rechazada: '#FB7185' }[e.estado] })), { fmt: money, centro: 'Cotizado' });
+    V.ranking(caja('c', 'Clientes que más pesan', 'Cotizaciones aprobadas', ''), t.top_clientes.map((x) => ({ nombre: x.nombre, valor: x.total, detalle: `${x.n} aprobada${x.n === 1 ? '' : 's'}` })), { fmt: money });
+    const v = caja('d', 'Cuentas vencidas', 'Para cobrar hoy', '');
+    if (!t.vencidas.length) V.vacio(v, { icono: 'bi-emoji-smile', titulo: 'Nada vencido', texto: 'Todas tus cuentas de cobro están al día.' });
+    else v.innerHTML = t.vencidas.map((x) => `<div class="d-flex align-items-center gap-2 py-2 border-bottom small"><i class="bi bi-receipt text-danger"></i><div class="flex-grow-1"><b>${esc(x.number || '#' + x.id)}</b> · ${esc(x.counterparty || '')}<div class="text-body-secondary">venció ${day(x.due_date)}</div></div><b>${money(x.saldo)}</b>${RO ? '' : `<button class="btn btn-sm btn-outline-secondary" data-env="${x.id}"><i class="bi bi-send"></i></button>`}</div>`).join('');
+    v.addEventListener('click', (e) => { const b = e.target.closest('[data-env]'); if (b) enviar('cuenta', +b.dataset.env, () => tablero(el)); });
+  }
+
+  // Embudo: las cotizaciones por etapa; arrastrar una tarjeta cambia su estado
+  async function embudo(el) {
+    const V = window.DwViz; if (!V) return;
+    V.esqueleto(el, 2);
+    let rows; try { rows = (await api(`${B}/quotes?limit=500`)).rows; } catch (x) { el.innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    if (!rows.length) { V.vacio(el, { icono: 'bi-funnel', titulo: 'Aún no hay cotizaciones', texto: 'Crea una desde la ficha de una empresa y verás cómo avanza por etapas.' }); return; }
+    const COL = [['borrador', '#94a3b8'], ['enviada', '#FBBF24'], ['aprobada', '#34D399'], ['rechazada', '#FB7185']];
+    const pinta = () => V.kanban(el, { fmt: money, columnas: COL.map(([id, color]) => ({ id, color, titulo: COT[id][1], items: rows.filter((x) => x.status === id).map((x) => ({ id: x.id, titulo: `${x.number} · ${x.counterparty || ''}`, detalle: `${x.title || 'Sin título'} · ${day(x.issue_date)}`, valor: x.total })) })),
+      abrir: (id) => { const q = rows.find((x) => x.id === +id); if (q) pdf(`${B}/quotes/${q.id}/pdf`); },
+      mover: RO ? undefined : async (id, de, a) => {
+        const q = rows.find((x) => x.id === +id); if (!q) return;
+        try { await api(`${B}/quotes/${id}`, { method: 'PATCH', body: { status: a } }); q.status = a; toast(`${q.number} pasó a ${COT[a][1].toLowerCase()}`); } catch (x) { toast(x.message, false); }
+        pinta();
+      } });
+    pinta();
+  }
+
   function render() {
     root.innerHTML = '';
-    ({ proyectos, cotizaciones, cobros })[view](root);
+    ({ tablero, embudo, proyectos, cotizaciones, cobros })[view](root);
   }
   const seg = $('[data-seg]');
   seg.className = 'dw-segb'; seg.hidden = false;
   if (!document.getElementById('dw-segb-css')) document.head.insertAdjacentHTML('beforeend', '<style id="dw-segb-css">.dw-segb{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px;padding:0;list-style:none}.dw-segb .btn{flex:none;white-space:nowrap}</style>');
   seg.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
   seg.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; $$('.btn', seg).forEach((x) => x.classList.toggle('active', x === b)); render(); };
-  cabecera().then(render);
+  const kit = new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); });
+  Promise.all([cabecera(), kit]).then(render);
 });

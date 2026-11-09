@@ -1,5 +1,9 @@
 # Marketing — cambios
 
+## 1.9.0 — Ficha 360 del contacto
+- Botón «Ficha» en Clientes y leads: oportunidades, cotizaciones y cuentas de cobro (Proyectos/Finanzas), tareas, chats de Mensajes y la historia en línea de tiempo, con totales en juego/cotizado/cobrado/por cobrar.
+- Ruta `GET /api/marketing/contacts/:id/ficha`.
+
 ## 1.8.0
 - Los contactos guardan el **nombre de la empresa** (como la llamas) y su **razón social** con S.A.S. o el tipo que sea, más el NIT. Proyectos usa la razón social en cotizaciones y cuentas de cobro.
 

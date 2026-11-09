@@ -71,6 +71,10 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
 
   // Aislamiento
   check('Marketing: B no ve los informes de A', (await B.app(`${M}/reports`)).data.rows?.length === 0);
+  await A.app(`${M}/deals`, { method: 'POST', body: { title: 'Pedido Laura', contact_id: ct.data.id, value: 500000, stage: 'propuesta' } });
+  const fc = await A.app(`${M}/contacts/${ct.data.id}/ficha`);
+  check('Marketing: la ficha 360 junta oportunidades, totales e historia', fc.status === 200 && fc.data.oportunidades.length >= 1 && fc.data.totales.en_juego === 500000 && fc.data.eventos.length >= 2 && !!fc.data.eventos[0].fecha);
+  check('Marketing: B no ve la ficha de un contacto de A', (await B.app(`${M}/contacts/${ct.data.id}/ficha`)).status === 404);
   check('Marketing: B no ve los contactos de A', (await B.app(`${M}/contacts`)).data.rows?.length === 0);
   check('Marketing: B no edita un contacto de A', (await B.app(`${M}/contacts/${ct.data.id}`, { method: 'PATCH', body: { name: 'x' } })).status === 404);
   check('Marketing: B no ve los links de una campaña de A', (await B.app(`${M}/campaigns/${k.data.id}/links`)).status === 404);

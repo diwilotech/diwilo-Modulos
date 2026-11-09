@@ -72,6 +72,9 @@ export default async function ({ check, newBusiness }) {
   check('Proyectos: otro negocio no ve mis documentos', (await B.app(`${P}/documentos`)).data.rows.length === 0 && (await B.app(`${P}/documentos/rut`)).status === 404);
   check('Proyectos: quitar el RUT', (await A.app(`${P}/documentos/rut`, { method: 'DELETE' })).status === 200 && (await A.app(`${P}/documentos`)).data.rows.length === 0);
 
+  const tb = (await A.app(`${P}/tablero`)).data, tbB = (await B.app(`${P}/tablero`)).data;
+  check('Proyectos: el tablero resume lo cotizado, cobrado y por cobrar', tb.meses.length === 6 && tb.estados.length === 4 && tb.kpis.por_cobrar >= 0 && tb.estados.reduce((n, e) => n + e.cantidad, 0) > 0 && tbB.estados.every((e) => e.cantidad === 0) && tbB.kpis.por_cobrar === 0);
+
   // Aislamiento entre negocios
   check('Proyectos: otro negocio no ve ni toca nada', (await B.app(`${P}/quotes`)).data.rows.length === 0 && (await B.app(`${P}/quotes/${q2.data.id}/pdf`)).status === 404 && (await B.app(`${P}/quotes/${q2.data.id}/cobrar`, { method: 'POST', body: {} })).status === 404);
 }

@@ -207,6 +207,34 @@ export async function checkList(c, listId) {
 }
 
 /* ---------------- entidades ---------------- */
+// Ficha 360 de un contacto: todo lo que hay con esa persona o empresa (oportunidades, tareas, chats, cotizaciones y cobros) y su historia en orden
+const org0 = (c) => c.businessId;
+export async function fichaContacto(c, id) {
+  const org = c.businessId, ct = await one(c.env, 'SELECT * FROM mk_contacts WHERE id = ? AND business_id = ?', id, org0(c));
+  if (!ct) throw new HttpError(404, 'No encontrado');
+  const seguro = (q, ...a) => all(c.env, q, ...a).catch(() => []);
+  const [deals, tasks, chats, quotes, cuentas] = await Promise.all([
+    seguro('SELECT id, title, value, stage, expected_close, created_at, updated_at FROM mk_deals WHERE business_id = ? AND contact_id = ? ORDER BY id DESC', org, id),
+    seguro('SELECT id, title, due_date, done, done_at, created_at FROM mk_tasks WHERE business_id = ? AND contact_id = ? ORDER BY done, due_date LIMIT 50', org, id),
+    seguro('SELECT id, nombre, ultimo_texto, ultimo_ts, created_at FROM wa_conversaciones WHERE business_id = ? AND contact_id = ? ORDER BY ultimo_ts DESC LIMIT 10', org, id),
+    seguro('SELECT q.id, q.number, q.title, q.total, q.status, q.issue_date, q.created_at FROM pr_quotes q JOIN pr_projects p ON p.id = q.project_id WHERE q.business_id = ? AND p.contact_id = ? ORDER BY q.id DESC', org, id),
+    seguro("SELECT i.id, i.number, i.total, i.paid, i.status, i.issue_date, i.due_date, i.created_at FROM fin_invoices i JOIN pr_projects p ON p.id = i.project_id WHERE i.business_id = ? AND p.contact_id = ? AND i.kind = 'emitida' AND i.status <> 'anulada' ORDER BY i.id DESC", org, id),
+  ]);
+  const ms = (v) => (v > 1e12 ? v : v * 1000), dia = (t) => new Date(ms(t)).toISOString().slice(0, 10);
+  const eventos = [
+    { t: ct.created_at, titulo: 'Entró como ' + (ct.stage === 'cliente' ? 'cliente' : 'contacto'), detalle: ct.source ? `Origen: ${ct.source}` : '', icono: 'bi-person-plus' },
+    ...deals.map((d) => ({ t: d.created_at, titulo: `Oportunidad «${d.title}»`, detalle: `Etapa: ${d.stage}`, valor: d.value, icono: 'bi-funnel' })),
+    ...tasks.map((x) => ({ t: x.done ? x.done_at || x.created_at : x.created_at, titulo: `${x.done ? 'Tarea hecha' : 'Tarea'}: ${x.title}`, detalle: x.due_date && !x.done ? `Para el ${x.due_date}` : '', icono: x.done ? 'bi-check2-circle' : 'bi-list-check', tono: x.done ? 'ok' : undefined })),
+    ...chats.map((h) => ({ t: h.ultimo_ts || h.created_at, titulo: 'Conversación en Mensajes', detalle: (h.ultimo_texto || '').slice(0, 90), icono: 'bi-chat-dots' })),
+    ...quotes.map((q) => ({ t: q.created_at, titulo: `Cotización ${q.number}`, detalle: `${q.title || ''} · ${q.status}`, valor: q.total, icono: 'bi-file-earmark-text', tono: q.status === 'aprobada' ? 'ok' : q.status === 'rechazada' ? 'mal' : undefined })),
+    ...cuentas.map((i) => ({ t: i.created_at, titulo: `Cuenta de cobro ${i.number || '#' + i.id}`, detalle: i.status === 'pagada' ? 'Pagada' : `Falta ${Math.max(0, i.total - i.paid)}`, valor: i.total, icono: 'bi-receipt', tono: i.status === 'pagada' ? 'ok' : (i.due_date && i.due_date < today() ? 'mal' : 'aviso') })),
+  ].filter((e) => e.t).sort((a, b) => ms(b.t) - ms(a.t)).slice(0, 40).map((e) => ({ ...e, fecha: dia(e.t), t: undefined }));
+  const suma = (arr, f) => arr.reduce((t, x) => t + (f(x) || 0), 0);
+  return { contacto: ct, oportunidades: deals, tareas: tasks, chats, cotizaciones: quotes, cuentas, eventos,
+    totales: { en_juego: suma(deals.filter((d) => !['ganado', 'perdido'].includes(d.stage)), (d) => d.value), ganado: suma(deals.filter((d) => d.stage === 'ganado'), (d) => d.value),
+      cotizado: suma(quotes.filter((q) => q.status !== 'rechazada'), (q) => q.total), cobrado: suma(cuentas, (i) => i.paid), por_cobrar: suma(cuentas.filter((i) => i.status === 'pendiente'), (i) => i.total - i.paid), tareas_abiertas: tasks.filter((x) => !x.done).length } };
+}
+
 export const ENTITIES = {
   contacts: { table: 'mk_contacts', label: 'el contacto', title: 'name', search: ['name', 'email', 'company', 'legal_name', 'tax_id', 'phone'], order: 'updated_at DESC',
     fields: { name: 'text!', email: 'email', phone: 'text', company: 'text', legal_name: 'text', tax_id: 'text', stage: STAGES_CONTACT, source: 'text', campaign_id: 'int', owner: 'text', tags: 'text', notes: 'long', last_contact_at: 'date' },
@@ -330,6 +358,7 @@ export function routes(r) {
   const api = crud(r, { base: B, modulo: MOD, entities: { ...ENTITIES, cards: CARD_ENTITY } });
 
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => json(await marketingSummary(c, c.url.searchParams.get('from'), c.url.searchParams.get('to'))));
+  r.get(`${B}/contacts/:id/ficha`, `tenant:${MOD}`, async (c) => json(await fichaContacto(c, Number(c.params.id))));
   r.get(`${B}/resumen`, `tenant:${MOD}`, async (c) => {
     const s = await marketingSummary(c);
     return json({ titulo: 'Leads nuevos (30 días)', valor: s.contacts.new, detalle: `${s.contacts.by_stage.lead || 0} abiertos · ${s.tasks.open} tareas${s.tasks.overdue ? ` (${s.tasks.overdue} vencidas)` : ''}`, icono: 'bi-megaphone', ruta: '/staff/marketing.html' });

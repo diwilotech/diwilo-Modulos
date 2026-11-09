@@ -143,6 +143,37 @@ export async function resumen(c) {
     por_aprobar: { cantidad: por('enviada').n + por('borrador').n, total: por('enviada').total + por('borrador').total }, cuentas_de_cobro_pendientes: { cantidad: cobro?.n || 0, saldo: cobro?.saldo || 0 } };
 }
 
+// Tablero: lo que hay que decidir hoy (cotizado, aprobado, cobrado, por cobrar, vencido), 6 meses de tendencia y los clientes que más pesan
+export async function tablero(c) {
+  const hoy = today(), org = c.businessId, mes = hoy.slice(0, 7), d = new Date(`${hoy}T12:00:00Z`);
+  const mesAnt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const desde = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 5, 1)).toISOString().slice(0, 10);
+  const [qs, ms, cobs, vencidas, top, abiertas] = await Promise.all([
+    all(c.env, 'SELECT status, COUNT(*) n, COALESCE(SUM(total),0) total FROM pr_quotes WHERE business_id = ? GROUP BY status', org),
+    all(c.env, "SELECT substr(issue_date,1,7) m, status, COALESCE(SUM(total),0) total FROM pr_quotes WHERE business_id = ? AND issue_date >= ? AND status <> 'rechazada' GROUP BY m, status", org, desde),
+    all(c.env, "SELECT substr(issue_date,1,7) m, COALESCE(SUM(total),0) emitido, COALESCE(SUM(paid),0) cobrado FROM fin_invoices WHERE business_id = ? AND kind = 'emitida' AND project_id IS NOT NULL AND status <> 'anulada' AND issue_date >= ? GROUP BY m", org, desde),
+    all(c.env, "SELECT i.id, i.number, i.counterparty, i.due_date, i.total - i.paid saldo FROM fin_invoices i WHERE i.business_id = ? AND i.kind = 'emitida' AND i.project_id IS NOT NULL AND i.status = 'pendiente' AND i.due_date IS NOT NULL AND i.due_date < ? ORDER BY i.due_date LIMIT 8", org, hoy),
+    all(c.env, "SELECT COALESCE(p.name, q.counterparty) nombre, COUNT(*) n, SUM(q.total) total FROM pr_quotes q LEFT JOIN pr_projects p ON p.id = q.project_id WHERE q.business_id = ? AND q.status = 'aprobada' GROUP BY COALESCE(p.name, q.counterparty) ORDER BY total DESC LIMIT 6", org),
+    one(c.env, "SELECT COALESCE(SUM(total - paid),0) saldo, COUNT(*) n FROM fin_invoices WHERE business_id = ? AND kind = 'emitida' AND project_id IS NOT NULL AND status = 'pendiente'", org),
+  ]);
+  const por = (st) => qs.find((x) => x.status === st) || { n: 0, total: 0 };
+  const meses = [];
+  for (let i = 5; i >= 0; i--) meses.push(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
+  const cot = (m) => ms.filter((x) => x.m === m).reduce((t, x) => t + x.total, 0), cob = (m) => cobs.find((x) => x.m === m)?.cobrado || 0;
+  const cerradas = por('aprobada').n + por('rechazada').n;
+  return {
+    kpis: { en_juego: por('enviada').total, enviadas: por('enviada').n, aprobado: por('aprobada').total, aprobadas: por('aprobada').n, por_cobrar: abiertas?.saldo || 0, cuentas_abiertas: abiertas?.n || 0,
+      vencido: vencidas.reduce((t, v) => t + v.saldo, 0), tasa_aprobacion: cerradas ? Math.round((por('aprobada').n / cerradas) * 100) : null,
+      cotizado_mes: cot(mes), cotizado_mes_anterior: cot(mesAnt), cobrado_mes: cob(mes), cobrado_mes_anterior: cob(mesAnt) },
+    meses: meses.map((m) => ({ mes: m, cotizado: cot(m), cobrado: cob(m) })),
+    estados: ['borrador', 'enviada', 'aprobada', 'rechazada'].map((st) => ({ estado: st, cantidad: por(st).n, total: por(st).total })),
+    vencidas, top_clientes: top,
+    sugerencia: vencidas.length ? `Tienes ${vencidas.length} ${vencidas.length === 1 ? 'cuenta vencida' : 'cuentas vencidas'}: cóbralas hoy y envía el recordatorio.`
+      : por('enviada').n ? `Hay ${por('enviada').n} ${por('enviada').n === 1 ? 'cotización enviada' : 'cotizaciones enviadas'} esperando respuesta: haz seguimiento.`
+      : por('borrador').n ? `Tienes ${por('borrador').n} ${por('borrador').n === 1 ? 'borrador' : 'borradores'} sin enviar.` : null,
+  };
+}
+
 // RUT y certificación bancaria del negocio: se suben una vez (R2) y viajan con el enlace público de cada cotización o cuenta de cobro
 export const DOCS = { rut: 'RUT', banco: 'Certificación bancaria' };
 const MIMES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'], MAX_DOC = 4 * 1024 * 1024;
@@ -288,6 +319,7 @@ export function routes(r) {
       cotizaciones: await all(c.env, 'SELECT id, number, title, issue_date, valid_until, total, status, invoice_id FROM pr_quotes WHERE business_id = ? AND project_id = ? ORDER BY id DESC', c.businessId, id),
       cuentas_de_cobro: await all(c.env, "SELECT id, number, issue_date, due_date, total, paid, status, quote_id FROM fin_invoices WHERE business_id = ? AND project_id = ? AND kind = 'emitida' ORDER BY id DESC", c.businessId, id) });
   });
+  r.get(`${B}/tablero`, `tenant:${MOD}`, async (c) => json(await tablero(c)));
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => {
     const s = await resumen(c), n = s.por_aprobar.cantidad;
     return json({ ...s, titulo: 'Proyectos', icono: 'bi-kanban', valor: `${s.proyectos_abiertos} ${s.proyectos_abiertos === 1 ? 'proyecto' : 'proyectos'}`, detalle: n ? `${n} ${n === 1 ? 'cotización' : 'cotizaciones'} por aprobar` : 'Sin cotizaciones pendientes' });

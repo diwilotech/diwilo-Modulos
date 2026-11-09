@@ -134,10 +134,11 @@ DW.ready.then((me) => {
         { label: 'Etapa', html: (r) => chip(r.stage === 'cliente' ? 'ok' : r.stage === 'perdido' ? 'free' : 'soon', STAGE_C[r.stage] || r.stage) },
         { label: 'Origen', html: (r, R) => `${esc(r.source || '—')}${r.campaign_id ? sub(R.campaigns?.find((x) => x.id === r.campaign_id)?.name) : ''}` },
         { label: 'Último contacto', html: (r) => (r.last_contact_at ? day(r.last_contact_at) : '—') }],
-      rowActions: () => (RO ? '' : '<button class="btn btn-sm btn-outline-secondary" data-act="contacted" title="Marcar contacto de hoy" aria-label="Marcar contacto de hoy"><i class="bi bi-telephone"></i></button> <button class="btn btn-sm btn-outline-secondary" data-act="plan" title="Crear sus tareas con una plantilla" aria-label="Plantilla de tareas"><i class="bi bi-list-check"></i></button> <button class="btn btn-sm btn-outline-secondary" data-act="deal" title="Crear oportunidad" aria-label="Crear oportunidad"><i class="bi bi-funnel"></i></button>'),
+      rowActions: () => (RO ? '' : '<button class="btn btn-sm btn-outline-secondary" data-act="contacted" title="Marcar contacto de hoy" aria-label="Marcar contacto de hoy"><i class="bi bi-telephone"></i></button> <button class="btn btn-sm btn-outline-primary" data-act="ficha" title="Ver todo de este contacto" aria-label="Ficha del contacto"><i class="bi bi-person-vcard"></i></button> <button class="btn btn-sm btn-outline-secondary" data-act="plan" title="Crear sus tareas con una plantilla" aria-label="Plantilla de tareas"><i class="bi bi-list-check"></i></button> <button class="btn btn-sm btn-outline-secondary" data-act="deal" title="Crear oportunidad" aria-label="Crear oportunidad"><i class="bi bi-funnel"></i></button>'),
       onAction: async (a, r) => {
         try {
           if (a === 'contacted') { await api(`${B}/contacts/${r.id}`, { method: 'PATCH', body: { last_contact_at: C.todayCo() } }); toast('Contacto registrado'); t.load(); }
+          if (a === 'ficha') return ficha(r.id, () => t.load());
           if (a === 'plan') usePlaybook({ contact: r });
           if (a === 'deal') {
             const out = await C.form({ title: 'Nueva oportunidad', fields: F.deals, base: B, values: { title: `Oportunidad: ${r.name}`, contact_id: r.id, campaign_id: r.campaign_id, stage: 'nuevo' } });
@@ -153,6 +154,31 @@ DW.ready.then((me) => {
       const csv = [cols.map((x) => x[0]).join(';'), ...t.rows().map((r) => cols.map(([, k]) => q(r[k])).join(';'))].join('\r\n');
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = 'clientes-y-leads.csv'; a.click();
     });
+  }
+
+  // Ficha 360: todo lo que hay con este contacto en un solo lugar (Marketing, Mensajes, Proyectos y Finanzas) y su historia
+  async function ficha(id, despues) {
+    await (window.DwViz ? Promise.resolve() : new Promise((ok) => { const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); }));
+    const V = window.DwViz;
+    const { el: d } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5" data-t>Ficha</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body"><div data-c><div class="dv-sk"></div><div class="dv-sk"></div></div></div>`, { size: 'modal-xl' });
+    let f; try { f = await api(`${B}/contacts/${id}/ficha`); } catch (x) { $('[data-c]', d).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+    const ct = f.contacto, t = f.totales, tel = (ct.phone || '').replace(/\D/g, '').replace(/^3/, '573');
+    $('[data-t]', d).textContent = ct.company || ct.name;
+    $('[data-c]', d).innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-3">${chip(ct.stage === 'cliente' ? 'ok' : ct.stage === 'perdido' ? 'free' : 'soon', STAGE_C[ct.stage] || ct.stage)}
+        <span class="small text-body-secondary">${[ct.legal_name, ct.tax_id && `NIT ${ct.tax_id}`, ct.name !== ct.company && ct.name, ct.email, ct.phone].filter(Boolean).map(esc).join(' · ')}</span>
+        <span class="ms-auto d-flex gap-2">${ct.email ? `<a class="btn btn-sm btn-outline-secondary" href="mailto:${esc(ct.email)}"><i class="bi bi-envelope me-1"></i>Correo</a>` : ''}${tel ? `<a class="btn btn-sm btn-outline-success" target="_blank" rel="noopener" href="https://wa.me/${esc(tel)}"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>` : ''}</span></div>
+      <div data-k></div>
+      <div class="row g-3"><div class="col-lg-7">
+        ${V.tarjeta('Oportunidades', f.oportunidades.length ? f.oportunidades.map((o) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span>${esc(o.title)} ${chip(o.stage === 'ganado' ? 'ok' : o.stage === 'perdido' ? 'free' : 'soon', STAGE_D[o.stage] || o.stage)}</span><b>${money(o.value)}</b></div>`).join('') : '<p class="small text-body-secondary mb-0">Sin oportunidades. Crea una desde la lista (ícono de embudo).</p>')}
+        <div class="mt-3">${V.tarjeta('Cotizaciones y cuentas de cobro', f.cotizaciones.length || f.cuentas.length ? [...f.cotizaciones.map((q) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span><i class="bi bi-file-earmark-text me-1"></i>${esc(q.number)} · ${esc(q.title || '')} ${chip(q.status === 'aprobada' ? 'ok' : q.status === 'rechazada' ? 'bad' : 'soon', q.status)}</span><b>${money(q.total)}</b></div>`), ...f.cuentas.map((i) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span><i class="bi bi-receipt me-1"></i>${esc(i.number || '#' + i.id)} ${chip(i.status === 'pagada' ? 'ok' : 'soon', i.status === 'pagada' ? 'Pagada' : 'Por cobrar')}</span><b>${money(i.total)}</b></div>`)].join('') : '<p class="small text-body-secondary mb-0">Aún no tiene cotizaciones. Se crean en Proyectos.</p>', { sub: 'Vienen de Proyectos y Finanzas' })}</div>
+        <div class="mt-3">${V.tarjeta('Tareas', f.tareas.length ? f.tareas.map((x) => `<div class="small py-1 border-bottom ${x.done ? 'text-body-secondary text-decoration-line-through' : ''}"><i class="bi ${x.done ? 'bi-check2-square' : 'bi-square'} me-1"></i>${esc(x.title)}${x.due_date && !x.done ? ` <span class="text-body-secondary">· ${day(x.due_date)}</span>` : ''}</div>`).join('') : '<p class="small text-body-secondary mb-0">Sin tareas.</p>')}</div>
+      </div><div class="col-lg-5"><div data-tl></div></div></div>`;
+    V.kpis($('[data-k]', d), [
+      { titulo: 'En juego', valor: money(t.en_juego), icono: 'bi-funnel' }, { titulo: 'Cotizado', valor: money(t.cotizado), icono: 'bi-file-earmark-text' },
+      { titulo: 'Cobrado', valor: money(t.cobrado), icono: 'bi-cash-coin', tono: 'ok' }, { titulo: 'Por cobrar', valor: money(t.por_cobrar), icono: 'bi-receipt', tono: t.por_cobrar ? 'aviso' : 'ok' }]);
+    const tl = $('[data-tl]', d); tl.innerHTML = V.tarjeta('Historia', '<div data-in></div>', { sub: 'Lo último primero' });
+    V.linea_de_tiempo($('[data-in]', tl), f.eventos.map((e) => ({ ...e, fecha: day(e.fecha) })), { fmt: money });
   }
 
   async function usePlaybook({ contact, onDone } = {}) {

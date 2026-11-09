@@ -1,5 +1,10 @@
 # Proyectos — cambios
 
+## 1.6.0 — Tablero y embudo
+- Nueva vista «Tablero»: en juego, aprobado, por cobrar y vencido, cotizado vs cobrado de 6 meses, cotizaciones por estado, clientes que más pesan y cuentas vencidas con envío directo.
+- Nueva vista «Embudo»: cotizaciones por etapa; arrastrar una tarjeta cambia su estado.
+- Ruta `GET /api/proyectos/tablero`.
+
 ## 1.5.1 — Envío desde la dirección del negocio
 - El correo sale por defecto desde la bandeja cuya dirección coincide con la de tus datos de cobro (p. ej. hola@), y el modal muestra la dirección de cada bandeja y recuerda la última que usaste.
 

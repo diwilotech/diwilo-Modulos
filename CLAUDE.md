@@ -25,6 +25,9 @@ Worker central `diwilo-modulos` con los módulos horizontales (Finanzas, Marketi
 - **Inicio no busca, recibe**: cada módulo EMPUJA su estado (`dashboard_estado`: widgets + alertas) con `empujarTablero(env, businessId, modulo, {widgets, alertas})` (`src/lib/tablero.js`). Los centrales lo recalculan solos tras cada escritura (`refrescarTablero`, enganchado en `Modulos.call` y `ejecutarHerramienta`) y en el cron diario; módulo central nuevo = su cálculo de alertas en `ALERTAS` de `tablero.js` y sus `widgets` en el manifiesto. Los módulos PROPIOS de una app llaman al RPC `MODULOS.empujarTablero(ctx, modulo, estado)` cuando cambia algo (y en su cron diario).
 - **Un agente por módulo**: `asegurarAgentesDeModulo` (en `ai/agentes.js`) crea y refresca el agente `auto = 1` de cada módulo con herramientas; lo único editable es su Estrategia (`instrucciones`). `estrategiasDe` las entrega a IA Diwilo, que además las gestiona con `ai.gestionar_agente_modulo`. Un módulo nuevo solo necesita sus herramientas de IA (bloque `mcp`): el agente aparece solo.
 
+## Profundidad y lo visual
+- Todo módulo cumple `~/.claude/skills/diwilo-nueva-app/profundidad.md` (7 niveles: tablero, ficha 360, kanban, acciones entre módulos, salida PDF/CSV, IA que actúa, estados vacíos/celular). Kit común `public/m/dwviz.js` (`DwViz.kpis/linea/barras/ranking/dona/embudo/avance/kanban/linea_de_tiempo/vacio/esqueleto`): cárgalo con `<script src="/m/dwviz.js">` y úsalo en vez de gráficas propias. Estado de cada módulo y oleadas en `AUDITORIA.md`.
+
 ## Comandos
 - `npm test` → debe decir "Todo bien" (usa `../Control de Academia` como app base).
 - Publicar: `CI=1 npx wrangler d1 migrations apply diwilo-modulos-db --remote < /dev/null && npx wrangler deploy`.
