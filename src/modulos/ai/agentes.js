@@ -129,7 +129,7 @@ export async function correrAgente(env, { org, agente, disparador = 'manual', ct
     const disp = herramientasDe(ctx), elegidas = parseList(agente.herramientas);
     const herr = disp.filter((t) => elegidas.includes(t.name));
     const guias = guiasDe(ctx).filter((g) => herr.some((t) => t.modulo === g.modulo));
-    const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones || (agente.auto ? 'Revisa cómo va este módulo con las herramientas de consulta y propón lo más útil que se pueda mejorar o atender hoy.' : ''), negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias, extra: TRABAJO_COMPLETO });
+    const system = sistemaDeHerramientas({ maxPasos: MAX_PASOS_AGENTE, flujos: flujosEntre(herr), rol: `Eres «${agente.nombre}», un agente de IA que trabaja solo para el negocio.`, instrucciones: agente.instrucciones || (agente.auto ? 'Revisa cómo va este módulo con las herramientas de consulta. Busca lo vencido, lo pendiente, lo que lleva días sin moverse y las oportunidades (lo que más vende, lo que está por llenarse o agotarse). Entrega máximo 5 hallazgos ordenados por impacto, cada uno con su cifra real y la acción que propones; si la acción se puede hacer con una herramienta de escritura y tienes los datos, propónla.' : ''), negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: agente.autonomia, guias, extra: TRABAJO_COMPLETO });
     const r = await bucle(env, { org, ctx, system, historial: [{ role: 'user', content: pedido ? `Empieza tu trabajo. Pedido puntual para esta vez: ${String(pedido).slice(0, 500)}` : 'Empieza tu trabajo de hoy.' }], herramientas: herr, autonomia: agente.autonomia, fuente: 'agente', guias, maxPasos: MAX_PASOS_AGENTE, topeTokens: aj.tope_ejecucion, maxTokens: 3000,
       progreso: escribir ? (info) => escribir('trabajando', info) : null });
     resumen = r.respuesta; pasos = r.pasos;
@@ -224,15 +224,23 @@ const ESTILO = `ESTILO DE RESPUESTA
 - No repitas la pregunta ni te disculpes de más. No inventes: si no lo consultaste, no lo afirmes.
 - Al final, ofrece 2 o 3 "siguientes" (preguntas de menos de 40 caracteres) que la persona probablemente quiera hacer después.`;
 
+// Proactiva, no solo ejecutiva: además de contestar, avisa lo que vio y propone el siguiente paso.
+const PROACTIVA = `PROACTIVIDAD
+- No te limites a contestar. Si al consultar ves algo que necesita atención (algo vencido, pendiente, sin responder, parado hace días, por agotarse o peor que el periodo anterior), dilo en UNA línea que empiece por "Ojo:" y di qué harías.
+- Si lo puedes resolver con una herramienta de escritura y ya tienes los datos, propón la acción de una vez (queda esperando la confirmación) en lugar de solo describirla.
+- Tras hacer o proponer algo, sugiere el paso que sigue naturalmente (cobrar después de facturar, recordar después de agendar, hacer seguimiento después de un contacto nuevo).
+- Los "siguientes" deben ser acciones concretas y cortas ("Cobrarle a Laura", "Enviar recordatorios"), no solo preguntas.
+- Solo avisos reales: nunca inventes una alerta ni una cifra para parecer útil. Un solo "Ojo:" por respuesta, el más importante.`;
+
 /* ---------- asistente interactivo del negocio ---------- */
 // Con `agente`: conversa como EL agente de un módulo (solo sus herramientas, su Estrategia y lo que ha hecho); sin él, es IA Diwilo (todos los módulos).
-export async function asistente(env, { org, ctx, mensajes, progresoId = null, agente = null }) {
+export async function asistente(env, { org, ctx, mensajes, progresoId = null, agente = null, avisos = '' }) {
   const hist = (Array.isArray(mensajes) ? mensajes : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
   if (!hist.length || hist[hist.length - 1].role !== 'user') return { status: 400, error: 'Escribe tu pregunta' };
   await asegurarAgentesDeModulo(env, ctx, org).catch((e) => console.error('agentes de módulo', e.message));
   let herr = herramientasDe(ctx).filter((t) => t.modulo !== 'ai' || t.tipo === 'lectura' || t.name === 'ai.gestionar_agente_modulo');   // IA Diwilo SÍ puede gestionar los agentes de módulo (siempre como propuesta)
   let guias = guiasDe(ctx).filter((g) => g.modulo !== 'ai'), estrategias = await estrategiasDe(env, org).catch(() => []);
-  let rol = 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones = `Responde en español. Para preguntas sobre el negocio consulta con herramientas antes de contestar.\n\n${ESTILO}`;
+  let rol = 'Eres el asistente de IA del negocio: ayudas al equipo a consultar sus datos y a hacer cosas con las herramientas de sus módulos.', instrucciones = `Responde en español. Para preguntas sobre el negocio consulta con herramientas antes de contestar.\n\n${ESTILO}\n\n${PROACTIVA}`;
   if (agente) {
     const mias = new Set(parseList(agente.herramientas));
     herr = herr.filter((t) => mias.has(t.name) && t.modulo !== 'ai');
@@ -240,9 +248,9 @@ export async function asistente(env, { org, ctx, mensajes, progresoId = null, ag
     const ult = await all(env, 'SELECT estado, resumen, created_at FROM ia_ejecuciones WHERE agente_id = ? AND business_id = ? ORDER BY id DESC LIMIT 5', agente.id, org);
     rol = `Eres «${agente.nombre}», el agente de IA del módulo ${nombreDeModulo(agente.modulo || '')} de este negocio. Conversas con el equipo: cuentas qué has hecho, qué hay pendiente y haces o propones lo que te piden, solo con las herramientas de tu módulo.`;
     instrucciones = `Responde en español.${agente.instrucciones ? `\n\nTU ESTRATEGIA (lo que la persona dejó dicho para ti; respétala):\n${agente.instrucciones}` : ''}
-\nLO ÚLTIMO QUE HICISTE (tus ejecuciones, de la más reciente a la más antigua; si te preguntan qué has hecho, respóndelo con esto y con herramientas de lectura):\n${ult.length ? ult.map((u) => `- ${new Date(u.created_at - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' ')} · ${u.estado}: ${String(u.resumen || '').replace(/\s+/g, ' ').slice(0, 300)}`).join('\n') : '(aún no has trabajado)'}\n\n${ESTILO}`;
+\nLO ÚLTIMO QUE HICISTE (tus ejecuciones, de la más reciente a la más antigua; si te preguntan qué has hecho, respóndelo con esto y con herramientas de lectura):\n${ult.length ? ult.map((u) => `- ${new Date(u.created_at - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' ')} · ${u.estado}: ${String(u.resumen || '').replace(/\s+/g, ' ').slice(0, 300)}`).join('\n') : '(aún no has trabajado)'}\n\n${ESTILO}\n\n${PROACTIVA}`;
   }
-  const system = sistemaDeHerramientas({ guias, estrategias, flujos: flujosEntre(herr), rol, instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer' });
+  const system = sistemaDeHerramientas({ guias, estrategias, flujos: flujosEntre(herr), rol, instrucciones, negocio: ctx.business.name || 'el negocio', herramientas: herr, autonomia: 'proponer', extra: agente ? '' : avisos });
   const escribir = escritor(env, org, progresoId);
   if (escribir) await env.DB.prepare('DELETE FROM ia_progreso WHERE updated_at < ?').bind(now() - 86400000).run().catch(() => {});
   try {

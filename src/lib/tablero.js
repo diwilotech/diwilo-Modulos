@@ -14,7 +14,7 @@ const SEG = /^[a-z][a-z0-9_]{1,30}$/;
 
 const cortar = (v, n) => (typeof v === 'string' ? v.slice(0, n) : v == null ? null : String(v).slice(0, n));
 export const limpiarWidgets = (a) => (Array.isArray(a) ? a : []).slice(0, 12).map((w) => ({ modulo: cortar(w.modulo, 30), nombre: cortar(w.nombre, 80), titulo: cortar(w.titulo, 80), valor: w.valor == null ? '—' : typeof w.valor === 'number' ? w.valor : cortar(w.valor, 40), detalle: cortar(w.detalle, 160) || '', icono: cortar(w.icono, 40), ruta: cortar(w.ruta, 200) }));
-export const limpiarAlertas = (a) => (Array.isArray(a) ? a : []).slice(0, 12).map((x) => ({ id: cortar(x.id, 40), nivel: ['mala', 'aviso', 'info'].includes(x.nivel) ? x.nivel : 'info', icono: cortar(x.icono, 40), texto: cortar(x.texto, 200), ruta: cortar(x.ruta, 200) })).filter((x) => x.id && x.texto);
+export const limpiarAlertas = (a) => (Array.isArray(a) ? a : []).slice(0, 12).map((x) => ({ id: cortar(x.id, 40), nivel: ['mala', 'aviso', 'info'].includes(x.nivel) ? x.nivel : 'info', icono: cortar(x.icono, 40), texto: cortar(x.texto, 200), ruta: cortar(x.ruta, 200), ...(x.pregunta ? { pregunta: cortar(x.pregunta, 120) } : {}) })).filter((x) => x.id && x.texto);   // `pregunta` (opcional): lo que la persona le pediría a la IA para atender la alerta
 
 export async function empujarTablero(env, businessId, modulo, { widgets = [], alertas = [] } = {}) {
   if (!SEG.test(modulo || '')) return;

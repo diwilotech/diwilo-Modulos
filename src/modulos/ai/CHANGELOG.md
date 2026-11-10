@@ -1,5 +1,12 @@
 # IA (`ai`) — cambios
 
+## 1.12.0 — IA proactiva
+- «Lo de hoy» (`GET /api/ai/proactivo`, `proactivo.js`, sin gastar IA): junta las alertas que cada módulo empujó al Inicio, los pendientes de los módulos propios de la app (`ctx.propias.pendientes()`, opcional) y las propuestas de los agentes que esperan aprobación. Cada aviso lleva la `pregunta` para que la IA lo atienda.
+- Botón «IA Diwilo» (`/m/iafab.js`): contador de lo urgente, un aviso corto una vez al día y, al abrir, la IA empieza por los pendientes: tocar uno le pide que lo atienda (o abre su módulo). `window.DwIA.avisos()` y `.refrescar()`.
+- Asistente y agentes de módulo: además de contestar avisan lo que vieron («Ojo:»), proponen la acción y el paso que sigue; el asistente conoce los avisos del día. Los agentes sin Estrategia buscan lo vencido, lo parado y las oportunidades.
+- `POST /api/ai/asistente` ahora devuelve `siguientes` (el botón ya los esperaba y no llegaban).
+- Las alertas de `empujarTablero` aceptan `pregunta` (opcional).
+
 ## 1.11.0 — Tablero de IA
 - Vista «Tablero»: costo diario y proyección, tokens contra el tope, quién gasta, conversaciones y ejecuciones de 14 días, y cada agente con lo que trabajó esta semana y sus errores (`GET /api/ai/tablero`).
 

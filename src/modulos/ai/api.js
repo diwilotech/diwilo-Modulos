@@ -6,6 +6,7 @@
 //   GET   /api/ai/herramientas                herramientas de IA de los módulos activos del negocio
 //   GET   /api/ai/asistente/conversaciones · POST /asistente/conversaciones/:id/analizar   historial del asistente y su análisis de errores (propietario/admin)
 //   POST  /api/ai/asistente { mensajes, conversacion? }      asistente del negocio (consulta y propone) · POST /asistente/aprobar { herramienta, args }
+//   GET   /api/ai/proactivo                   «lo de hoy»: avisos del negocio con la pregunta para atender cada uno (sin gastar IA; proactivo.js)
 //   GET   /api/ai/uso                         consumo de IA (hoy y últimos 30 días) y tope diario
 //   GET|POST /api/ai/claves · DELETE /:id     claves de la API pública del negocio (/v1/…)
 // Públicos (en el dominio de cada app): /chat/<slug> (chat.js) y /v1/… (publica.js).
@@ -22,6 +23,7 @@ import { AGENTES_CONTENIDO } from './starters.js';
 import { agentesDelDia, correrAgente, resolverPropuesta, asistente, herramientasDe, asegurarAgentesDeModulo } from './agentes.js';
 import { guardarTurno, guardarEvento, listar as listarAsistente, analizar, ID_ASISTENTE } from './historial.js';
 import { webhookValido, dispararWebhook } from './chat.js';
+import { proactivo, avisosEnTexto } from './proactivo.js';
 
 const MOD = 'ai', B = '/api/ai';
 const slugify = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
@@ -197,14 +199,17 @@ export function routes(r) {
   });
   r.post(`${B}/asistente`, `tenant:${MOD}`, async (c) => {
     const b = await readJson(c.req), progresoId = /^[\w-]{8,40}$/.test(b.progreso || '') ? b.progreso : null;
-    const res = await asistente(c.env, { org: c.businessId, ctx: { ...c.ctx, readOnly: c.readOnly }, mensajes: b.mensajes, progresoId });
+    const avisos = avisosEnTexto((await proactivo(c).catch(() => null))?.avisos);   // la IA sabe qué necesita atención hoy
+    const res = await asistente(c.env, { org: c.businessId, ctx: { ...c.ctx, readOnly: c.readOnly }, mensajes: b.mensajes, progresoId, avisos });
     if (res.status !== 200) throw new HttpError(res.status, res.error);
     if (ID_ASISTENTE.test(b.conversacion || '')) {
       const pregunta = [...(Array.isArray(b.mensajes) ? b.mensajes : [])].reverse().find((m) => m?.role === 'user')?.content;
       await guardarTurno(c.env, { org: c.businessId, id: b.conversacion, userId: c.session?.user_id, pregunta: String(pregunta || '').slice(0, 2000), respuesta: res.respuesta, pasos: res.pasos });
     }
-    return json({ respuesta: res.respuesta, pasos: res.pasos });
+    return json({ respuesta: res.respuesta, pasos: res.pasos, siguientes: res.siguientes || [] });
   });
+  // «Lo de hoy»: lo que necesita atención, con la pregunta para que la IA lo atienda. No llama al modelo.
+  r.get(`${B}/proactivo`, `tenant:${MOD}`, async (c) => json(await proactivo(c)));
   // Historial del asistente (solo propietario/administrador): lista, análisis de errores y lo que la persona hizo con cada propuesta
   r.get(`${B}/asistente/conversaciones`, `manager:${MOD}`, async (c) => json({ rows: await listarAsistente(c.env, c.businessId) }));
   r.post(`${B}/asistente/conversaciones/:id/analizar`, `manager:${MOD}`, async (c) => {

@@ -1,6 +1,8 @@
 // IA Diwilo: botón flotante (abajo a la derecha) con el asistente del negocio, igual en todas las apps Diwilo.
 // Cada app lo carga una vez en su panel: <script src="/m/iafab.js"></script> (después de shell.js). Usa el módulo «ai» (POST /api/ai/asistente):
 // consulta con las herramientas de los módulos activos del rol; lo que cambia datos llega como propuesta y solo se ejecuta al tocar «Confirmar».
+// Proactiva: al cargar pide «lo de hoy» (GET /api/ai/proactivo, sin gastar IA). Si hay algo por atender, el botón muestra cuántos, una vez al día
+// asoma un aviso corto, y al abrirlo la IA empieza por esos pendientes: tocar uno le pide a la IA que lo atienda (o abre su módulo).
 (() => {
   if (window.__iaFab || window.top !== window.self || !window.DW?.ready) return;
   window.__iaFab = true;
@@ -39,8 +41,17 @@
 .ia-steps li{display:flex;gap:6px;align-items:baseline}.ia-steps .ok{color:#16a34a}.ia-steps .bad{color:#dc2626}.ia-steps .wait{color:#d97706}.ia-steps .now{color:#6d28d9;font-weight:600}.ia-steps .spin{display:inline-block;animation:iaSpin 1s linear infinite}
 @keyframes iaSpin{to{transform:rotate(360deg)}}
 @keyframes iaDot2{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.ia-n{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:#dc2626;color:#fff;font:600 11px/20px system-ui,sans-serif;text-align:center;box-shadow:0 0 0 2px var(--bs-body-bg,#fff)}.ia-n[hidden]{display:none}
+.ia-tip{position:fixed;right:22px;bottom:72px;z-index:1040;max-width:min(300px,calc(100vw - 32px));display:flex;gap:8px;align-items:flex-start;padding:10px 10px 10px 12px;border-radius:14px 14px 4px 14px;cursor:pointer;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529);border:1px solid rgba(124,58,237,.4);box-shadow:0 12px 30px rgba(0,0,0,.22);font:13px/1.4 system-ui,sans-serif;animation:iaTip .25s ease-out}
+.ia-tip[hidden]{display:none}.ia-tip b{display:block;font-weight:600;color:#6d28d9;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}.ia-tip button{border:0;background:transparent;color:var(--bs-secondary-color,#6c757d);cursor:pointer;font-size:14px;line-height:1;padding:2px 4px}
+@keyframes iaTip{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.ia-hoy{display:flex;flex-direction:column;gap:6px;margin-top:10px}.ia-hoy b{font-weight:600;font-size:11.5px;color:#6d28d9;text-transform:uppercase;letter-spacing:.04em}
+.ia-av{display:flex;gap:8px;align-items:center;width:100%;text-align:left;padding:8px 10px;border-radius:10px;border:1px solid var(--bs-border-color,#dee2e6);background:var(--bs-body-bg,#fff);color:inherit;font:inherit;font-size:13px;cursor:pointer}.ia-av:hover{border-color:#a855f7;background:rgba(124,58,237,.06)}
+.ia-av .d{flex:none;width:8px;height:8px;border-radius:50%;background:#0ea5e9}.ia-av .d.mala{background:#dc2626}.ia-av .d.aviso{background:#d97706}.ia-av .t{flex:1;min-width:0}.ia-av .t small{display:block;color:#6d28d9;font-size:11.5px}.ia-av .go{flex:none;color:var(--bs-secondary-color,#6c757d)}
+@media (prefers-reduced-motion:reduce){.ia-tip{animation:none}}
 @media (max-width:991.98px){
-.ia-fab{right:14px;bottom:calc(var(--dw-bottom-h,64px) + env(safe-area-inset-bottom,0px) + 12px);width:52px;height:52px;padding:0;justify-content:center;gap:0}.ia-fab span{display:none}.ia-fab svg{width:28px;height:28px}
+.ia-fab{right:14px;bottom:calc(var(--dw-bottom-h,64px) + env(safe-area-inset-bottom,0px) + 12px);width:52px;height:52px;padding:0;justify-content:center;gap:0}.ia-fab>span:not(.ia-n){display:none}.ia-fab svg{width:28px;height:28px}
+.ia-tip{right:14px;bottom:calc(var(--dw-bottom-h,64px) + env(safe-area-inset-bottom,0px) + 72px)}
 .ia-back{position:fixed;inset:0;z-index:1044;background:rgba(0,0,0,.45)}.ia-back[hidden]{display:none}
 .ia-panel{left:0;right:0;bottom:0;top:auto;width:auto;height:min(82dvh,calc(100dvh - 56px));max-height:calc(100dvh - 56px);border-radius:18px 18px 0 0;border-bottom:0;padding-bottom:env(safe-area-inset-bottom,0px)}
 .ia-panel header{padding:12px 12px 10px;position:relative}.ia-panel header::before{content:"";position:absolute;top:5px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:4px;background:var(--bs-border-color,#dee2e6)}
@@ -61,7 +72,8 @@
     let SUGG = [];
     document.head.insertAdjacentHTML('beforeend', `<style>${CSS}</style>`);
     document.body.insertAdjacentHTML('beforeend', `
-      <button class="ia-fab" id="iaFab" aria-label="Abrir IA Diwilo" title="IA Diwilo">${MARK}<span>IA Diwilo</span></button>
+      <button class="ia-fab" id="iaFab" aria-label="Abrir IA Diwilo" title="IA Diwilo">${MARK}<span>IA Diwilo</span><span class="ia-n" id="iaN" hidden></span></button>
+      <div class="ia-tip" id="iaTip" role="status" hidden><div><b>IA Diwilo · hoy</b><span id="iaTipT"></span></div><button type="button" id="iaTipX" aria-label="Cerrar aviso">✕</button></div>
       <div class="ia-back" id="iaBack" hidden></div>
       <aside class="ia-panel" id="iaPanel" hidden aria-label="IA Diwilo">
         <header><span class="ia-logo">${MARK}</span><div><b>IA Diwilo</b><small>Consulta y gestiona tu negocio. Las acciones te piden confirmar.</small></div>
@@ -90,6 +102,28 @@
     }).catch(() => {});
     const sugerencias = () => (SUGG.length ? SUGG : ['¿Cómo va mi negocio esta semana?', '¿Qué tengo pendiente hoy?', 'Resumen del mes'].map((x) => ({ t: x, q: x })));
 
+    // Proactiva: «lo de hoy» llega del servidor (alertas de los módulos, pendientes propios de la app y propuestas de los agentes), sin gastar IA
+    let AVISOS = [];
+    const TIP = `dw_ia_tip_${me.business?.id || ''}`;
+    const irA = (ruta) => { const f = document.getElementById('dw-frame'); if (f && /^\/staff\//.test(ruta)) f.src = ruta; else location.href = ruta; };
+    const pintarAvisos = (primera) => {
+      const urg = AVISOS.filter((a) => a.nivel !== 'info'), n = $('#iaN');
+      n.hidden = !urg.length; n.textContent = urg.length > 9 ? '9+' : String(urg.length);
+      $('#iaFab').setAttribute('aria-label', urg.length ? `Abrir IA Diwilo: ${urg.length} por atender` : 'Abrir IA Diwilo');
+      if (!panel.hidden && !hist.length) draw();
+      // Una vez al día asoma lo más importante (solo si hay algo urgente y la persona no tiene el panel abierto)
+      let visto = null; try { visto = localStorage.getItem(TIP); } catch (_) {}
+      if (primera && urg.length && panel.hidden && visto !== HOY) {
+        $('#iaTipT').textContent = `${urg[0].texto}${urg.length > 1 ? ` y ${urg.length - 1} más por atender.` : '.'}`;
+        $('#iaTip').hidden = false;
+        setTimeout(cerrarTip, 15000);
+      }
+    };
+    let HOY = '';
+    const cerrarTip = () => { $('#iaTip').hidden = true; try { localStorage.setItem(TIP, HOY); } catch (_) {} };
+    const cargarAvisos = (primera) => call(`${B}/proactivo`).then((r) => { AVISOS = r.avisos || []; HOY = r.hoy || ''; pintarAvisos(primera); }).catch(() => {});
+    const hoyHtml = () => (AVISOS.length ? `<div class="ia-hoy"><b>Lo de hoy</b>${AVISOS.slice(0, 5).map((a, i) => `<button type="button" class="ia-av" data-av="${i}"><span class="d ${esc(a.nivel)}"></span><span class="t">${esc(a.texto)}${a.pregunta ? `<small>${esc(a.pregunta)}</small>` : ''}</span><span class="go">${a.pregunta ? '➤' : '›'}</span></button>`).join('')}${AVISOS.length > 5 ? `<button type="button" class="ia-av" data-todo><span class="t">Ver los ${AVISOS.length} pendientes</span><span class="go">➤</span></button>` : ''}</div>` : '');
+
     function propuesta(div, p) {
       const card = document.createElement('div'); card.className = 'ia-pending';
       card.innerHTML = `<span><i>⚡</i>${esc(nombre(p.herramienta))}</span><pre>${esc(JSON.stringify(p.args, null, 2))}</pre>
@@ -105,7 +139,9 @@
     }
     function draw() {
       log.innerHTML = '';
-      if (!hist.length) log.innerHTML = `<div class="ia-msg assistant">Hola. Soy la IA de ${esc(me.business?.name || 'tu negocio')}. Puedo consultar tus datos y crear o cambiar cosas con las herramientas de tus módulos; antes de cambiar algo siempre te pido confirmar.</div>`;
+      if (!hist.length) log.innerHTML = AVISOS.length
+        ? `<div class="ia-msg assistant">Hola. Revisé ${esc(me.business?.name || 'tu negocio')} y esto es lo que necesita atención. Toca uno y me encargo; antes de cambiar algo siempre te pido confirmar.${hoyHtml()}</div>`
+        : `<div class="ia-msg assistant">Hola. Soy la IA de ${esc(me.business?.name || 'tu negocio')}. Hoy no veo nada urgente. Puedo consultar tus datos y crear o cambiar cosas con las herramientas de tus módulos; antes de cambiar algo siempre te pido confirmar.</div>`;
       for (const m of hist) {
         const div = document.createElement('div'); div.className = `ia-msg ${m.role}`;
         div.innerHTML = m.role === 'user' ? esc(m.content) : md(m.content) + usados(m.todos || m.pasos);
@@ -131,8 +167,18 @@
       } catch (x) { hist.push({ role: 'assistant', content: `No pude responder: ${x.message}` }); }
       clearInterval(t); form.querySelector('button').disabled = false; save(); draw();
     }
-    const open = (on) => { panel.hidden = !on; $('#iaBack').hidden = !on; $('#iaFab').classList.toggle('on', on); if (on) { draw(); setTimeout(() => ta.focus(), 50); } };
-    window.DwIA = { open: () => open(true), ask: (q) => { open(true); ask(q); } };   // lo usan las secciones de IA (flujos) para abrir el botón y preguntar
+    const open = (on) => { panel.hidden = !on; $('#iaBack').hidden = !on; $('#iaFab').classList.toggle('on', on); if (on) { if (!$('#iaTip').hidden) cerrarTip(); draw(); cargarAvisos(false); setTimeout(() => ta.focus(), 50); } };
+    // Tocar un aviso: la IA lo atiende (su pregunta lleva el aviso como contexto) o, si no hay nada que preguntar, abre el módulo
+    log.addEventListener('click', (e) => {
+      if (e.target.closest('[data-todo]')) return ask('¿Qué tengo pendiente hoy? Ordénalo por importancia y dime por dónde empezar.');
+      const b = e.target.closest('[data-av]'), a = b && AVISOS[Number(b.dataset.av)];
+      if (!a) return;
+      if (a.pregunta) ask(`${a.texto}. ${a.pregunta}`); else if (a.ruta) { open(false); irA(a.ruta); }
+    });
+    $('#iaTip').onclick = (e) => { if (e.target.closest('#iaTipX')) return cerrarTip(); cerrarTip(); open(true); };
+    cargarAvisos(true);
+    setInterval(() => { if (!document.hidden) cargarAvisos(false); }, 10 * 60000);
+    window.DwIA = { open: () => open(true), ask: (q) => { open(true); ask(q); }, avisos: () => AVISOS.slice(), refrescar: () => cargarAvisos(false) };   // lo usan las secciones de IA (flujos) para abrir el botón y preguntar
     $('#iaFab').onclick = () => open(panel.hidden);
     $('#iaClose').onclick = () => open(false);
     $('#iaBack').onclick = () => open(false);

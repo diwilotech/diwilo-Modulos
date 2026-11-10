@@ -156,6 +156,18 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   check('IA: usar el id de otro negocio no escribe en su conversación', (await A.app(`${X}/conversaciones/${cid}`)).data.mensajes?.length === 3 || (await A.app(`${X}/conversaciones/${cid}`)).data.mensajes?.length === 0);
   check('IA: el asistente sin pregunta se rechaza', (await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [] } })).status === 400);
 
+  /* ---------- IA proactiva: «lo de hoy» sin gastar IA ---------- */
+  const agPro = await A.app(`${X}/agentes`, { method: 'POST', body: { nombre: 'Propone', autonomia: 'proponer', herramientas: JSON.stringify(['marketing.crear_contacto']),
+    instrucciones: GUION(['{"accion":"usar","herramienta":"marketing.crear_contacto","args":{"nombre":"Propuesto por el agente"}}', '{"accion":"fin","respuesta":"Propuse un contacto."}']) } });
+  await A.app(`${X}/agentes/${agPro.data.id}/ejecutar`, { method: 'POST' });
+  const pro = await A.app(`${X}/proactivo`);
+  check('IA proactiva: «lo de hoy» responde con avisos ordenados y cuántos urgen', pro.status === 200 && Array.isArray(pro.data.avisos) && typeof pro.data.urgentes === 'number' && /^\d{4}-\d\d-\d\d$/.test(pro.data.hoy || ''), JSON.stringify(pro.data).slice(0, 300));
+  check('IA proactiva: las propuestas pendientes de los agentes salen como aviso con su pregunta', pro.data.avisos?.some((a) => a.id === 'propuestas' && a.pregunta), JSON.stringify(pro.data.avisos).slice(0, 400));
+  check('IA proactiva: cada aviso trae texto y nivel válido, y los urgentes van primero', pro.data.avisos.every((a) => a.texto && ['mala', 'aviso', 'info'].includes(a.nivel)) && pro.data.avisos.every((a, i, l) => !i || !(l[i - 1].nivel === 'info' && a.nivel !== 'info')));
+  check('IA proactiva: otro negocio no ve los avisos ajenos', !((await B.app(`${X}/proactivo`)).data.avisos || []).some((a) => a.id === 'propuestas'));
+  const asg = await A.app(`${X}/asistente`, { method: 'POST', body: { mensajes: [{ role: 'user', content: GUION(['{"accion":"fin","respuesta":"Listo.","siguientes":["Cobrarle a Laura"]}']) }] } });
+  check('IA proactiva: el asistente devuelve los siguientes pasos sugeridos', asg.status === 200 && asg.data.siguientes?.[0] === 'Cobrarle a Laura', JSON.stringify(asg.data).slice(0, 200));
+
   /* ---------- estándar compartido: guías y herramientas propias de la app para el asistente y los agentes ---------- */
   const gs = (await A.app(`${X}/guias`)).data.modulos;
   const entreG = (await A.app(`${X}/guias`)).data.entre;
