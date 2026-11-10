@@ -21,6 +21,7 @@ DW.ready.then((me) => {
   const sub = (t) => (t ? `<div class="small text-body-secondary fw-normal">${esc(t)}</div>` : '');
   const STAGE_C = { lead: 'Lead', cliente: 'Cliente', perdido: 'Perdido' };
   const STAGE_D = { nuevo: 'Nuevo', calificado: 'Calificado', propuesta: 'Propuesta', negociacion: 'Negociación', ganado: 'Ganado', perdido: 'Perdido' };
+  const etapaNombre = (k) => STAGE_D[k] || String(k || '').replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase());   // las etapas propias de un pipeline llegan por su clave
   const CHANNEL = { meta_ads: 'Meta Ads', google_ads: 'Google Ads', whatsapp: 'WhatsApp', correo: 'Correo', organico: 'Orgánico', otro: 'Otro' };
   const TOOL_CAT = { marketing: 'Marketing', crm: 'CRM', infraestructura: 'Infraestructura', software: 'Software', api: 'API', ia: 'IA', otro: 'Otro' };
   const TRIGGER = { lead_nuevo: 'Llega un lead nuevo', sin_contacto: 'Lead sin contacto por N días', presupuesto_campana: 'Campaña usó el X% del presupuesto', factura_vencida: 'Una factura se venció (Finanzas)', semanal: 'Cada lunes' };
@@ -45,7 +46,7 @@ DW.ready.then((me) => {
       { k: 'tags', label: 'Etiquetas', placeholder: 'vip, barrio' }, { k: 'notes', label: 'Notas', type: 'long' }],
     deals: [
       { k: 'title', label: 'Oportunidad', required: true, full: true }, { k: 'contact_id', label: 'Cliente o lead', ref: 'contacts' }, { k: 'value', label: 'Valor (COP)', type: 'money' },
-      { k: 'stage', label: 'Etapa', type: 'select', options: Object.entries(STAGE_D) }, { k: 'campaign_id', label: 'Campaña', ref: 'campaigns' },
+      { k: 'campaign_id', label: 'Campaña', ref: 'campaigns' }, { k: 'next_date', label: 'Próximo seguimiento', type: 'date' },
       { k: 'expected_close', label: 'Cierre esperado', type: 'date' }, { k: 'notes', label: 'Notas', type: 'long' }],
     campaigns: [
       { k: 'name', label: 'Campaña', required: true, full: true }, { k: 'channel', label: 'Canal', type: 'select', options: Object.entries(CHANNEL) },
@@ -106,7 +107,7 @@ DW.ready.then((me) => {
         ['Costo por lead', money(s.totals.cpl), '', 'bi-tag'], ['Retorno (ROI)', pct(s.totals.roi), `Ingresos atribuidos ${money(s.totals.revenue)}`, 'bi-graph-up-arrow'],
         ['Herramientas', money(s.tools.monthly), `${num(s.tools.active)} activas · al mes`, 'bi-plug']]);
       const maxF = Math.max(1, ...s.deals.pipeline.map((p) => p.n));
-      $('[data-funnel]', el).innerHTML = s.deals.pipeline.map((p) => `<div class="d-flex align-items-center gap-2 small mb-2"><span style="width:96px">${STAGE_D[p.stage]}</span><div class="progress flex-grow-1" style="height:8px"><div class="progress-bar" style="width:${(p.n / maxF * 100).toFixed(1)}%"></div></div><b style="width:28px" class="text-end">${num(p.n)}</b><span class="text-body-secondary text-end" style="width:96px">${money(p.value)}</span></div>`).join('')
+      $('[data-funnel]', el).innerHTML = s.deals.pipeline.map((p) => `<div class="d-flex align-items-center gap-2 small mb-2"><span style="width:96px">${esc(p.name || etapaNombre(p.stage))}</span><div class="progress flex-grow-1" style="height:8px"><div class="progress-bar" style="width:${(p.n / maxF * 100).toFixed(1)}%"></div></div><b style="width:28px" class="text-end">${num(p.n)}</b><span class="text-body-secondary text-end" style="width:96px">${money(p.value)}</span></div>`).join('')
         + `<p class="small text-body-secondary mb-0">Ganadas ${num(s.deals.won)} · perdidas ${num(s.deals.lost)} en el periodo</p>`;
       C.bars($('[data-ch]', el), s.channels.map((x) => ({ label: CHANNEL[x.channel] || x.channel, a: x.spend, b: x.leads })), { la: 'Gasto', lb: 'Leads', fmt: (n) => num(n), separate: true });
       $('[data-camps]', el).innerHTML = s.campaigns.length ? window.App.table([
@@ -141,7 +142,7 @@ DW.ready.then((me) => {
           if (a === 'ficha') return ficha(r.id, () => t.load());
           if (a === 'plan') usePlaybook({ contact: r });
           if (a === 'deal') {
-            const out = await C.form({ title: 'Nueva oportunidad', fields: F.deals, base: B, values: { title: `Oportunidad: ${r.name}`, contact_id: r.id, campaign_id: r.campaign_id, stage: 'nuevo' } });
+            const out = await C.form({ title: 'Nueva oportunidad', fields: F.deals, base: B, values: { title: `Oportunidad: ${r.name}`, contact_id: r.id, campaign_id: r.campaign_id } });
             if (out) { await api(`${B}/deals`, { method: 'POST', body: out }); C.dropRefs(B, 'deals'); toast('Oportunidad creada'); }
           }
         } catch (x) { toast(x.message, false); }
@@ -170,7 +171,7 @@ DW.ready.then((me) => {
         <span class="ms-auto d-flex gap-2">${ct.email ? `<a class="btn btn-sm btn-outline-secondary" href="mailto:${esc(ct.email)}"><i class="bi bi-envelope me-1"></i>Correo</a>` : ''}${tel ? `<a class="btn btn-sm btn-outline-success" target="_blank" rel="noopener" href="https://wa.me/${esc(tel)}"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>` : ''}</span></div>
       <div data-k></div>
       <div class="row g-3"><div class="col-lg-7">
-        ${V.tarjeta('Oportunidades', f.oportunidades.length ? f.oportunidades.map((o) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span>${esc(o.title)} ${chip(o.stage === 'ganado' ? 'ok' : o.stage === 'perdido' ? 'free' : 'soon', STAGE_D[o.stage] || o.stage)}</span><b>${money(o.value)}</b></div>`).join('') : '<p class="small text-body-secondary mb-0">Sin oportunidades. Crea una desde la lista (ícono de embudo).</p>')}
+        ${V.tarjeta('Oportunidades', f.oportunidades.length ? f.oportunidades.map((o) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span>${esc(o.title)} ${chip(o.stage === 'ganado' ? 'ok' : o.stage === 'perdido' ? 'free' : 'soon', etapaNombre(o.stage))}</span><b>${money(o.value)}</b></div>`).join('') : '<p class="small text-body-secondary mb-0">Sin oportunidades. Crea una desde la lista (ícono de embudo).</p>')}
         <div class="mt-3">${V.tarjeta('Cotizaciones y cuentas de cobro', f.cotizaciones.length || f.cuentas.length ? [...f.cotizaciones.map((q) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span><i class="bi bi-file-earmark-text me-1"></i>${esc(q.number)} · ${esc(q.title || '')} ${chip(q.status === 'aprobada' ? 'ok' : q.status === 'rechazada' ? 'bad' : 'soon', q.status)}</span><b>${money(q.total)}</b></div>`), ...f.cuentas.map((i) => `<div class="d-flex justify-content-between small py-1 border-bottom"><span><i class="bi bi-receipt me-1"></i>${esc(i.number || '#' + i.id)} ${chip(i.status === 'pagada' ? 'ok' : 'soon', i.status === 'pagada' ? 'Pagada' : 'Por cobrar')}</span><b>${money(i.total)}</b></div>`)].join('') : '<p class="small text-body-secondary mb-0">Aún no tiene cotizaciones. Se crean en Proyectos.</p>', { sub: 'Vienen de Proyectos y Finanzas' })}</div>
         <div class="mt-3">${V.tarjeta('Tareas', f.tareas.length ? f.tareas.map((x) => `<div class="small py-1 border-bottom ${x.done ? 'text-body-secondary text-decoration-line-through' : ''}"><i class="bi ${x.done ? 'bi-check2-square' : 'bi-square'} me-1"></i>${esc(x.title)}${x.due_date && !x.done ? ` <span class="text-body-secondary">· ${day(x.due_date)}</span>` : ''}</div>`).join('') : '<p class="small text-body-secondary mb-0">Sin tareas.</p>')}</div>
       </div><div class="col-lg-5"><div data-tl></div></div></div>`;
@@ -209,36 +210,174 @@ DW.ready.then((me) => {
     };
   }
 
+  // Oportunidades: pipelines con etapas propias, tablero por etapa con sus totales y la ficha de seguimiento de cada oportunidad
+  const PRESETS = {
+    llamada: ['Ventas con llamada', ['Nuevo lead', 'Contactado', 'Calificado', 'Llamada agendada', 'Asistió', 'No asistió', 'Seguimiento']],
+    directa: ['Venta directa', ['Nuevo', 'Contactado', 'Propuesta enviada', 'Negociación']],
+    servicio: ['Servicios con cotización', ['Nuevo', 'Diagnóstico', 'Cotización enviada', 'Seguimiento', 'Por firmar']],
+  };
   async function pipeline(el) {
-    el.innerHTML = `<div class="d-flex gap-2 align-items-center mb-2"><span class="small text-body-secondary flex-grow-1">Arrastra cada oportunidad a su etapa. Toca una para editarla.</span>${RO ? '' : '<button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nueva oportunidad</button>'}</div><div class="dw-kanban" data-k></div>`;
-    let rows = [];
-    async function load() {
-      const [d, cs] = await Promise.all([api(`${B}/deals?limit=1000`), C.refs(B, 'contacts')]);
-      rows = d.rows;
-      const cname = (id) => cs.find((x) => x.id === id)?.name;
-      $('[data-k]', el).innerHTML = Object.entries(STAGE_D).map(([k, l]) => {
-        const list = rows.filter((r) => r.stage === k);
-        return `<div class="dw-kcol" data-stage="${k}"><h3><span>${l}</span><span class="text-body-secondary fw-normal">${num(list.length)} · ${money(list.reduce((a, r) => a + r.value, 0))}</span></h3>
-          ${list.map((r) => `<div class="dw-kcard" draggable="${!RO}" data-id="${r.id}"><b>${esc(r.title)}</b><span>${money(r.value)}</span>${cname(r.contact_id) ? `<span class="text-body-secondary">${esc(cname(r.contact_id))}</span>` : ''}${r.expected_close ? `<span class="text-body-secondary"><i class="bi bi-calendar"></i> ${day(r.expected_close)}</span>` : ''}</div>`).join('')}</div>`;
+    if (!document.getElementById('mk-pipe-css')) document.head.insertAdjacentHTML('beforeend', `<style id="mk-pipe-css">
+      .mk-kh{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.9rem;font-weight:700;margin:0}.mk-kh .badge{font-weight:600}
+      .mk-kt{font-size:.8rem;color:var(--bs-secondary-color);margin:0 0 8px}.mk-col-ok{border-top:3px solid var(--bs-success)}.mk-col-no{border-top:3px solid var(--bs-danger)}.mk-col{border-top:3px solid var(--dw-p,var(--bs-primary))}
+      .mk-prox{font-size:.8rem;color:var(--bs-secondary-color)}.mk-prox.late{color:var(--bs-danger);font-weight:600}.mk-prox.hoy{color:var(--bs-success);font-weight:600}
+      .mk-res{display:flex;flex-wrap:wrap;gap:6px 16px}.mk-res b{font-weight:700}.mk-vacio{font-size:.8rem;color:var(--bs-secondary-color);text-align:center;padding:18px 4px}
+      .mk-et{display:flex;gap:6px;align-items:center;margin-bottom:6px}.mk-ct{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--dw-activo-bg,var(--bs-tertiary-bg));border-radius:12px;padding:8px 12px}
+      .dw-kcol.sobre{outline:2px dashed var(--dw-p,var(--bs-primary));outline-offset:-2px}</style>`);
+    el.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <select class="form-select w-auto" data-pipe aria-label="Pipeline"></select>
+        <select class="form-select w-auto" data-per aria-label="Periodo"><option value="">Todo el tiempo</option><option value="mes">Creadas este mes</option><option value="90">Últimos 90 días</option></select>
+        <input class="form-control" style="max-width:230px" type="search" placeholder="Buscar oportunidad…" data-q aria-label="Buscar oportunidad">
+        <span class="ms-auto d-flex gap-2">${me.canManage && !RO ? '<button class="btn btn-outline-secondary" data-pipes><i class="bi bi-sliders me-1"></i>Pipelines y etapas</button>' : ''}${RO ? '' : '<button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nueva oportunidad</button>'}</span>
+      </div><div class="mk-res small mb-2" data-res></div><div class="dw-kanban" data-k></div>`;
+    const guardado = (() => { try { return Number(localStorage.getItem('dw_mk_pipe')) || 0; } catch { return 0; } })();
+    let rows = [], ps = [], cierres = [], cs = [], ks = [], pid = guardado;
+    const hoy = C.todayCo();
+    const P = () => ps.find((p) => p.id === pid) || ps[0];
+    const deP = (p, r) => r.pipeline_id === p.id || (p.principal && r.pipeline_id == null);
+    const etapaDe = (p, r) => ([...p.stages, ...cierres].some((e) => e.k === r.stage) ? r.stage : p.stages[0].k);
+    const cerrada = (r) => r.stage === 'ganado' || r.stage === 'perdido';
+    const ct = (id) => cs.find((x) => x.id === id);
+    const dias = (r) => Math.max(0, Math.floor((Date.now() - (r.stage_at || r.updated_at || r.created_at)) / 86400000));
+    const prox = (r) => (!r.next_date || cerrada(r) ? '' : `<span class="mk-prox ${r.next_date < hoy ? 'late' : r.next_date === hoy ? 'hoy' : ''}"><i class="bi bi-alarm"></i> ${r.next_date === hoy ? 'Hoy' : day(r.next_date)}${r.next_time ? ` · ${esc(r.next_time)}` : ''}${r.next_note ? ` · ${esc(r.next_note)}` : ''}</span>`);
+
+    function pintar() {
+      const p = P(); if (!p) return;
+      const q = $('[data-q]', el).value.trim().toLowerCase(), per = $('[data-per]', el).value;
+      const desde = per === 'mes' ? Date.parse(hoy.slice(0, 7) + '-01T05:00:00Z') : per === '90' ? Date.now() - 90 * 86400000 : 0;
+      const mias = rows.filter((r) => deP(p, r));
+      const vis = mias.filter((r) => r.created_at >= desde && (!q || [r.title, r.notes, r.next_note, ct(r.contact_id)?.name, ct(r.contact_id)?.company].some((t) => String(t || '').toLowerCase().includes(q))));
+      const abiertas = mias.filter((r) => !cerrada(r)), mes = Date.parse(hoy.slice(0, 7) + '-01T05:00:00Z');
+      const ganadas = mias.filter((r) => r.stage === 'ganado' && (r.closed_at || 0) >= mes), venc = abiertas.filter((r) => r.next_date && r.next_date < hoy).length, paraHoy = abiertas.filter((r) => r.next_date === hoy).length, sin = abiertas.filter((r) => !r.next_date).length;
+      $('[data-res]', el).innerHTML = `<span>En juego <b>${money(abiertas.reduce((a, r) => a + r.value, 0))}</b> · ${num(abiertas.length)} abiertas</span><span>Ganado este mes <b>${money(ganadas.reduce((a, r) => a + r.value, 0))}</b> · ${num(ganadas.length)}</span>
+        ${venc ? `<span class="text-danger"><i class="bi bi-alarm"></i> <b>${num(venc)}</b> con seguimiento vencido</span>` : ''}${paraHoy ? `<span class="text-success"><b>${num(paraHoy)}</b> para hoy</span>` : ''}${sin ? `<span class="text-body-secondary"><b>${num(sin)}</b> sin próximo paso</span>` : ''}`;
+      $('[data-k]', el).innerHTML = [...p.stages.map((e) => ({ ...e, cls: 'mk-col' })), { ...cierres[0], cls: 'mk-col-ok' }, { ...cierres[1], cls: 'mk-col-no' }].map((e) => {
+        const list = vis.filter((r) => etapaDe(p, r) === e.k);
+        return `<div class="dw-kcol ${e.cls}" data-stage="${esc(e.k)}"><div class="mk-kh"><span>${esc(e.n)}</span><span class="badge rounded-pill text-bg-secondary">${num(list.length)}</span></div><p class="mk-kt">${money(list.reduce((a, r) => a + r.value, 0))}</p>
+          ${list.map((r) => { const k = ct(r.contact_id), d = dias(r); return `<div class="dw-kcard" draggable="${!RO}" data-id="${r.id}"><b>${esc(r.title)}</b>${k ? `<span class="text-body-secondary"><i class="bi bi-person"></i> ${esc(k.name)}${k.company && k.company !== k.name ? ` · ${esc(k.company)}` : ''}</span>` : ''}<span class="fw-semibold">${money(r.value)}</span>${prox(r)}${!cerrada(r) && d >= 7 ? `<span class="mk-prox">${num(d)} días en esta etapa</span>` : ''}</div>`; }).join('') || '<div class="mk-vacio"><i class="bi bi-inbox d-block fs-5"></i>Sin oportunidades</div>'}</div>`;
       }).join('');
     }
-    const edit = async (row) => {
+    async function load() {
+      const [pp, d, cc, kk] = await Promise.all([api(`${B}/pipelines`), api(`${B}/deals?limit=1000`), api(`${B}/contacts?limit=1000`), C.refs(B, 'campaigns')]);
+      ps = pp.pipelines; cierres = pp.cierres; rows = d.rows; cs = cc.rows; ks = kk;
+      if (!ps.some((p) => p.id === pid)) pid = ps[0]?.id;
+      const sel = $('[data-pipe]', el);
+      sel.innerHTML = ps.map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.name)} · ${num(p.abiertas)}</option>`).join('');
+      sel.hidden = ps.length < 2;
+      pintar();
+    }
+
+    // Ficha de la oportunidad: contacto a un toque, etapa, valor, próximo seguimiento y notas
+    function ficha(row) {
       if (RO) return;
-      const out = await C.form({ title: row ? 'Editar oportunidad' : 'Nueva oportunidad', fields: F.deals, values: row || { stage: 'nuevo' }, base: B, onDelete: row && me.canManage ? () => api(`${B}/deals/${row.id}`, { method: 'DELETE' }) : null });
-      if (out === 'deleted') { toast('Borrada'); C.dropRefs(B, 'deals'); return load(); }
-      if (!out) return;
-      try { await api(row ? `${B}/deals/${row.id}` : `${B}/deals`, { method: row ? 'PATCH' : 'POST', body: out }); C.dropRefs(B, 'deals'); toast('Guardado'); load(); } catch (x) { toast(x.message, false); }
-    };
-    $('[data-new]', el)?.addEventListener('click', () => edit(null));
-    el.addEventListener('click', (e) => { const c = e.target.closest('.dw-kcard'); if (c) edit(rows.find((r) => String(r.id) === c.dataset.id)); });
+      const v = row || { pipeline_id: P().id, stage: P().stages[0].k, value: 0 };
+      const p0 = ps.find((p) => p.id === v.pipeline_id) || (row ? ps[0] : P());
+      const { el: d, m } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${row ? 'Oportunidad' : 'Nueva oportunidad'}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body"><div class="mk-ct mb-3" data-ct hidden></div><div class="row g-2">
+          <div class="col-12"><label class="form-label small mb-1">Oportunidad</label><input class="form-control" name="title" required maxlength="300" value="${esc(v.title || '')}" placeholder="Qué le vas a vender"></div>
+          <div class="col-sm-7"><label class="form-label small mb-1">Cliente o lead</label><select class="form-select" name="contact_id"><option value="">—</option>${cs.map((x) => `<option value="${x.id}" ${x.id === v.contact_id ? 'selected' : ''}>${esc(x.name)}${x.company && x.company !== x.name ? ` · ${esc(x.company)}` : ''}</option>`).join('')}</select></div>
+          <div class="col-sm-5"><label class="form-label small mb-1">Valor (COP)</label><input class="form-control" name="value" type="number" min="0" step="1" inputmode="numeric" value="${Number(v.value) || 0}"></div>
+          <div class="col-sm-6" ${ps.length < 2 ? 'hidden' : ''}><label class="form-label small mb-1">Pipeline</label><select class="form-select" name="pipeline_id">${ps.map((p) => `<option value="${p.id}" ${p.id === p0.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+          <div class="${ps.length < 2 ? 'col-12' : 'col-sm-6'}"><label class="form-label small mb-1">Etapa</label><select class="form-select" name="stage"></select></div>
+          <div class="col-12"><div class="small fw-semibold mt-2">Próximo seguimiento</div></div>
+          <div class="col-7 col-sm-4"><label class="form-label small mb-1">Fecha</label><input class="form-control" name="next_date" type="date" value="${esc(v.next_date || '')}"></div>
+          <div class="col-5 col-sm-3"><label class="form-label small mb-1">Hora</label><input class="form-control" name="next_time" type="time" value="${esc(v.next_time || '')}"></div>
+          <div class="col-sm-5"><label class="form-label small mb-1">Qué sigue</label><input class="form-control" name="next_note" maxlength="300" list="mk-sig" value="${esc(v.next_note || '')}" placeholder="Llamada, reunión, enviar propuesta…"><datalist id="mk-sig"><option>Llamada</option><option>Reunión</option><option>Enviar propuesta</option><option>Escribir por WhatsApp</option><option>Confirmar pago</option></datalist></div>
+          <div class="col-sm-6"><label class="form-label small mb-1">Cierre esperado</label><input class="form-control" name="expected_close" type="date" value="${esc(v.expected_close || '')}"></div>
+          <div class="col-sm-6"><label class="form-label small mb-1">Campaña</label><select class="form-select" name="campaign_id"><option value="">—</option>${ks.map((x) => `<option value="${x.id}" ${x.id === v.campaign_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="col-12"><label class="form-label small mb-1">Notas</label><textarea class="form-control" name="notes" rows="3" maxlength="5000">${esc(v.notes || '')}</textarea></div>
+          ${row ? `<div class="col-12 small text-body-secondary">Creada el ${day(new Date(row.created_at).toISOString().slice(0, 10))}${cerrada(row) ? '' : ` · ${num(dias(row))} días en esta etapa`}</div>` : ''}</div></div>
+        <div class="modal-footer border-0 pt-0">${row && me.canManage ? '<button type="button" class="btn btn-outline-danger me-auto" data-del aria-label="Borrar"><i class="bi bi-trash"></i></button>' : ''}
+          ${row && !cerrada(row) ? '<button type="button" class="btn btn-outline-success" data-fin="ganado"><i class="bi bi-trophy me-1"></i>Ganada</button><button type="button" class="btn btn-outline-secondary" data-fin="perdido">Perdida</button>' : ''}
+          <button class="btn btn-primary">Guardar</button></div></form>`, { size: 'modal-lg' });
+      const f = $('form', d);
+      const etapas = () => { const p = ps.find((x) => String(x.id) === f.pipeline_id.value) || p0, act = f.stage.value || (row ? etapaDe(p0, row) : v.stage); f.stage.innerHTML = [...p.stages, ...cierres].map((e) => `<option value="${esc(e.k)}">${esc(e.n)}</option>`).join(''); f.stage.value = [...p.stages, ...cierres].some((e) => e.k === act) ? act : p.stages[0].k; };
+      const contacto = () => {
+        const k = ct(Number(f.contact_id.value)), box = $('[data-ct]', d);
+        box.hidden = !k; if (!k) return;
+        const tel = (k.phone || '').replace(/\D/g, ''), wa = tel.length === 10 && tel.startsWith('3') ? '57' + tel : tel;
+        box.innerHTML = `<span class="me-auto"><b>${esc(k.name)}</b>${k.company && k.company !== k.name ? ` · ${esc(k.company)}` : ''}<span class="d-block small text-body-secondary">${[k.phone, k.email].filter(Boolean).map(esc).join(' · ') || 'Sin teléfono ni correo'}</span></span>
+          ${tel ? `<a class="btn btn-sm btn-outline-secondary" href="tel:${esc(tel)}" title="Llamar" aria-label="Llamar"><i class="bi bi-telephone"></i></a><a class="btn btn-sm btn-outline-success" target="_blank" rel="noopener" href="https://wa.me/${esc(wa)}" title="WhatsApp" aria-label="WhatsApp"><i class="bi bi-whatsapp"></i></a>` : ''}
+          ${k.email ? `<a class="btn btn-sm btn-outline-secondary" href="mailto:${esc(k.email)}" title="Correo" aria-label="Correo"><i class="bi bi-envelope"></i></a>` : ''}`;
+      };
+      etapas(); contacto();
+      f.pipeline_id.onchange = etapas; f.contact_id.onchange = contacto;
+      const guardar = async (extra = {}) => {
+        const body = { title: f.title.value, contact_id: Number(f.contact_id.value) || null, value: Number(f.value.value) || 0, pipeline_id: Number(f.pipeline_id.value) || null, stage: f.stage.value, next_date: f.next_date.value || null, next_time: f.next_time.value || null,
+          next_note: f.next_note.value, expected_close: f.expected_close.value || null, campaign_id: Number(f.campaign_id.value) || null, notes: f.notes.value, ...extra };
+        try { await api(row ? `${B}/deals/${row.id}` : `${B}/deals`, { method: row ? 'PATCH' : 'POST', body }); C.dropRefs(B, 'deals'); m.hide(); toast(extra.stage === 'ganado' ? '¡Ganada!' : 'Guardado'); load(); } catch (x) { toast(x.message, false); }
+      };
+      f.onsubmit = (e) => { e.preventDefault(); guardar(); };
+      $$('[data-fin]', d).forEach((b) => { b.onclick = () => { if (f.reportValidity()) guardar({ stage: b.dataset.fin }); }; });
+      const del = $('[data-del]', d);
+      if (del) del.onclick = async () => { if (!(await confirm(`¿Borrar la oportunidad «${row.title}»?`))) return; try { await api(`${B}/deals/${row.id}`, { method: 'DELETE' }); C.dropRefs(B, 'deals'); m.hide(); toast('Borrada'); load(); } catch (x) { toast(x.message, false); } };
+    }
+
+    // Pipelines y etapas (propietario o administrador): una sola ventana que cambia entre la lista y el editor
+    function gestionar() {
+      const { el: d } = modal('<div data-g></div>', { size: 'modal-lg' });
+      const g = $('[data-g]', d), cab = (t) => `<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">${t}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>`;
+      d.addEventListener('hidden.bs.modal', load);
+      async function lista() {
+        ps = (await api(`${B}/pipelines`)).pipelines;
+        g.innerHTML = `${cab('Pipelines y etapas')}<div class="modal-body"><p class="small text-body-secondary">Cada pipeline es un camino de venta con sus propias etapas. Ganado y Perdido cierran en todos.</p>
+          <div class="list-group">${ps.map((p) => `<div class="list-group-item d-flex flex-wrap align-items-center gap-2"><span class="me-auto"><b>${esc(p.name)}</b>${p.principal ? ' <span class="badge text-bg-light border">Principal</span>' : ''}<span class="d-block small text-body-secondary">${p.stages.map((e) => esc(e.n)).join(' → ')}</span><span class="d-block small text-body-secondary">${num(p.abiertas)} abiertas · ${money(p.valor_abierto)}</span></span>
+            <button class="btn btn-sm btn-outline-primary" data-ed="${p.id}"><i class="bi bi-pencil me-1"></i>Editar</button>${p.principal ? '' : `<button class="btn btn-sm btn-outline-danger" data-rm="${p.id}" aria-label="Borrar"><i class="bi bi-trash"></i></button>`}</div>`).join('')}</div></div>
+          <div class="modal-footer border-0 pt-0"><button class="btn btn-primary" data-ed="0"><i class="bi bi-plus-lg me-1"></i>Crear pipeline</button></div>`;
+      }
+      function editor(p) {
+        let et = (p ? p.stages : PRESETS.llamada[1].map((n) => ({ n }))).map((e) => ({ ...e }));
+        g.innerHTML = `${cab(p ? 'Editar pipeline' : 'Crear pipeline')}<form><div class="modal-body">
+          <label class="form-label small mb-1">Nombre del pipeline</label><input class="form-control mb-3" name="name" required maxlength="60" value="${esc(p?.name || '')}" placeholder="Mi nuevo pipeline">
+          ${p ? '' : `<label class="form-label small mb-1">Empezar con</label><select class="form-select mb-3" name="pre">${Object.entries(PRESETS).map(([k, [l, e]]) => `<option value="${k}">${esc(l)} (${e.length + 1} etapas)</option>`).join('')}</select>`}
+          <div class="small fw-semibold mb-2">Etapas</div><div data-et></div>
+          <button type="button" class="btn btn-sm btn-outline-primary" data-add><i class="bi bi-plus-lg me-1"></i>Agregar etapa</button>
+          <p class="small text-body-secondary mt-3 mb-0">Al final siempre van <b>Ganado</b> y <b>Perdido</b>. ${p ? 'Si quitas una etapa, sus oportunidades pasan a la primera.' : ''}</p></div>
+          <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-back>Volver</button><button class="btn btn-primary">${p ? 'Guardar' : 'Crear pipeline'}</button></div></form>`;
+        const f = $('form', g), box = $('[data-et]', g);
+        const leer = () => { $$('[data-n]', box).forEach((i, n) => { et[n].n = i.value; }); };
+        const filas = () => { box.innerHTML = et.map((e, i) => `<div class="mk-et"><button type="button" class="btn btn-sm btn-light" data-up="${i}" ${i ? '' : 'disabled'} aria-label="Subir"><i class="bi bi-arrow-up"></i></button><button type="button" class="btn btn-sm btn-light" data-dn="${i}" ${i < et.length - 1 ? '' : 'disabled'} aria-label="Bajar"><i class="bi bi-arrow-down"></i></button><input class="form-control" data-n maxlength="40" value="${esc(e.n || '')}" placeholder="Nombre de la etapa" aria-label="Etapa ${i + 1}"><button type="button" class="btn btn-sm btn-outline-danger" data-x="${i}" ${et.length > 1 ? '' : 'disabled'} aria-label="Quitar"><i class="bi bi-trash"></i></button></div>`).join(''); };
+        filas();
+        if (f.pre) f.pre.onchange = () => { et = PRESETS[f.pre.value][1].map((n) => ({ n })); filas(); };
+        box.onclick = (e) => {
+          const b = e.target.closest('button'); if (!b) return; leer();
+          const mover = (i, j) => { [et[i], et[j]] = [et[j], et[i]]; };
+          if (b.dataset.up) mover(+b.dataset.up, +b.dataset.up - 1); else if (b.dataset.dn) mover(+b.dataset.dn, +b.dataset.dn + 1); else if (b.dataset.x) et.splice(+b.dataset.x, 1);
+          filas();
+        };
+        $('[data-add]', g).onclick = () => { leer(); if (et.length >= 15) return toast('Máximo 15 etapas', false); et.push({ n: '' }); filas(); $$('[data-n]', box).pop().focus(); };
+        $('[data-back]', g).onclick = lista;
+        f.onsubmit = async (e) => {
+          e.preventDefault(); leer();
+          const stages = et.filter((x) => String(x.n || '').trim());
+          if (!stages.length) return toast('Agrega al menos una etapa', false);
+          try { const out = await api(p ? `${B}/pipelines/${p.id}` : `${B}/pipelines`, { method: p ? 'PATCH' : 'POST', body: { name: f.name.value, stages } }); if (!p) { pid = out.id; try { localStorage.setItem('dw_mk_pipe', pid); } catch {} } toast(p ? 'Guardado' : 'Pipeline creado'); lista(); } catch (x) { toast(x.message, false); }
+        };
+      }
+      g.addEventListener('click', async (e) => {
+        const ed = e.target.closest('[data-ed]'), rm = e.target.closest('[data-rm]');
+        if (ed) editor(ps.find((p) => String(p.id) === ed.dataset.ed) || null);
+        if (rm) { const p = ps.find((x) => String(x.id) === rm.dataset.rm); if (!(await confirm(`¿Borrar el pipeline «${p.name}»?`))) return; try { await api(`${B}/pipelines/${p.id}`, { method: 'DELETE' }); toast('Borrado'); lista(); } catch (x) { toast(x.message, false); } }
+      });
+      lista();
+    }
+
+    $('[data-new]', el)?.addEventListener('click', () => ficha(null));
+    $('[data-pipes]', el)?.addEventListener('click', gestionar);
+    $('[data-pipe]', el).onchange = (e) => { pid = Number(e.target.value); try { localStorage.setItem('dw_mk_pipe', pid); } catch {} pintar(); };
+    $('[data-per]', el).onchange = pintar; $('[data-q]', el).oninput = pintar;
+    el.addEventListener('click', (e) => { const c = e.target.closest('.dw-kcard'); if (c) ficha(rows.find((r) => String(r.id) === c.dataset.id)); });
     el.addEventListener('dragstart', (e) => { const c = e.target.closest('.dw-kcard'); if (c) e.dataTransfer.setData('text/plain', c.dataset.id); });
-    el.addEventListener('dragover', (e) => { if (e.target.closest('.dw-kcol')) e.preventDefault(); });
+    el.addEventListener('dragover', (e) => { const col = e.target.closest('.dw-kcol'); if (!col) return; e.preventDefault(); $$('.dw-kcol.sobre', el).forEach((x) => x !== col && x.classList.remove('sobre')); col.classList.add('sobre'); });
+    el.addEventListener('dragleave', (e) => { if (!e.relatedTarget || !el.contains(e.relatedTarget)) $$('.dw-kcol.sobre', el).forEach((x) => x.classList.remove('sobre')); });
     el.addEventListener('drop', async (e) => {
       const col = e.target.closest('.dw-kcol'); if (!col) return;
-      e.preventDefault();
-      try { await api(`${B}/deals/${e.dataTransfer.getData('text/plain')}`, { method: 'PATCH', body: { stage: col.dataset.stage } }); toast(`Movida a ${STAGE_D[col.dataset.stage]}`); load(); } catch (x) { toast(x.message, false); }
+      e.preventDefault(); col.classList.remove('sobre');
+      const r = rows.find((x) => String(x.id) === e.dataTransfer.getData('text/plain'));
+      if (!r || etapaDe(P(), r) === col.dataset.stage) return;
+      try { await api(`${B}/deals/${r.id}`, { method: 'PATCH', body: { stage: col.dataset.stage, pipeline_id: P().id } }); toast(`Movida a ${[...P().stages, ...cierres].find((x) => x.k === col.dataset.stage)?.n || col.dataset.stage}`); load(); } catch (x) { toast(x.message, false); }
     });
-    load();
+    load().catch((x) => { $('[data-k]', el).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; });
   }
 
   // Links de rastreo por plataforma

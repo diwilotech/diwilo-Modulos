@@ -14,6 +14,7 @@ const PREGUNTAS = {
   pagos: '¿Qué pagos tengo vencidos?',
   tareas: '¿Qué tareas tengo vencidas?',
   leads: '¿Qué hago con los contactos nuevos?',
+  seguimientos: '¿A qué oportunidades les hago seguimiento hoy y qué les digo?',
   'mensajes-rojo': '¿Qué chats necesitan a una persona?',
   'mensajes-pend': '¿Qué chats están sin responder?',
   propuestas: '¿Qué propusieron mis agentes?',

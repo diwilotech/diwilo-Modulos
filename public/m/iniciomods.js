@@ -67,7 +67,7 @@ export function montar(host, { api, esc, T, ir, puedeCrear, base = '/m/' }) {
     const out = [];
     if (m.modulo === 'finanzas' && g.flow?.some((x) => x.income || x.expense)) out.push(['Ingresos y gastos', 'Ingresos (fuerte) y gastos · 6 meses y 3 proyectados', cols(g.flow.map((x) => ({ k: mesCorto(x.month), a: x.income, b: x.expense, p: x.projected })), peso, true)]);
     if (m.modulo === 'marketing') {
-      const pipe = (g.deals?.pipeline || []).map((x) => ({ k: x.stage, n: x.n })), etapas = Object.entries(g.contacts?.by_stage || {}).map(([k, n]) => ({ k, n })).sort((a, b) => b.n - a.n);
+      const pipe = (g.deals?.pipeline || []).map((x) => ({ k: x.name || x.stage, n: x.n })), etapas = Object.entries(g.contacts?.by_stage || {}).map(([k, n]) => ({ k, n })).sort((a, b) => b.n - a.n);
       if (pipe.some((x) => x.n)) out.push(['Embudo de oportunidades', 'Por etapa', rank(pipe)]);
       if (etapas.some((x) => x.n)) out.push(['Contactos por etapa', 'Todos', rank(etapas)]);
     }

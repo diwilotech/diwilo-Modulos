@@ -1,5 +1,7 @@
 // Marketing (Marketing Hub de Diwilo, por negocio). Ver: todo el equipo; borrar: propietario y administrador.
 //   CRUD   /api/marketing/{contacts|deals|campaigns|spend|tasks|automations|lists|list_items|tools}
+//   GET    /api/marketing/pipelines                     pipelines con sus etapas · POST { name, stages } · PATCH/DELETE /:id (propietario o administrador)
+//   GET    /api/marketing/seguimientos                  oportunidades abiertas con su próximo paso (vencidas primero)
 //   GET    /api/marketing/summary?from=&to=             leads, embudo, campañas (gasto, costo por lead, ROI, clics), tareas
 //   GET    /api/marketing/resumen                       widget del dashboard
 //   GET    /api/marketing/campaigns/:id/links           links de rastreo de la campaña · POST { platform, target }
@@ -42,6 +44,55 @@ export const PLATFORMS = {
   linkedin: ['LinkedIn', 'linkedin', 'social'], correo: ['Correo', 'email', 'email'], qr: ['QR impreso', 'qr', 'offline'], otro: ['Otro', 'otro', 'referido'],
 };
 
+/* ---------------- pipelines de oportunidades ---------------- */
+// Cada negocio tiene uno o varios pipelines con sus etapas abiertas ([{k, n}]); «ganado» y «perdido» cierran en todos.
+// El primero es el principal: ahí caen las oportunidades sin pipeline (las de antes y las que crean automatizaciones y chats).
+export const CIERRES = ['ganado', 'perdido'];
+const ETAPAS_BASE = [{ k: 'nuevo', n: 'Nuevo' }, { k: 'calificado', n: 'Calificado' }, { k: 'propuesta', n: 'Propuesta' }, { k: 'negociacion', n: 'Negociación' }];
+const leerEtapas = (txt) => { try { const v = JSON.parse(txt).filter((x) => x?.k && x?.n).map((x) => ({ k: String(x.k), n: String(x.n) })); if (v.length) return v; } catch {} return ETAPAS_BASE; };
+export async function pipelinesDe(env, biz) {
+  const leer = () => all(env, 'SELECT id, name, stages FROM mk_pipelines WHERE business_id = ? ORDER BY position, id', biz);
+  let rows = await leer();
+  if (!rows.length) {
+    const t = now();
+    await env.DB.prepare('INSERT INTO mk_pipelines (business_id, name, stages, position, created_at, updated_at) SELECT ?, ?, ?, 0, ?, ? WHERE NOT EXISTS (SELECT 1 FROM mk_pipelines WHERE business_id = ?)')
+      .bind(biz, 'Embudo comercial', JSON.stringify(ETAPAS_BASE), t, t, biz).run();
+    rows = await leer();
+  }
+  return rows.map((r, i) => ({ id: r.id, name: r.name, principal: i === 0, stages: leerEtapas(r.stages) }));
+}
+// Etapas que llegan del formulario o de la IA: [{k?, n}] o ['Nombre'] o ['clave=Nombre nuevo']. Una etapa que ya existía conserva su clave
+// (así sus oportunidades no se mueven); las nuevas reciben una clave a partir del nombre.
+function armarEtapas(lista, antes = []) {
+  if (!Array.isArray(lista)) throw new HttpError(400, 'Las etapas deben ser una lista');
+  const out = [], usadas = new Set(CIERRES), igual = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  for (const x of lista.slice(0, 15)) {
+    let k = '', n = '';
+    if (typeof x === 'string') { const m = x.match(/^([a-z0-9_]+)=(.+)$/); if (m && antes.some((a) => a.k === m[1])) [, k, n] = m; else n = x; }
+    else { n = x?.n ?? x?.name ?? x?.nombre ?? ''; k = x?.k && antes.some((a) => a.k === x.k) ? String(x.k) : ''; }
+    n = String(n).trim().slice(0, 40);
+    if (!n) continue;
+    if (!k) k = antes.find((a) => igual(a.n, n))?.k || '';
+    if (!k || usadas.has(k)) { const base = slugify(n).replace(/-/g, '_') || 'etapa'; k = base; for (let i = 2; usadas.has(k); i++) k = `${base}_${i}`; }
+    usadas.add(k); out.push({ k, n });
+  }
+  if (!out.length) throw new HttpError(400, 'El pipeline necesita al menos una etapa');
+  return out;
+}
+// Valida pipeline, etapa y hora de una oportunidad antes de guardarla
+async function prepararOportunidad(c, row, before) {
+  if (row.next_time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(row.next_time)) throw new HttpError(400, 'La hora va como HH:MM');
+  if (row.stage === null) delete row.stage;
+  if (before && !('stage' in row) && !('pipeline_id' in row)) return;
+  const ps = await pipelinesDe(c.env, c.businessId);
+  const p = ps.find((x) => x.id === (row.pipeline_id ?? before?.pipeline_id)) || ps[0];
+  const claves = [...p.stages.map((e) => e.k), ...CIERRES];
+  if (before && row.stage && !claves.includes(row.stage)) throw new HttpError(400, `Etapa no válida. Las de «${p.name}» son: ${claves.join(', ')}`);
+  if (!claves.includes(row.stage ?? before?.stage)) row.stage = p.stages[0].k;   // al crear o al cambiar de pipeline: entra por la primera etapa
+  if (!before || (row.stage && row.stage !== before.stage)) { row.stage_at = now(); row.closed_at = CIERRES.includes(row.stage) ? now() : null; }
+  if (!before && !row.closed_at) delete row.closed_at;
+}
+
 /* ---------------- automatizaciones ---------------- */
 const fill = (tpl, vars) => String(tpl || '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 function stepsOf(a, fallback) {
@@ -68,9 +119,9 @@ async function onNewContact(env, biz, contact) {
   for (const a of autos) {
     const vars = { nombre: contact.name || 'el lead' };
     if (a.action === 'crear_oportunidad') {
-      const t = now();
-      await env.DB.prepare("INSERT INTO mk_deals (business_id, title, contact_id, campaign_id, value, stage, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'nuevo', ?, ?)")
-        .bind(biz, fill(stepsOf(a, 'Oportunidad: {nombre}')[0].t, vars).slice(0, 300), contact.id, contact.campaign_id || null, t, t).run();
+      const t = now(), etapa = (await pipelinesDe(env, biz))[0].stages[0].k;
+      await env.DB.prepare('INSERT INTO mk_deals (business_id, title, contact_id, campaign_id, value, stage, stage_at, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)')
+        .bind(biz, fill(stepsOf(a, 'Oportunidad: {nombre}')[0].t, vars).slice(0, 300), contact.id, contact.campaign_id || null, etapa, t, t, t).run();
     } else await addSteps(env, a, 'Contactar a {nombre}', vars, { contact_id: contact.id }, `c${contact.id}`);
     await bump(env, a);
   }
@@ -241,10 +292,10 @@ export const ENTITIES = {
     refs: { campaign_id: 'mk_campaigns' },
     async afterCreate(c, id, row) { if (row.stage === 'lead' || !row.stage) await onNewContact(c.env, c.businessId, { id, ...row }); } },
   deals: { table: 'mk_deals', label: 'la oportunidad', title: 'title', search: ['title', 'notes'], order: 'updated_at DESC',
-    fields: { title: 'text!', contact_id: 'int', campaign_id: 'int', value: 'money', stage: STAGES_DEAL, expected_close: 'date', notes: 'long' },
-    refs: { contact_id: 'mk_contacts', campaign_id: 'mk_campaigns' },
-    beforeCreate(c, row) { if (['ganado', 'perdido'].includes(row.stage)) row.closed_at = now(); },
-    beforeUpdate(c, row, before) { if (row.stage && row.stage !== before.stage) row.closed_at = ['ganado', 'perdido'].includes(row.stage) ? now() : null; } },
+    fields: { title: 'text!', contact_id: 'int', campaign_id: 'int', pipeline_id: 'int', value: 'money', stage: 'text', expected_close: 'date', next_date: 'date', next_time: 'text', next_note: 'text', notes: 'long' },
+    refs: { contact_id: 'mk_contacts', campaign_id: 'mk_campaigns', pipeline_id: 'mk_pipelines' },
+    beforeCreate: (c, row) => prepararOportunidad(c, row, null),
+    beforeUpdate: (c, row, before) => prepararOportunidad(c, row, before) },
   campaigns: { table: 'mk_campaigns', label: 'la campaña', title: 'name', search: ['name', 'utm_campaign'], order: "CASE status WHEN 'activa' THEN 0 WHEN 'pausada' THEN 1 ELSE 2 END, start_date DESC",
     fields: { name: 'text!', channel: ['meta_ads', 'google_ads', 'whatsapp', 'correo', 'organico', 'otro'], status: ['activa', 'pausada', 'terminada'], start_date: 'date', end_date: 'date', budget: 'money', goal_leads: 'int', utm_campaign: 'text', notes: 'long' },
     async beforeCreate(c, row) { row.utm_campaign = await uniqueUtm(c, row.utm_campaign || row.name); },
@@ -291,11 +342,13 @@ export async function marketingSummary(c, fromP, toP) {
   const to = DATE.test(toP || '') ? toP : today();
   const from = DATE.test(fromP || '') ? fromP : addDays(to, -29);
   const fromMs = Date.parse(from + 'T05:00:00Z'), toMs = Date.parse(to + 'T05:00:00Z') + 86400000;
+  const p0 = (await pipelinesDe(env, biz))[0];
+  const seg = await one(env, "SELECT COALESCE(SUM(next_date < ?), 0) vencidos, COALESCE(SUM(next_date = ?), 0) hoy FROM mk_deals WHERE business_id = ? AND stage NOT IN ('ganado', 'perdido') AND next_date IS NOT NULL", today(), today(), biz);
   const [contacts, newContacts, bySource, pipeline, won, lost, camps, spendRows, contactsByCamp, wonByCamp, tasks, tools, clicks] = await Promise.all([
     all(env, 'SELECT stage, COUNT(*) n FROM mk_contacts WHERE business_id = ? GROUP BY stage', biz),
     one(env, 'SELECT COUNT(*) n FROM mk_contacts WHERE business_id = ? AND created_at >= ? AND created_at < ?', biz, fromMs, toMs),
     all(env, "SELECT COALESCE(NULLIF(source, ''), '(sin dato)') k, COUNT(*) n FROM mk_contacts WHERE business_id = ? AND created_at >= ? AND created_at < ? GROUP BY k ORDER BY n DESC LIMIT 8", biz, fromMs, toMs),
-    all(env, "SELECT stage, COUNT(*) n, COALESCE(SUM(value), 0) v FROM mk_deals WHERE business_id = ? AND stage NOT IN ('ganado', 'perdido') GROUP BY stage", biz),
+    all(env, "SELECT stage, COUNT(*) n, COALESCE(SUM(value), 0) v FROM mk_deals WHERE business_id = ? AND stage NOT IN ('ganado', 'perdido') AND (pipeline_id IS NULL OR pipeline_id = ?) GROUP BY stage", biz, p0.id),
     one(env, "SELECT COUNT(*) n, COALESCE(SUM(value), 0) v FROM mk_deals WHERE business_id = ? AND stage = 'ganado' AND closed_at >= ? AND closed_at < ?", biz, fromMs, toMs),
     one(env, "SELECT COUNT(*) n FROM mk_deals WHERE business_id = ? AND stage = 'perdido' AND closed_at >= ? AND closed_at < ?", biz, fromMs, toMs),
     all(env, 'SELECT id, name, channel, status, budget, goal_leads, start_date, end_date, utm_campaign FROM mk_campaigns WHERE business_id = ?', biz),
@@ -319,7 +372,9 @@ export async function marketingSummary(c, fromP, toP) {
   return {
     from, to,
     contacts: { by_stage: Object.fromEntries(contacts.map((r) => [r.stage, r.n])), new: newContacts.n, by_source: bySource },
-    deals: { pipeline: STAGES_DEAL.slice(0, 4).map((s) => ({ stage: s, n: pipeline.find((p) => p.stage === s)?.n || 0, value: pipeline.find((p) => p.stage === s)?.v || 0 })),
+    // Embudo del pipeline principal; lo que quedó en una etapa que ya no existe cuenta en la primera
+    deals: { pipeline: p0.stages.map((e, i) => { const de = pipeline.filter((x) => x.stage === e.k || (i === 0 && !p0.stages.some((y) => y.k === x.stage))); return { stage: e.k, name: e.n, n: de.reduce((a, x) => a + x.n, 0), value: de.reduce((a, x) => a + x.v, 0) }; }),
+      followups: { overdue: seg.vencidos, today: seg.hoy },
       won: won.n, won_value: won.v, lost: lost.n, win_rate: won.n + lost.n ? Math.round((won.n / (won.n + lost.n)) * 100) : null },
     campaigns, channels: Object.values(channels),
     totals: { ...totals, cpl: totals.leads ? Math.round(totals.spend / totals.leads) : null, roi: totals.spend ? Math.round(((totals.revenue - totals.spend) / totals.spend) * 100) : null },
@@ -356,6 +411,60 @@ export function routes(r) {
     return json({ ok: true });
   });
   const api = crud(r, { base: B, modulo: MOD, entities: { ...ENTITIES, cards: CARD_ENTITY } });
+
+  // Pipelines: etapas propias por negocio
+  const conteo = async (c) => all(c.env, "SELECT pipeline_id, COUNT(*) n, COALESCE(SUM(CASE WHEN stage NOT IN ('ganado', 'perdido') THEN 1 ELSE 0 END), 0) abiertas, COALESCE(SUM(CASE WHEN stage NOT IN ('ganado', 'perdido') THEN value ELSE 0 END), 0) valor FROM mk_deals WHERE business_id = ? GROUP BY pipeline_id", c.businessId);
+  r.get(`${B}/pipelines`, `tenant:${MOD}`, async (c) => {
+    const [ps, n] = [await pipelinesDe(c.env, c.businessId), await conteo(c)];
+    const de = (p) => n.filter((x) => x.pipeline_id === p.id || (p.principal && x.pipeline_id == null));
+    return json({ pipelines: ps.map((p) => ({ ...p, oportunidades: de(p).reduce((a, x) => a + x.n, 0), abiertas: de(p).reduce((a, x) => a + x.abiertas, 0), valor_abierto: de(p).reduce((a, x) => a + x.valor, 0) })), cierres: [{ k: 'ganado', n: 'Ganado' }, { k: 'perdido', n: 'Perdido' }] });
+  });
+  r.post(`${B}/pipelines`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), ps = await pipelinesDe(c.env, c.businessId), name = String(b.name || b.nombre || '').trim().slice(0, 60);
+    if (!name) throw new HttpError(400, 'Ponle un nombre al pipeline');
+    if (ps.length >= 10) throw new HttpError(400, 'Máximo 10 pipelines');
+    const stages = armarEtapas(b.stages || b.etapas || ETAPAS_BASE), t = now();
+    const res = await c.env.DB.prepare('INSERT INTO mk_pipelines (business_id, name, stages, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').bind(c.businessId, name, JSON.stringify(stages), ps.length, t, t).run();
+    await audit(c, `Creó el pipeline «${name}» (${stages.length} etapas)`, { modulo: MOD });
+    return json({ id: res.meta.last_row_id, name, stages }, 201);
+  });
+  r.patch(`${B}/pipelines/:id`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), p = (await pipelinesDe(c.env, c.businessId)).find((x) => x.id === Number(c.params.id));
+    if (!p) throw new HttpError(404, 'No encontrado');
+    const name = String(b.name ?? b.nombre ?? p.name).trim().slice(0, 60) || p.name, lista = b.stages || b.etapas, stages = lista ? armarEtapas(lista, p.stages) : p.stages, t = now();
+    await c.env.DB.prepare('UPDATE mk_pipelines SET name = ?, stages = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(name, JSON.stringify(stages), t, p.id, c.businessId).run();
+    // Las oportunidades de una etapa que se quitó pasan a la primera (no se pierden)
+    for (const e of p.stages.filter((x) => !stages.some((y) => y.k === x.k))) {
+      await c.env.DB.prepare(`UPDATE mk_deals SET stage = ?, stage_at = ?, updated_at = ? WHERE business_id = ? AND stage = ? AND (pipeline_id = ?${p.principal ? ' OR pipeline_id IS NULL' : ''})`).bind(stages[0].k, t, t, c.businessId, e.k, p.id).run();
+    }
+    await audit(c, `Editó el pipeline «${name}»`, { modulo: MOD });
+    return json({ ok: true, id: p.id, name, stages });
+  });
+  r.delete(`${B}/pipelines/:id`, `manager:${MOD}`, async (c) => {
+    const p = (await pipelinesDe(c.env, c.businessId)).find((x) => x.id === Number(c.params.id));
+    if (!p) throw new HttpError(404, 'No encontrado');
+    if (p.principal) throw new HttpError(400, 'El pipeline principal no se borra: puedes cambiarle el nombre y las etapas');
+    const n = (await one(c.env, 'SELECT COUNT(*) n FROM mk_deals WHERE business_id = ? AND pipeline_id = ?', c.businessId, p.id)).n;
+    if (n) throw new HttpError(400, `Este pipeline tiene ${n} ${n === 1 ? 'oportunidad' : 'oportunidades'}: pásalas a otro o bórralas primero`);
+    await c.env.DB.prepare('DELETE FROM mk_pipelines WHERE id = ? AND business_id = ?').bind(p.id, c.businessId).run();
+    await audit(c, `Borró el pipeline «${p.name}»`, { modulo: MOD });
+    return json({ ok: true });
+  });
+  // Seguimiento: las oportunidades abiertas con su próximo paso, primero las vencidas y luego las que llevan más tiempo quietas
+  r.get(`${B}/seguimientos`, `tenant:${MOD}`, async (c) => {
+    const ps = await pipelinesDe(c.env, c.businessId), hoy = today(), t = now();
+    const rows = await all(c.env, `SELECT d.id, d.title, d.value, d.stage, d.pipeline_id, d.next_date, d.next_time, d.next_note, d.expected_close, d.stage_at, d.updated_at, d.created_at, k.name contacto, k.phone telefono, k.email correo, k.company empresa
+      FROM mk_deals d LEFT JOIN mk_contacts k ON k.id = d.contact_id AND k.business_id = d.business_id WHERE d.business_id = ? AND d.stage NOT IN ('ganado', 'perdido') LIMIT 500`, c.businessId);
+    const out = rows.map((d) => {
+      const p = ps.find((x) => x.id === d.pipeline_id) || ps[0], e = p.stages.find((x) => x.k === d.stage) || p.stages[0];
+      const dias = Math.max(0, Math.floor((t - (d.stage_at || d.updated_at || d.created_at)) / 86400000));
+      return { id: d.id, oportunidad: d.title, valor: d.value, pipeline: p.name, etapa: e.n, etapa_clave: e.k, dias_en_etapa: dias, contacto: d.contacto, empresa: d.empresa, telefono: d.telefono, correo: d.correo,
+        proximo: d.next_date ? { fecha: d.next_date, hora: d.next_time, que: d.next_note } : null, estado: !d.next_date ? 'sin_proximo_paso' : d.next_date < hoy ? 'vencido' : d.next_date === hoy ? 'hoy' : 'programado', cierre_esperado: d.expected_close };
+    });
+    const orden = { vencido: 0, hoy: 1, sin_proximo_paso: 2, programado: 3 };
+    out.sort((a, b) => orden[a.estado] - orden[b.estado] || (a.proximo && b.proximo ? a.proximo.fecha.localeCompare(b.proximo.fecha) : b.dias_en_etapa - a.dias_en_etapa));
+    return json({ hoy, vencidos: out.filter((x) => x.estado === 'vencido').length, para_hoy: out.filter((x) => x.estado === 'hoy').length, sin_proximo_paso: out.filter((x) => x.estado === 'sin_proximo_paso').length, oportunidades: out.slice(0, 100) });
+  });
 
   r.get(`${B}/summary`, `tenant:${MOD}`, async (c) => json(await marketingSummary(c, c.url.searchParams.get('from'), c.url.searchParams.get('to'))));
   r.get(`${B}/contacts/:id/ficha`, `tenant:${MOD}`, async (c) => json(await fichaContacto(c, Number(c.params.id))));

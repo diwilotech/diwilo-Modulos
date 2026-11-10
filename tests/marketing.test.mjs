@@ -114,6 +114,27 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const dl = sc(await T('marketing_crear_oportunidad', { title: 'Matrícula grupal', value: 900000 }));
   const dl2 = sc(await T('marketing_editar_oportunidad', { id: dl.id, stage: 'ganado' }));
   check('Marketing IA: crea y mueve una oportunidad en el embudo', dl.id > 0 && !dl2.error && sc(await T('marketing_listar_oportunidades', { f_stage: 'ganado' })).oportunidades?.some((x) => x.id === dl.id && x.stage === 'ganado'));
+  // Pipelines con etapas propias y seguimiento de oportunidades
+  const pl0 = (await A.app(`${M}/pipelines`)).data;
+  check('Marketing: el negocio nace con su pipeline principal y las etapas de siempre', pl0.pipelines?.length === 1 && pl0.pipelines[0].principal && pl0.pipelines[0].stages.map((e) => e.k).join() === 'nuevo,calificado,propuesta,negociacion' && pl0.cierres?.length === 2);
+  const pl = await A.app(`${M}/pipelines`, { method: 'POST', body: { name: 'Ventas con llamada', stages: ['Nuevo lead', 'Contactado', 'Llamada agendada', 'No asistió'] } });
+  check('Marketing: crea un pipeline con sus etapas en orden', pl.status === 201 && pl.data.stages?.map((e) => e.k).join() === 'nuevo_lead,contactado,llamada_agendada,no_asistio', JSON.stringify(pl.data));
+  const ayer = new Date(Date.now() - 29 * 3600000).toISOString().slice(0, 10);
+  const op = await A.app(`${M}/deals`, { method: 'POST', body: { title: 'Programa comercial', pipeline_id: pl.data.id, value: 1500000, next_date: ayer, next_time: '16:00', next_note: 'Llamada' } });
+  const verOp = async () => (await A.app(`${M}/deals?f_id=${op.data.id}`)).data.rows[0];
+  check('Marketing: la oportunidad entra por la primera etapa de su pipeline', op.status === 201 && (await verOp()).stage === 'nuevo_lead' && (await verOp()).stage_at > 0);
+  check('Marketing: no acepta una etapa de otro pipeline ni una hora mal escrita', (await A.app(`${M}/deals/${op.data.id}`, { method: 'PATCH', body: { stage: 'propuesta' } })).status === 400 && (await A.app(`${M}/deals/${op.data.id}`, { method: 'PATCH', body: { next_time: '4pm' } })).status === 400);
+  check('Marketing: mueve la oportunidad a una etapa propia', (await A.app(`${M}/deals/${op.data.id}`, { method: 'PATCH', body: { stage: 'llamada_agendada' } })).status === 200 && (await verOp()).stage === 'llamada_agendada');
+  const sg = (await A.app(`${M}/seguimientos`)).data;
+  check('Marketing: seguimientos pone primero la vencida, con su etapa y próximo paso', sg.vencidos === 1 && sg.oportunidades?.[0]?.id === op.data.id && sg.oportunidades[0].etapa === 'Llamada agendada' && sg.oportunidades[0].proximo?.hora === '16:00', JSON.stringify(sg.oportunidades?.[0]));
+  check('Marketing: el resumen cuenta el seguimiento vencido', (await A.app(`${M}/summary`)).data.deals?.followups?.overdue === 1);
+  const plE = await A.app(`${M}/pipelines/${pl.data.id}`, { method: 'PATCH', body: { stages: [{ k: 'nuevo_lead', n: 'Lead nuevo' }, { k: 'contactado', n: 'Contactado' }, { n: 'Seguimiento' }] } });
+  check('Marketing: renombrar conserva la etapa y quitar una pasa sus oportunidades a la primera', plE.status === 200 && plE.data.stages.map((e) => e.k).join() === 'nuevo_lead,contactado,seguimiento' && plE.data.stages[0].n === 'Lead nuevo' && (await verOp()).stage === 'nuevo_lead');
+  check('Marketing: no borra el pipeline principal ni uno con oportunidades', (await A.app(`${M}/pipelines/${pl0.pipelines[0].id}`, { method: 'DELETE' })).status === 400 && (await A.app(`${M}/pipelines/${pl.data.id}`, { method: 'DELETE' })).status === 400);
+  check('Marketing: B no ve ni usa los pipelines de A', (await B.app(`${M}/pipelines`)).data.pipelines?.every((p) => p.id !== pl.data.id) && (await B.app(`${M}/deals`, { method: 'POST', body: { title: 'x', pipeline_id: pl.data.id } })).status === 400 && (await B.app(`${M}/pipelines/${pl.data.id}`, { method: 'PATCH', body: { name: 'x' } })).status === 404);
+  const plIa = sc(await T('marketing_listar_pipelines', {})), sgIa = sc(await T('marketing_seguimiento_oportunidades', {}));
+  check('Marketing IA: ve los pipelines y a quién hacerle seguimiento', plIa.pipelines?.length === 2 && sgIa.oportunidades?.some((x) => x.id === op.data.id));
+  check('Marketing IA: cierra la oportunidad como ganada', !sc(await T('marketing_editar_oportunidad', { id: op.data.id, stage: 'ganado' })).error && (await verOp()).closed_at > 0 && (await A.app(`${M}/seguimientos`)).data.vencidos === 0);
   const cp = sc(await T('marketing_crear_campana', { nombre: 'Campaña IA', presupuesto: 500000 }));
   const gc = sc(await T('marketing_crear_gasto_campana', { campaign_id: cp.id, date: hoy, amount: 120000, clicks: 80 }));
   check('Marketing IA: registra el gasto de una campaña', gc.id > 0 && sc(await T('marketing_listar_gastos_campana', { f_campaign_id: String(cp.id) })).gastos_campana?.[0]?.amount === 120000);

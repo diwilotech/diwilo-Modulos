@@ -1,5 +1,11 @@
 # Marketing — cambios
 
+## 1.10.0 — Pipelines de oportunidades con etapas propias y seguimiento
+- **Pipelines** (`mk_pipelines`, migración 0049): uno o varios por negocio, cada uno con sus etapas en el orden que quieras (crear, renombrar, ordenar y quitar; Ganado y Perdido cierran en todos). El primero es el principal y recibe las oportunidades de antes. Rutas `GET/POST /api/marketing/pipelines`, `PATCH/DELETE /api/marketing/pipelines/:id` (propietario o administrador).
+- **Seguimiento de cada oportunidad**: próximo paso con fecha, hora y qué sigue (`next_date`, `next_time`, `next_note`) y desde cuándo está en la etapa (`stage_at`). `GET /api/marketing/seguimientos` las ordena: vencidas, de hoy, sin próximo paso.
+- **Pantalla Oportunidades**: tablero por etapa con cantidad y valor, selector de pipeline, periodo y buscador; tarjetas con contacto, valor, próximo seguimiento (rojo si se venció) y días en la etapa; ficha con llamar / WhatsApp / correo al contacto y botones Ganada / Perdida.
+- Inicio y la IA proactiva avisan de seguimientos vencidos o de hoy. IA: `marketing.seguimiento_oportunidades`, `listar_pipelines`, `crear_pipeline`, `editar_pipeline`, `borrar_pipeline`; `stage` de una oportunidad ahora es la clave de la etapa.
+
 ## 1.9.0 — Ficha 360 del contacto
 - Botón «Ficha» en Clientes y leads: oportunidades, cotizaciones y cuentas de cobro (Proyectos/Finanzas), tareas, chats de Mensajes y la historia en línea de tiempo, con totales en juego/cotizado/cobrado/por cobrar.
 - Ruta `GET /api/marketing/contacts/:id/ficha`.

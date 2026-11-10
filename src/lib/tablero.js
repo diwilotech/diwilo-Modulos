@@ -34,6 +34,9 @@ const ALERTAS = {
   async marketing(c) {
     const s = await llamar(c, 'GET', '/api/marketing/summary'), out = [];
     if (s?.tasks?.overdue) out.push({ id: 'tareas', nivel: 'mala', icono: 'bi-alarm', texto: `${s.tasks.overdue} ${plural(s.tasks.overdue, 'tarea vencida', 'tareas vencidas')} en Marketing`, ruta: '/staff/marketing.html' });
+    const seg = s?.deals?.followups || {};
+    if (seg.overdue) out.push({ id: 'seguimientos', nivel: 'aviso', icono: 'bi-funnel', texto: `${seg.overdue} ${plural(seg.overdue, 'oportunidad con seguimiento vencido', 'oportunidades con seguimiento vencido')}`, ruta: '/staff/marketing.html#oportunidades' });
+    else if (seg.today) out.push({ id: 'seguimientos', nivel: 'info', icono: 'bi-funnel', texto: `${seg.today} ${plural(seg.today, 'seguimiento de oportunidad', 'seguimientos de oportunidades')} para hoy`, ruta: '/staff/marketing.html#oportunidades' });
     const nuevos = s?.contacts?.new ?? 0;
     if (nuevos) out.push({ id: 'leads', nivel: 'info', icono: 'bi-person-plus', texto: `${nuevos} ${plural(nuevos, 'contacto nuevo', 'contactos nuevos')} en los últimos 30 días`, ruta: '/staff/marketing.html' });
     return out;
