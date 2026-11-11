@@ -1,5 +1,12 @@
 # Marketing — cambios
 
+## 1.11.0 — Disparadores por etapa, motivo de pérdida, informe del pipeline y difusiones
+- **Disparadores por etapa** (`mk_pipelines.autos`, migración 0050): al entrar una oportunidad a una etapa (también Ganado y Perdido) se crea una tarea, se deja el próximo seguimiento o se envía una plantilla de WhatsApp al contacto por Mensajes. Se configuran con el rayo de cada etapa en «Pipelines y etapas». Si el WhatsApp no sale, queda una tarea avisando.
+- **Motivo de pérdida** (`mk_deals.lost_reason`): la ficha lo pide al marcar Perdida.
+- **Informe del pipeline** (`GET /api/marketing/pipelines/:id/informe`, historial en `mk_deal_moves`): cuántas llegaron a cada etapa, qué parte avanza, días promedio en la etapa, dónde se pierden, motivos, tasa de cierre y días para ganar.
+- **Difusión** (pantalla nueva, `mk_difusiones` + `mk_difusion_dest`): plantilla aprobada de WhatsApp o correo a un segmento (leads/clientes, origen, etiqueta, campaña, etapa del pipeline, sin contacto hace N días), hasta 2000 contactos, enviada por tandas con avance, pausa y lista de errores. Usa las rutas de envío de Mensajes: respeta a quien pidió no recibir más y deja el mensaje en su chat.
+- IA: `marketing.informe_pipeline`, `marketing.listar_difusiones`; `lost_reason` al editar una oportunidad.
+
 ## 1.10.0 — Pipelines de oportunidades con etapas propias y seguimiento
 - **Pipelines** (`mk_pipelines`, migración 0049): uno o varios por negocio, cada uno con sus etapas en el orden que quieras (crear, renombrar, ordenar y quitar; Ganado y Perdido cierran en todos). El primero es el principal y recibe las oportunidades de antes. Rutas `GET/POST /api/marketing/pipelines`, `PATCH/DELETE /api/marketing/pipelines/:id` (propietario o administrador).
 - **Seguimiento de cada oportunidad**: próximo paso con fecha, hora y qué sigue (`next_date`, `next_time`, `next_note`) y desde cuándo está en la etapa (`stage_at`). `GET /api/marketing/seguimientos` las ordena: vencidas, de hoy, sin próximo paso.

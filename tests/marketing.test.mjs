@@ -135,6 +135,36 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   const plIa = sc(await T('marketing_listar_pipelines', {})), sgIa = sc(await T('marketing_seguimiento_oportunidades', {}));
   check('Marketing IA: ve los pipelines y a quién hacerle seguimiento', plIa.pipelines?.length === 2 && sgIa.oportunidades?.some((x) => x.id === op.data.id));
   check('Marketing IA: cierra la oportunidad como ganada', !sc(await T('marketing_editar_oportunidad', { id: op.data.id, stage: 'ganado' })).error && (await verOp()).closed_at > 0 && (await A.app(`${M}/seguimientos`)).data.vencidos === 0);
+  // Disparadores por etapa, motivo de pérdida e informe del pipeline
+  const P = `${M}/pipelines/${pl.data.id}`;
+  const plA = await A.app(P, { method: 'PATCH', body: { autos: { contactado: [{ tipo: 'tarea', texto: 'Llamar a {nombre} por {oportunidad}', dias: 2 }, { tipo: 'seguimiento', dias: 3, nota: 'Llamada' }, { tipo: 'inventado' }], perdido: [{ tipo: 'tarea', texto: 'Preguntar a {nombre} por qué no', dias: 0 }], no_existe: [{ tipo: 'tarea', texto: 'x' }] } } });
+  check('Marketing: guarda los disparadores de cada etapa y descarta lo que no entiende', plA.status === 200 && plA.data.autos?.contactado?.length === 2 && plA.data.autos.perdido?.length === 1 && !plA.data.autos.no_existe && (await A.app(`${M}/pipelines`)).data.pipelines.find((p) => p.id === pl.data.id)?.autos?.contactado?.[0]?.dias === 2);
+  const op2 = await A.app(`${M}/deals`, { method: 'POST', body: { title: 'Curso intensivo', pipeline_id: pl.data.id, contact_id: ct.data.id, value: 800000 } });
+  const ver2 = async () => (await A.app(`${M}/deals?f_id=${op2.data.id}`)).data.rows[0];
+  const tareas2 = async () => (await A.app(`${M}/tasks?f_deal_id=${op2.data.id}`)).data.rows || [];
+  check('Marketing: una etapa sin disparadores no crea nada', (await tareas2()).length === 0 && !(await ver2()).next_date);
+  await A.app(`${M}/deals/${op2.data.id}`, { method: 'PATCH', body: { stage: 'contactado' } });
+  const en3 = new Date(Date.now() - 5 * 3600000 + 3 * 86400000).toISOString().slice(0, 10);
+  check('Marketing: al entrar a la etapa crea la tarea con sus datos y deja el próximo seguimiento', (await tareas2()).some((x) => x.title === 'Llamar a Laura Gómez por Curso intensivo' && x.contact_id === ct.data.id) && (await ver2()).next_date === en3 && (await ver2()).next_note === 'Llamada', JSON.stringify(await ver2()));
+  await A.app(`${M}/deals/${op2.data.id}`, { method: 'PATCH', body: { stage: 'perdido', lost_reason: 'Precio' } });
+  check('Marketing: perderla guarda el motivo y corre el disparador de Perdido', (await ver2()).lost_reason === 'Precio' && (await tareas2()).some((x) => x.title === 'Preguntar a Laura Gómez por qué no'));
+  const inf = (await A.app(`${P}/informe`)).data;
+  check('Marketing: el informe cuenta cuántas llegan a cada etapa, dónde se pierden y por qué', inf.total === 2 && inf.etapas?.[0]?.llegaron === 2 && inf.etapas[1].clave === 'contactado' && inf.etapas[1].perdidas_aqui === 1 && inf.etapas[2].llegaron === 1 && inf.tasa_cierre === 50 && inf.motivos?.[0]?.motivo === 'Precio' && inf.ganadas.n === 1, JSON.stringify(inf));
+  check('Marketing: B no ve el informe de A y la IA sí lo lee', (await B.app(`${P}/informe`)).status === 404 && sc(await T('marketing_informe_pipeline', { id: pl.data.id })).total === 2);
+
+  // Difusión a un segmento (el envío real pasa por Mensajes; sin clave API se detiene sin marcar a nadie)
+  const D = `${M}/difusiones`;
+  const vista = (await A.app(`${D}/vista`, { method: 'POST', body: { canal: 'whatsapp', segmento: { stage: 'lead' } } })).data;
+  check('Marketing: la vista previa de la difusión cuenta los contactos del segmento con teléfono', vista.total >= 1 && vista.muestra?.includes('Laura Gómez') && (await A.app(`${D}/vista`, { method: 'POST', body: { canal: 'whatsapp', segmento: { tag: 'no-existe' } } })).data.total === 0);
+  const bd = await A.app('/api/whatsapp/bandejas', { method: 'POST', body: { nombre: 'Difusiones', telefono: '+57 300 555 0101', phone_number_id: '1090000000777', waba_id: '2090000000777' } });
+  check('Marketing: la difusión exige una bandeja del negocio y su plantilla', (await A.app(D, { method: 'POST', body: { nombre: 'x', canal: 'whatsapp', bandeja_id: 999999, plantilla: 'promo', idioma: 'es' } })).status === 400 && (await A.app(D, { method: 'POST', body: { nombre: 'x', canal: 'whatsapp', bandeja_id: bd.data.id } })).status === 400 && (await B.app(D, { method: 'POST', body: { nombre: 'x', canal: 'whatsapp', bandeja_id: bd.data.id, plantilla: 'promo', idioma: 'es' } })).status === 400);
+  const df = await A.app(D, { method: 'POST', body: { nombre: 'Promo de prueba', canal: 'whatsapp', bandeja_id: bd.data.id, plantilla: 'promo', idioma: 'es', variables: ['{nombre}'], segmento: { stage: 'lead' } } });
+  check('Marketing: crea la difusión con sus destinatarios', df.status === 201 && df.data.total === vista.total && (await A.app(D)).data.rows?.[0]?.pendientes === vista.total);
+  const env = await A.app(`${D}/${df.data.id}/enviar`, { method: 'POST' });
+  const dfv = (await A.app(`${D}/${df.data.id}`)).data;
+  check('Marketing: sin clave API el envío se detiene y nadie queda marcado', env.status >= 400 && /se detuvo/.test(env.data?.error || '') && dfv.enviados === 0 && dfv.fallidos === 0 && dfv.pendientes === vista.total, JSON.stringify(env.data));
+  check('Marketing: B no ve, envía ni borra la difusión de A; A sí la borra', (await B.app(`${D}/${df.data.id}`)).status === 404 && (await B.app(`${D}/${df.data.id}/enviar`, { method: 'POST' })).status === 404 && (await B.app(`${D}/${df.data.id}`, { method: 'DELETE' })).status === 404 && (await A.app(`${D}/${df.data.id}`, { method: 'DELETE' })).status === 200 && (await A.app(D)).data.rows.length === 0);
+  check('Marketing IA: lista las difusiones', Array.isArray(sc(await T('marketing_listar_difusiones', {})).rows));
   const cp = sc(await T('marketing_crear_campana', { nombre: 'Campaña IA', presupuesto: 500000 }));
   const gc = sc(await T('marketing_crear_gasto_campana', { campaign_id: cp.id, date: hoy, amount: 120000, clicks: 80 }));
   check('Marketing IA: registra el gasto de una campaña', gc.id > 0 && sc(await T('marketing_listar_gastos_campana', { f_campaign_id: String(cp.id) })).gastos_campana?.[0]?.amount === 120000);

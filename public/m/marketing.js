@@ -73,7 +73,7 @@ DW.ready.then((me) => {
       { k: 'status', label: 'Estado', type: 'select', options: [['activo', 'Activo'], ['revisado', 'Revisado'], ['descartado', 'Descartado']] }, { k: 'score', label: 'Puntaje', type: 'int' }, { k: 'notes', label: 'Notas', type: 'long' }],
   };
 
-  const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['contactos', 'Clientes y leads', 'bi-person-lines-fill'], ['oportunidades', 'Oportunidades', 'bi-funnel'],
+  const VIEWS = [['resumen', 'Resumen', 'bi-graph-up'], ['contactos', 'Clientes y leads', 'bi-person-lines-fill'], ['oportunidades', 'Oportunidades', 'bi-funnel'], ['difusion', 'Difusión', 'bi-broadcast'],
     ['campanas', 'Campañas', 'bi-megaphone'], ['listas', 'Listas', 'bi-list-ul'], ['herramientas', 'Suscripciones y herramientas', 'bi-plug']];
   let view = (location.hash || '#resumen').slice(1);
   // Las tarjetas y la marca ahora viven en su propia pantalla del menú: los enlaces viejos (#tarjetas, #marca, #kit) llevan allá
@@ -83,7 +83,7 @@ DW.ready.then((me) => {
     history.replaceState(null, '', `#${view}`);
     const old = $('[data-view]'), el = old.cloneNode(false);
     old.replaceWith(el);
-    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, campanas: campaigns, listas: lists, herramientas: tools })[view](el);
+    ({ resumen: summary, contactos: contacts, oportunidades: pipeline, difusion, campanas: campaigns, listas: lists, herramientas: tools })[view](el);
   }
 
   async function summary(el) {
@@ -210,6 +210,110 @@ DW.ready.then((me) => {
     };
   }
 
+  // Bandejas y plantillas de Mensajes (para los disparadores de etapa y las difusiones); si el negocio no usa Mensajes llegan vacías
+  let waCache = null;
+  const waBandejas = () => (waCache ||= api('/api/whatsapp/bandejas').then((d) => (d.rows || []).filter((b) => b.activo !== 0 && ['whatsapp', 'correo'].includes(b.canal))).catch(() => []));
+  const tplCache = {};
+  const waPlantillas = (id) => (tplCache[id] ||= api(`/api/whatsapp/plantillas?bandeja=${id}`).then((d) => (d.rows || []).filter((p) => p.soportada)).catch((x) => { delete tplCache[id]; throw x; }));
+
+  // Difusión: un mensaje a un segmento de contactos, por plantilla aprobada de WhatsApp o por correo (bandejas de Mensajes)
+  async function difusion(el) {
+    const puede = me.canManage && !RO;
+    el.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-3"><span class="small text-body-secondary flex-grow-1">Envía un mensaje a un grupo de contactos: una plantilla de WhatsApp o un correo. Sale por las bandejas de Mensajes y cada envío queda en el chat de la persona.</span>${puede ? '<button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nueva difusión</button>' : ''}</div><div data-l><div class="dv-sk"></div></div>`;
+    const EST = { pendiente: ['soon', 'Sin enviar'], enviando: ['soon', 'A medias'], terminada: ['ok', 'Enviada'] };
+    let rows = [];
+    async function load() {
+      rows = (await api(`${B}/difusiones`)).rows;
+      $('[data-l]', el).innerHTML = rows.length ? `<div class="list-group">${rows.map((d) => `<div class="list-group-item" data-id="${d.id}"><div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="me-auto"><b><i class="bi ${d.canal === 'correo' ? 'bi-envelope' : 'bi-whatsapp'} me-1"></i>${esc(d.nombre)}</b> ${chip(...(EST[d.estado] || EST.pendiente))}<span class="d-block small text-body-secondary">${esc(d.canal === 'correo' ? d.asunto || '' : `Plantilla ${d.plantilla || ''}`)} · ${day(new Date(d.created_at).toISOString().slice(0, 10))}${d.creado_por ? ` · ${esc(d.creado_por)}` : ''}</span></span>
+          <span class="small text-nowrap"><b>${num(d.enviados)}</b> de ${num(d.total)} enviados${d.fallidos ? ` · <span class="text-danger">${num(d.fallidos)} con error</span>` : ''}</span>
+          ${puede && d.pendientes ? `<button class="btn btn-sm btn-primary" data-go><i class="bi bi-send me-1"></i>${d.enviados + d.fallidos ? 'Continuar' : 'Enviar'}</button>` : ''}${d.fallidos ? '<button class="btn btn-sm btn-outline-secondary" data-err>Ver errores</button>' : ''}${puede ? '<button class="btn btn-sm btn-outline-danger" data-rm aria-label="Borrar"><i class="bi bi-trash"></i></button>' : ''}</div>
+          <div class="progress mt-2" style="height:6px"><div class="progress-bar bg-success" style="width:${(d.enviados / Math.max(1, d.total) * 100).toFixed(1)}%"></div><div class="progress-bar bg-danger" style="width:${(d.fallidos / Math.max(1, d.total) * 100).toFixed(1)}%"></div></div></div>`).join('')}</div>`
+        : '<div class="dw-card text-center text-body-secondary py-5"><i class="bi bi-broadcast fs-2 d-block mb-2"></i>Aún no has enviado difusiones.<br><span class="small">Sirven para avisar una promoción, reactivar leads fríos o recordar algo a todos tus clientes.</span></div>';
+    }
+    // Envía por tandas cortas mostrando el avance; se puede pausar y retomar después desde la lista
+    function enviar(d) {
+      let parar = false;
+      const { el: w, m } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Enviando «${esc(d.nombre)}»</h2></div><div class="modal-body"><div class="progress mb-2" style="height:10px"><div class="progress-bar bg-success" data-ok style="width:0"></div><div class="progress-bar bg-danger" data-ko style="width:0"></div></div><p class="small mb-0" data-t>Empezando…</p></div>
+        <div class="modal-footer border-0 pt-0"><button class="btn btn-light" data-stop>Pausar</button></div>`);
+      const pinta = (r) => { $('[data-ok]', w).style.width = `${(r.enviados / Math.max(1, r.total) * 100).toFixed(1)}%`; $('[data-ko]', w).style.width = `${(r.fallidos / Math.max(1, r.total) * 100).toFixed(1)}%`; $('[data-t]', w).innerHTML = `<b>${num(r.enviados)}</b> enviados${r.fallidos ? ` · <span class="text-danger">${num(r.fallidos)} con error</span>` : ''} · faltan ${num(r.pendientes)}`; };
+      $('[data-stop]', w).onclick = () => { parar = true; m.hide(); };
+      w.addEventListener('hidden.bs.modal', () => { parar = true; load(); });
+      (async () => {
+        try {
+          for (;;) {
+            const r = await api(`${B}/difusiones/${d.id}/enviar`, { method: 'POST' });
+            pinta(r);
+            if (!r.pendientes) { $('[data-stop]', w).textContent = 'Cerrar'; toast(`Difusión enviada: ${num(r.enviados)} ${r.enviados === 1 ? 'mensaje' : 'mensajes'}${r.fallidos ? ` y ${num(r.fallidos)} con error` : ''}`); return; }
+            if (parar) return;
+          }
+        } catch (x) { $('[data-t]', w).innerHTML = `<span class="text-danger">${esc(x.message)}</span>`; $('[data-stop]', w).textContent = 'Cerrar'; }
+      })();
+    }
+    async function nueva() {
+      const [bs, op, pp, ks] = await Promise.all([waBandejas(), api(`${B}/difusiones/opciones`), api(`${B}/pipelines`), C.refs(B, 'campaigns')]);
+      if (!bs.length) return toast('Primero conecta WhatsApp o un correo en Mensajes', false);
+      const hay = (canal) => bs.some((b) => b.canal === canal);
+      const { el: d, m } = modal(`<form><div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Nueva difusión</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body"><div class="row g-2">
+          <div class="col-sm-7"><label class="form-label small mb-1">Nombre</label><input class="form-control" name="nombre" required maxlength="100" placeholder="Promo de noviembre"></div>
+          <div class="col-sm-5"><label class="form-label small mb-1">Canal</label><select class="form-select" name="canal">${hay('whatsapp') ? '<option value="whatsapp">WhatsApp (plantilla)</option>' : ''}${hay('correo') ? '<option value="correo">Correo</option>' : ''}</select></div>
+          <div class="col-sm-6"><label class="form-label small mb-1">Sale por</label><select class="form-select" name="bandeja_id"></select></div>
+          <div class="col-sm-6" data-wa><label class="form-label small mb-1">Plantilla aprobada</label><select class="form-select" name="tpl"></select></div>
+          <div class="col-12" data-wa><div class="small border rounded p-2 bg-body-tertiary" data-prev></div><div class="row g-2 mt-0" data-vars></div></div>
+          <div class="col-12" data-co hidden><label class="form-label small mb-1">Asunto</label><input class="form-control" name="asunto" maxlength="200"></div>
+          <div class="col-12" data-co hidden><label class="form-label small mb-1">Mensaje</label><textarea class="form-control" name="mensaje" rows="5" maxlength="8000" placeholder="Hola {nombre}, …"></textarea><div class="form-text">Puedes usar {nombre} y {empresa}.</div></div>
+          <div class="col-12"><div class="small fw-semibold mt-2">A quién</div></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Contactos</label><select class="form-select" name="stage"><option value="">Leads y clientes</option><option value="lead">Solo leads</option><option value="cliente">Solo clientes</option></select></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Origen</label><select class="form-select" name="source"><option value="">Cualquiera</option>${op.origenes.map((x) => `<option>${esc(x)}</option>`).join('')}</select></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Etiqueta</label><select class="form-select" name="tag"><option value="">Cualquiera</option>${op.etiquetas.map((x) => `<option>${esc(x)}</option>`).join('')}</select></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Campaña</label><select class="form-select" name="campaign_id"><option value="">Cualquiera</option>${ks.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Con oportunidad en</label><select class="form-select" name="pipe"><option value="">No filtrar</option>${pp.pipelines.map((p) => `<optgroup label="${esc(p.name)}"><option value="${p.id}|">Cualquier etapa abierta</option>${[...p.stages, ...pp.cierres].map((e) => `<option value="${p.id}|${esc(e.k)}">${esc(e.n)}</option>`).join('')}</optgroup>`).join('')}</select></div>
+          <div class="col-sm-4"><label class="form-label small mb-1">Sin contacto hace más de</label><div class="input-group"><input class="form-control" name="dias" type="number" min="0" max="999" placeholder="—"><span class="input-group-text">días</span></div></div>
+          <div class="col-12"><div class="alert alert-light border small mb-0" data-cuenta>Calculando…</div></div>
+          <div class="col-12 small text-body-secondary" data-wa><i class="bi bi-info-circle me-1"></i>WhatsApp solo deja enviar plantillas aprobadas por Meta, cobra cada mensaje y exige que la persona haya aceptado recibirlos. Quien respondió STOP no lo recibe.</div>
+        </div></div>
+        <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" data-ok disabled>Crear y enviar</button></div></form>`, { size: 'modal-lg' });
+      const f = $('form', d);
+      let tpls = [], total = 0, turno = 0;
+      const seg = () => { const [pid, etapa] = f.pipe.value.split('|'); return { stage: f.stage.value, source: f.source.value, tag: f.tag.value, campaign_id: Number(f.campaign_id.value) || null, pipeline_id: Number(pid) || null, etapa: etapa || null, sin_contacto_dias: Number(f.dias.value) || null }; };
+      const cuenta = async () => {
+        const mio = ++turno, box = $('[data-cuenta]', d);
+        try { const r = await api(`${B}/difusiones/vista`, { method: 'POST', body: { canal: f.canal.value, segmento: seg() } }); if (mio !== turno) return; total = r.total;
+          box.innerHTML = r.total ? `Le llegará a <b>${num(r.total)}</b> ${r.total === 1 ? 'contacto' : 'contactos'}${r.hay_mas ? ` (el máximo por difusión son ${num(op.maximo)})` : ''}: ${r.muestra.map(esc).join(', ')}${r.total > r.muestra.length ? '…' : ''}` : `Ningún contacto de ese grupo tiene ${f.canal.value === 'correo' ? 'correo' : 'teléfono'}.`;
+        } catch (x) { if (mio === turno) { total = 0; box.textContent = x.message; } }
+        $('[data-ok]', d).disabled = !total;
+      };
+      const tpl = () => tpls.find((p) => `${p.nombre}|${p.idioma}` === f.tpl.value);
+      const previa = () => { const p = tpl(); $('[data-prev]', d).textContent = p ? p.cuerpo : 'Esta bandeja no tiene plantillas aprobadas que se puedan enviar desde aquí.'; $('[data-vars]', d).innerHTML = p ? Array.from({ length: p.variables }, (_, i) => `<div class="col-sm-6"><label class="form-label small mb-1">Variable {{${i + 1}}}</label><input class="form-control" data-v value="${i ? '' : '{nombre}'}" required></div>`).join('') : ''; };
+      const plantillas = async () => { f.tpl.innerHTML = '<option value="">Cargando…</option>'; try { tpls = f.canal.value === 'whatsapp' && f.bandeja_id.value ? await waPlantillas(f.bandeja_id.value) : []; } catch (x) { tpls = []; toast(x.message, false); } f.tpl.innerHTML = tpls.map((p) => `<option value="${esc(p.nombre)}|${esc(p.idioma)}">${esc(p.nombre)} (${esc(p.idioma)})</option>`).join(''); previa(); };
+      const canal = () => { const co = f.canal.value === 'correo'; $$('[data-wa]', d).forEach((x) => { x.hidden = co; }); $$('[data-co]', d).forEach((x) => { x.hidden = !co; }); f.asunto.required = f.mensaje.required = co;
+        f.bandeja_id.innerHTML = bs.filter((b) => b.canal === f.canal.value).map((b) => `<option value="${b.id}">${esc(b.nombre)}</option>`).join(''); plantillas(); cuenta(); };
+      f.canal.onchange = canal; f.bandeja_id.onchange = plantillas; f.tpl.onchange = previa;
+      ['stage', 'source', 'tag', 'campaign_id', 'pipe'].forEach((k) => { f[k].onchange = cuenta; }); f.dias.oninput = cuenta;
+      canal();
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const p = tpl();
+        if (f.canal.value === 'whatsapp' && !p) return toast('Elige una plantilla aprobada', false);
+        if (!(await confirm(`¿Enviar «${f.nombre.value}» a ${num(total)} ${total === 1 ? 'contacto' : 'contactos'}?`))) return;
+        try {
+          const out = await api(`${B}/difusiones`, { method: 'POST', body: { nombre: f.nombre.value, canal: f.canal.value, bandeja_id: Number(f.bandeja_id.value), plantilla: p?.nombre, idioma: p?.idioma, variables: $$('[data-v]', d).map((x) => x.value), asunto: f.asunto.value, mensaje: f.mensaje.value, segmento: seg() } });
+          m.hide(); enviar({ id: out.id, nombre: f.nombre.value });
+        } catch (x) { toast(x.message, false); }
+      };
+    }
+    $('[data-new]', el)?.addEventListener('click', () => nueva().catch((x) => toast(x.message, false)));
+    el.addEventListener('click', async (e) => {
+      const it = e.target.closest('[data-id]'); if (!it) return;
+      const d = rows.find((x) => String(x.id) === it.dataset.id);
+      if (e.target.closest('[data-go]')) enviar(d);
+      else if (e.target.closest('[data-err]')) { const r = await api(`${B}/difusiones/${d.id}`); modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Errores de «${esc(d.nombre)}»</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><ul class="list-group">${r.lista_fallidos.map((x) => `<li class="list-group-item small d-flex justify-content-between gap-3"><span>${esc(x.nombre || '')}</span><span class="text-danger text-end">${esc(x.error || '')}</span></li>`).join('')}</ul></div>`); }
+      else if (e.target.closest('[data-rm]')) { if (!(await confirm(`¿Borrar la difusión «${d.nombre}»? Los mensajes ya enviados no se retiran.`))) return; try { await api(`${B}/difusiones/${d.id}`, { method: 'DELETE' }); toast('Borrada'); load(); } catch (x) { toast(x.message, false); } }
+    });
+    load().catch((x) => { $('[data-l]', el).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; });
+  }
+
   // Oportunidades: pipelines con etapas propias, tablero por etapa con sus totales y la ficha de seguimiento de cada oportunidad
   const PRESETS = {
     llamada: ['Ventas con llamada', ['Nuevo lead', 'Contactado', 'Calificado', 'Llamada agendada', 'Asistió', 'No asistió', 'Seguimiento']],
@@ -222,13 +326,13 @@ DW.ready.then((me) => {
       .mk-kt{font-size:.8rem;color:var(--bs-secondary-color);margin:0 0 8px}.mk-col-ok{border-top:3px solid var(--bs-success)}.mk-col-no{border-top:3px solid var(--bs-danger)}.mk-col{border-top:3px solid var(--dw-p,var(--bs-primary))}
       .mk-prox{font-size:.8rem;color:var(--bs-secondary-color)}.mk-prox.late{color:var(--bs-danger);font-weight:600}.mk-prox.hoy{color:var(--bs-success);font-weight:600}
       .mk-res{display:flex;flex-wrap:wrap;gap:6px 16px}.mk-res b{font-weight:700}.mk-vacio{font-size:.8rem;color:var(--bs-secondary-color);text-align:center;padding:18px 4px}
-      .mk-et{display:flex;gap:6px;align-items:center;margin-bottom:6px}.mk-ct{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--dw-activo-bg,var(--bs-tertiary-bg));border-radius:12px;padding:8px 12px}
+      .mk-et{display:flex;gap:6px;align-items:center;margin-bottom:6px}.mk-au{border-left:3px solid var(--bs-warning);margin:0 0 10px 12px;padding:6px 0 6px 12px}.mk-ct{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--dw-activo-bg,var(--bs-tertiary-bg));border-radius:12px;padding:8px 12px}
       .dw-kcol.sobre{outline:2px dashed var(--dw-p,var(--bs-primary));outline-offset:-2px}</style>`);
     el.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
         <select class="form-select w-auto" data-pipe aria-label="Pipeline"></select>
         <select class="form-select w-auto" data-per aria-label="Periodo"><option value="">Todo el tiempo</option><option value="mes">Creadas este mes</option><option value="90">Últimos 90 días</option></select>
         <input class="form-control" style="max-width:230px" type="search" placeholder="Buscar oportunidad…" data-q aria-label="Buscar oportunidad">
-        <span class="ms-auto d-flex gap-2">${me.canManage && !RO ? '<button class="btn btn-outline-secondary" data-pipes><i class="bi bi-sliders me-1"></i>Pipelines y etapas</button>' : ''}${RO ? '' : '<button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nueva oportunidad</button>'}</span>
+        <span class="ms-auto d-flex flex-wrap gap-2"><button class="btn btn-outline-secondary" data-inf><i class="bi bi-bar-chart-line me-1"></i>Informe</button>${me.canManage && !RO ? '<button class="btn btn-outline-secondary" data-pipes><i class="bi bi-sliders me-1"></i>Pipelines y etapas</button>' : ''}${RO ? '' : '<button class="btn btn-primary" data-new><i class="bi bi-plus-lg me-1"></i>Nueva oportunidad</button>'}</span>
       </div><div class="mk-res small mb-2" data-res></div><div class="dw-kanban" data-k></div>`;
     const guardado = (() => { try { return Number(localStorage.getItem('dw_mk_pipe')) || 0; } catch { return 0; } })();
     let rows = [], ps = [], cierres = [], cs = [], ks = [], pid = guardado;
@@ -279,6 +383,7 @@ DW.ready.then((me) => {
           <div class="col-sm-5"><label class="form-label small mb-1">Valor (COP)</label><input class="form-control" name="value" type="number" min="0" step="1" inputmode="numeric" value="${Number(v.value) || 0}"></div>
           <div class="col-sm-6" ${ps.length < 2 ? 'hidden' : ''}><label class="form-label small mb-1">Pipeline</label><select class="form-select" name="pipeline_id">${ps.map((p) => `<option value="${p.id}" ${p.id === p0.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
           <div class="${ps.length < 2 ? 'col-12' : 'col-sm-6'}"><label class="form-label small mb-1">Etapa</label><select class="form-select" name="stage"></select></div>
+          <div class="col-12" data-mot hidden><label class="form-label small mb-1">Por qué se perdió</label><input class="form-control" name="lost_reason" maxlength="300" list="mk-mot" value="${esc(v.lost_reason || '')}" placeholder="Precio, no respondió, eligió a otro…"><datalist id="mk-mot"><option>Precio</option><option>No respondió</option><option>Eligió a otro</option><option>No era el momento</option><option>No califica</option><option>No asistió</option></datalist></div>
           <div class="col-12"><div class="small fw-semibold mt-2">Próximo seguimiento</div></div>
           <div class="col-7 col-sm-4"><label class="form-label small mb-1">Fecha</label><input class="form-control" name="next_date" type="date" value="${esc(v.next_date || '')}"></div>
           <div class="col-5 col-sm-3"><label class="form-label small mb-1">Hora</label><input class="form-control" name="next_time" type="time" value="${esc(v.next_time || '')}"></div>
@@ -300,17 +405,44 @@ DW.ready.then((me) => {
           ${tel ? `<a class="btn btn-sm btn-outline-secondary" href="tel:${esc(tel)}" title="Llamar" aria-label="Llamar"><i class="bi bi-telephone"></i></a><a class="btn btn-sm btn-outline-success" target="_blank" rel="noopener" href="https://wa.me/${esc(wa)}" title="WhatsApp" aria-label="WhatsApp"><i class="bi bi-whatsapp"></i></a>` : ''}
           ${k.email ? `<a class="btn btn-sm btn-outline-secondary" href="mailto:${esc(k.email)}" title="Correo" aria-label="Correo"><i class="bi bi-envelope"></i></a>` : ''}`;
       };
-      etapas(); contacto();
-      f.pipeline_id.onchange = etapas; f.contact_id.onchange = contacto;
+      const motivo = () => { $('[data-mot]', d).hidden = f.stage.value !== 'perdido'; };
+      etapas(); contacto(); motivo();
+      f.pipeline_id.onchange = () => { etapas(); motivo(); }; f.contact_id.onchange = contacto; f.stage.onchange = motivo;
       const guardar = async (extra = {}) => {
         const body = { title: f.title.value, contact_id: Number(f.contact_id.value) || null, value: Number(f.value.value) || 0, pipeline_id: Number(f.pipeline_id.value) || null, stage: f.stage.value, next_date: f.next_date.value || null, next_time: f.next_time.value || null,
-          next_note: f.next_note.value, expected_close: f.expected_close.value || null, campaign_id: Number(f.campaign_id.value) || null, notes: f.notes.value, ...extra };
+          next_note: f.next_note.value, lost_reason: f.lost_reason.value, expected_close: f.expected_close.value || null, campaign_id: Number(f.campaign_id.value) || null, notes: f.notes.value, ...extra };
         try { await api(row ? `${B}/deals/${row.id}` : `${B}/deals`, { method: row ? 'PATCH' : 'POST', body }); C.dropRefs(B, 'deals'); m.hide(); toast(extra.stage === 'ganado' ? '¡Ganada!' : 'Guardado'); load(); } catch (x) { toast(x.message, false); }
       };
       f.onsubmit = (e) => { e.preventDefault(); guardar(); };
-      $$('[data-fin]', d).forEach((b) => { b.onclick = () => { if (f.reportValidity()) guardar({ stage: b.dataset.fin }); }; });
+      $$('[data-fin]', d).forEach((b) => { b.onclick = () => {
+        if (!f.reportValidity()) return;
+        // Perdida: primero pide el motivo (sirve para el informe); con el motivo escrito, guarda
+        if (b.dataset.fin === 'perdido' && !f.lost_reason.value.trim()) { f.stage.value = 'perdido'; motivo(); f.lost_reason.focus(); return toast('Escribe por qué se perdió y guarda'); }
+        guardar({ stage: b.dataset.fin });
+      }; });
       const del = $('[data-del]', d);
       if (del) del.onclick = async () => { if (!(await confirm(`¿Borrar la oportunidad «${row.title}»?`))) return; try { await api(`${B}/deals/${row.id}`, { method: 'DELETE' }); C.dropRefs(B, 'deals'); m.hide(); toast('Borrada'); load(); } catch (x) { toast(x.message, false); } };
+    }
+
+    // Informe del pipeline: conversión entre etapas, días en cada una, dónde se pierden y por qué
+    function informe() {
+      const p = P(); if (!p) return;
+      const { el: d } = modal(`<div class="modal-header border-0 pb-0"><h2 class="modal-title h5">Informe de «${esc(p.name)}»</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body"><select class="form-select w-auto mb-3" data-rango aria-label="Periodo"><option value="">Todas las oportunidades</option><option value="30">Creadas en los últimos 30 días</option><option value="90">Creadas en los últimos 90 días</option><option value="365">Creadas en el último año</option></select><div data-i><div class="dv-sk"></div><div class="dv-sk"></div></div></div>`, { size: 'modal-lg' });
+      const pinta = async () => {
+        const dias = Number($('[data-rango]', d).value), desde = dias ? new Date(Date.now() - 5 * 3600000 - dias * 86400000).toISOString().slice(0, 10) : '';
+        let r; try { r = await api(`${B}/pipelines/${p.id}/informe${desde ? `?from=${desde}` : ''}`); } catch (x) { $('[data-i]', d).innerHTML = `<p class="text-danger">${esc(x.message)}</p>`; return; }
+        if (!r.total) { $('[data-i]', d).innerHTML = '<p class="text-body-secondary text-center py-4">No hay oportunidades en ese periodo.</p>'; return; }
+        const peor = r.etapas.filter((e) => e.llegaron >= 3 && e.avanzan_pct != null).sort((a, b) => a.avanzan_pct - b.avanzan_pct)[0];
+        const dato = (t, v, s) => `<div class="col-6 col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">${t}</div><div class="fw-bold">${v}</div><div class="small text-body-secondary">${s || ''}</div></div></div>`;
+        $('[data-i]', d).innerHTML = `<div class="row g-2 mb-3">${dato('Oportunidades', num(r.total), `${num(r.total - r.ganadas.n - r.perdidas.n)} abiertas`)}${dato('Ganadas', num(r.ganadas.n), money(r.ganadas.valor))}${dato('Tasa de cierre', r.tasa_cierre == null ? '—' : pct(r.tasa_cierre), `${num(r.perdidas.n)} perdidas`)}${dato('Días para ganar', r.ciclo_dias == null ? '—' : num(r.ciclo_dias), 'en promedio')}</div>
+          ${peor && peor.avanzan_pct < 100 ? `<div class="alert alert-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>Donde más se traba: <b>${esc(peor.etapa)}</b>. Solo ${pct(peor.avanzan_pct)} de las que llegan ahí avanza.</div>` : ''}
+          <div class="table-responsive"><table class="table table-sm align-middle small"><thead><tr><th>Etapa</th><th class="text-end">Llegaron</th><th style="min-width:130px">Avanzan</th><th class="text-end">Días ahí</th><th class="text-end">Abiertas</th><th class="text-end">Se perdieron aquí</th></tr></thead><tbody>
+          ${r.etapas.map((e) => `<tr><td>${esc(e.etapa)}</td><td class="text-end">${num(e.llegaron)}</td><td>${e.avanzan_pct == null ? '—' : `<div class="d-flex align-items-center gap-2"><div class="progress flex-grow-1" style="height:6px"><div class="progress-bar" style="width:${Math.min(100, e.avanzan_pct)}%"></div></div><span style="width:38px" class="text-end">${pct(e.avanzan_pct)}</span></div>`}</td><td class="text-end">${e.dias_promedio == null ? '—' : num(e.dias_promedio)}</td><td class="text-end">${num(e.abiertas)}${e.abiertas ? `<span class="text-body-secondary"> · ${money(e.valor_abierto)}</span>` : ''}</td><td class="text-end ${e.perdidas_aqui ? 'text-danger' : ''}">${num(e.perdidas_aqui)}</td></tr>`).join('')}</tbody></table></div>
+          <div class="small fw-semibold mb-1">Por qué se pierden</div>${r.motivos.length ? r.motivos.map((m) => `<div class="d-flex align-items-center gap-2 small mb-1"><span style="width:150px" class="text-truncate">${esc(m.motivo)}</span><div class="progress flex-grow-1" style="height:6px"><div class="progress-bar bg-danger" style="width:${(m.n / r.motivos[0].n * 100).toFixed(0)}%"></div></div><b style="width:26px" class="text-end">${num(m.n)}</b><span class="text-body-secondary text-end" style="width:100px">${money(m.valor)}</span></div>`).join('') : '<p class="small text-body-secondary mb-0">Aún no hay oportunidades perdidas.</p>'}
+          <p class="small text-body-secondary mt-3 mb-0">«Avanzan» es la parte de las que llegaron a la etapa que pasó a la siguiente (o se ganó). Los días se miden desde que existe este informe; lo anterior cuenta solo hasta la etapa donde quedó.</p>`;
+      };
+      $('[data-rango]', d).onchange = pinta; pinta();
     }
 
     // Pipelines y etapas (propietario o administrador): una sola ventana que cambia entre la lista y el editor
@@ -321,42 +453,81 @@ DW.ready.then((me) => {
       async function lista() {
         ps = (await api(`${B}/pipelines`)).pipelines;
         g.innerHTML = `${cab('Pipelines y etapas')}<div class="modal-body"><p class="small text-body-secondary">Cada pipeline es un camino de venta con sus propias etapas. Ganado y Perdido cierran en todos.</p>
-          <div class="list-group">${ps.map((p) => `<div class="list-group-item d-flex flex-wrap align-items-center gap-2"><span class="me-auto"><b>${esc(p.name)}</b>${p.principal ? ' <span class="badge text-bg-light border">Principal</span>' : ''}<span class="d-block small text-body-secondary">${p.stages.map((e) => esc(e.n)).join(' → ')}</span><span class="d-block small text-body-secondary">${num(p.abiertas)} abiertas · ${money(p.valor_abierto)}</span></span>
+          <div class="list-group">${ps.map((p) => `<div class="list-group-item d-flex flex-wrap align-items-center gap-2"><span class="me-auto"><b>${esc(p.name)}</b>${p.principal ? ' <span class="badge text-bg-light border">Principal</span>' : ''}<span class="d-block small text-body-secondary">${p.stages.map((e) => esc(e.n)).join(' → ')}</span><span class="d-block small text-body-secondary">${num(p.abiertas)} abiertas · ${money(p.valor_abierto)}${Object.keys(p.autos || {}).length ? ` · <i class="bi bi-lightning-charge"></i> ${num(Object.values(p.autos).reduce((a, l) => a + l.length, 0))} disparadores` : ''}</span></span>
             <button class="btn btn-sm btn-outline-primary" data-ed="${p.id}"><i class="bi bi-pencil me-1"></i>Editar</button>${p.principal ? '' : `<button class="btn btn-sm btn-outline-danger" data-rm="${p.id}" aria-label="Borrar"><i class="bi bi-trash"></i></button>`}</div>`).join('')}</div></div>
           <div class="modal-footer border-0 pt-0"><button class="btn btn-primary" data-ed="0"><i class="bi bi-plus-lg me-1"></i>Crear pipeline</button></div>`;
       }
-      function editor(p) {
-        let et = (p ? p.stages : PRESETS.llamada[1].map((n) => ({ n }))).map((e) => ({ ...e }));
+      async function editor(p) {
+        const copia = (l) => (l || []).map((a) => ({ ...a, variables: [...(a.variables || [])] }));
+        let et = p ? p.stages.map((e) => ({ ...e, autos: copia(p.autos?.[e.k]) })) : PRESETS.llamada[1].map((n) => ({ n, autos: [] }));
+        const fin = { ganado: copia(p?.autos?.ganado), perdido: copia(p?.autos?.perdido) };
+        const was = (await waBandejas()).filter((b) => b.canal === 'whatsapp'), T = {};
+        let abierto = null;   // etapa con sus disparadores a la vista: su posición, 'ganado' o 'perdido'
         g.innerHTML = `${cab(p ? 'Editar pipeline' : 'Crear pipeline')}<form><div class="modal-body">
           <label class="form-label small mb-1">Nombre del pipeline</label><input class="form-control mb-3" name="name" required maxlength="60" value="${esc(p?.name || '')}" placeholder="Mi nuevo pipeline">
           ${p ? '' : `<label class="form-label small mb-1">Empezar con</label><select class="form-select mb-3" name="pre">${Object.entries(PRESETS).map(([k, [l, e]]) => `<option value="${k}">${esc(l)} (${e.length + 1} etapas)</option>`).join('')}</select>`}
-          <div class="small fw-semibold mb-2">Etapas</div><div data-et></div>
+          <div class="small fw-semibold mb-1">Etapas</div><p class="small text-body-secondary mb-2">El rayo <i class="bi bi-lightning-charge"></i> define qué pasa solo cuando una oportunidad entra a la etapa: crear una tarea, dejar el próximo seguimiento o enviar un WhatsApp.</p><div data-et></div>
           <button type="button" class="btn btn-sm btn-outline-primary" data-add><i class="bi bi-plus-lg me-1"></i>Agregar etapa</button>
-          <p class="small text-body-secondary mt-3 mb-0">Al final siempre van <b>Ganado</b> y <b>Perdido</b>. ${p ? 'Si quitas una etapa, sus oportunidades pasan a la primera.' : ''}</p></div>
+          <p class="small text-body-secondary mt-3 mb-0">${p ? 'Si quitas una etapa, sus oportunidades pasan a la primera.' : ''}</p></div>
           <div class="modal-footer border-0 pt-0"><button type="button" class="btn btn-light" data-back>Volver</button><button class="btn btn-primary">${p ? 'Guardar' : 'Crear pipeline'}</button></div></form>`;
         const f = $('form', g), box = $('[data-et]', g);
-        const leer = () => { $$('[data-n]', box).forEach((i, n) => { et[n].n = i.value; }); };
-        const filas = () => { box.innerHTML = et.map((e, i) => `<div class="mk-et"><button type="button" class="btn btn-sm btn-light" data-up="${i}" ${i ? '' : 'disabled'} aria-label="Subir"><i class="bi bi-arrow-up"></i></button><button type="button" class="btn btn-sm btn-light" data-dn="${i}" ${i < et.length - 1 ? '' : 'disabled'} aria-label="Bajar"><i class="bi bi-arrow-down"></i></button><input class="form-control" data-n maxlength="40" value="${esc(e.n || '')}" placeholder="Nombre de la etapa" aria-label="Etapa ${i + 1}"><button type="button" class="btn btn-sm btn-outline-danger" data-x="${i}" ${et.length > 1 ? '' : 'disabled'} aria-label="Quitar"><i class="bi bi-trash"></i></button></div>`).join(''); };
+        const listaDe = (id) => (id === 'ganado' || id === 'perdido' ? fin[id] : et[id]?.autos);
+        const pedirTpl = (id) => { if (!id || id in T) return; T[id] = null; waPlantillas(id).then((r) => { T[id] = r; }).catch((x) => { T[id] = []; toast(x.message, false); }).finally(() => { leer(); filas(); }); };
+        const rayo = (id, n) => `<button type="button" class="btn btn-sm ${n ? 'btn-warning' : 'btn-light'}" data-au="${id}" title="Qué pasa al entrar a esta etapa" aria-label="Disparadores"><i class="bi bi-lightning-charge"></i>${n || ''}</button>`;
+        const accion = (a, j) => {
+          const quitar = `<button type="button" class="btn btn-sm btn-outline-danger" data-rmau="${j}" aria-label="Quitar"><i class="bi bi-x-lg"></i></button>`, dias = `<input class="form-control form-control-sm" type="number" min="0" max="365" data-f="dias" value="${Number(a.dias) || 0}" style="width:70px" aria-label="Días">`;
+          if (a.tipo === 'tarea') return `<div class="mk-et" data-j="${j}"><i class="bi bi-check2-square"></i><input class="form-control form-control-sm" data-f="texto" maxlength="200" value="${esc(a.texto || '')}" placeholder="Llamar a {nombre}"><span class="small text-nowrap">en</span>${dias}<span class="small">días</span>${quitar}</div>`;
+          if (a.tipo === 'seguimiento') return `<div class="mk-et" data-j="${j}"><i class="bi bi-alarm"></i><span class="small text-nowrap">Seguimiento en</span>${dias}<span class="small">días</span><input class="form-control form-control-sm" data-f="nota" maxlength="100" value="${esc(a.nota || '')}" placeholder="Qué sigue: llamada, reunión…">${quitar}</div>`;
+          pedirTpl(a.bandeja_id);
+          const tp = T[a.bandeja_id] || [], sel = tp.find((x) => x.nombre === a.plantilla && x.idioma === a.idioma);
+          return `<div class="mk-et flex-wrap" data-j="${j}"><i class="bi bi-whatsapp"></i><select class="form-select form-select-sm w-auto" data-f="bandeja_id">${was.map((b) => `<option value="${b.id}" ${b.id === a.bandeja_id ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('')}</select>
+            <select class="form-select form-select-sm w-auto" data-f="tpl">${T[a.bandeja_id] ? '<option value="">Elige la plantilla…</option>' : '<option value="">Cargando…</option>'}${tp.map((x) => `<option value="${esc(x.nombre)}|${esc(x.idioma)}" ${x === sel ? 'selected' : ''}>${esc(x.nombre)} (${esc(x.idioma)})</option>`).join('')}${a.plantilla && !sel ? `<option value="${esc(a.plantilla)}|${esc(a.idioma)}" selected>${esc(a.plantilla)}</option>` : ''}</select>
+            ${Array.from({ length: sel ? sel.variables : (a.variables || []).length }, (_, i) => `<input class="form-control form-control-sm" style="width:130px" data-v value="${esc(a.variables?.[i] ?? (i ? '' : '{nombre}'))}" placeholder="Variable {{${i + 1}}}" aria-label="Variable ${i + 1}">`).join('')}${quitar}</div>`;
+        };
+        const panel = (id) => { const l = listaDe(id); return abierto !== id ? '' : `<div class="mk-au"><div class="small text-body-secondary mb-2">Al entrar a esta etapa:</div>${l.map(accion).join('') || '<div class="small text-body-secondary mb-2">Nada todavía.</div>'}
+          <div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-addau="tarea"><i class="bi bi-plus-lg"></i> Tarea</button><button type="button" class="btn btn-sm btn-outline-secondary" data-addau="seguimiento"><i class="bi bi-plus-lg"></i> Próximo seguimiento</button><button type="button" class="btn btn-sm btn-outline-secondary" data-addau="plantilla" ${was.length ? '' : 'disabled title="Conecta WhatsApp en Mensajes"'}><i class="bi bi-plus-lg"></i> WhatsApp</button></div></div>`; };
+        function leer() {
+          $$('[data-n]', box).forEach((i, n) => { et[n].n = i.value; });
+          const l = abierto === null ? null : listaDe(abierto);
+          if (l) $$('[data-j]', box).forEach((row) => {
+            const a = l[+row.dataset.j]; if (!a) return;
+            const v = (k) => $(`[data-f="${k}"]`, row)?.value;
+            if (a.tipo !== 'plantilla') { a.dias = Number(v('dias')) || 0; if (a.tipo === 'tarea') a.texto = v('texto'); else a.nota = v('nota'); return; }
+            a.bandeja_id = Number(v('bandeja_id')) || a.bandeja_id;
+            if (v('tpl')) [a.plantilla, a.idioma] = v('tpl').split('|');
+            a.variables = $$('[data-v]', row).map((x) => x.value);
+          });
+        }
+        function filas() {
+          box.innerHTML = et.map((e, i) => `<div class="mk-et"><button type="button" class="btn btn-sm btn-light" data-up="${i}" ${i ? '' : 'disabled'} aria-label="Subir"><i class="bi bi-arrow-up"></i></button><button type="button" class="btn btn-sm btn-light" data-dn="${i}" ${i < et.length - 1 ? '' : 'disabled'} aria-label="Bajar"><i class="bi bi-arrow-down"></i></button><input class="form-control" data-n maxlength="40" value="${esc(e.n || '')}" placeholder="Nombre de la etapa" aria-label="Etapa ${i + 1}">${rayo(i, e.autos.length)}<button type="button" class="btn btn-sm btn-outline-danger" data-x="${i}" ${et.length > 1 ? '' : 'disabled'} aria-label="Quitar"><i class="bi bi-trash"></i></button></div>${panel(i)}`).join('')
+            + ['ganado', 'perdido'].map((k) => `<div class="mk-et"><span class="form-control bg-body-tertiary text-body-secondary">${k === 'ganado' ? 'Ganado' : 'Perdido'} <span class="small">· siempre al final</span></span>${rayo(k, fin[k].length)}</div>${panel(k)}`).join('');
+        }
         filas();
-        if (f.pre) f.pre.onchange = () => { et = PRESETS[f.pre.value][1].map((n) => ({ n })); filas(); };
+        if (f.pre) f.pre.onchange = () => { et = PRESETS[f.pre.value][1].map((n) => ({ n, autos: [] })); abierto = null; filas(); };
+        box.onchange = (e) => { if (e.target.matches('[data-f="bandeja_id"], [data-f="tpl"]')) { leer(); const row = e.target.closest('[data-j]'), a = listaDe(abierto)[+row.dataset.j]; if (e.target.dataset.f === 'bandeja_id') { a.plantilla = a.idioma = ''; a.variables = []; } else { const tp = (T[a.bandeja_id] || []).find((x) => x.nombre === a.plantilla && x.idioma === a.idioma); a.variables = Array.from({ length: tp?.variables || 0 }, (_, i) => a.variables[i] ?? (i ? '' : '{nombre}')); } filas(); } };
         box.onclick = (e) => {
           const b = e.target.closest('button'); if (!b) return; leer();
-          const mover = (i, j) => { [et[i], et[j]] = [et[j], et[i]]; };
-          if (b.dataset.up) mover(+b.dataset.up, +b.dataset.up - 1); else if (b.dataset.dn) mover(+b.dataset.dn, +b.dataset.dn + 1); else if (b.dataset.x) et.splice(+b.dataset.x, 1);
+          const d = b.dataset, mover = (i, j) => { [et[i], et[j]] = [et[j], et[i]]; abierto = null; };
+          if (d.up) mover(+d.up, +d.up - 1); else if (d.dn) mover(+d.dn, +d.dn + 1); else if (d.x) { et.splice(+d.x, 1); abierto = null; }
+          else if (d.au) { const id = d.au === 'ganado' || d.au === 'perdido' ? d.au : +d.au; abierto = abierto === id ? null : id; }
+          else if (d.addau) { const l = listaDe(abierto); if (l.length >= 5) return toast('Máximo 5 por etapa', false); l.push(d.addau === 'tarea' ? { tipo: 'tarea', texto: '', dias: 0 } : d.addau === 'seguimiento' ? { tipo: 'seguimiento', dias: 1, nota: '' } : { tipo: 'plantilla', bandeja_id: was[0].id, plantilla: '', idioma: '', variables: [] }); }
+          else if (d.rmau) listaDe(abierto).splice(+d.rmau, 1);
           filas();
         };
-        $('[data-add]', g).onclick = () => { leer(); if (et.length >= 15) return toast('Máximo 15 etapas', false); et.push({ n: '' }); filas(); $$('[data-n]', box).pop().focus(); };
+        $('[data-add]', g).onclick = () => { leer(); if (et.length >= 15) return toast('Máximo 15 etapas', false); et.push({ n: '', autos: [] }); filas(); $$('[data-n]', box).pop().focus(); };
         $('[data-back]', g).onclick = lista;
         f.onsubmit = async (e) => {
           e.preventDefault(); leer();
           const stages = et.filter((x) => String(x.n || '').trim());
           if (!stages.length) return toast('Agrega al menos una etapa', false);
-          try { const out = await api(p ? `${B}/pipelines/${p.id}` : `${B}/pipelines`, { method: p ? 'PATCH' : 'POST', body: { name: f.name.value, stages } }); if (!p) { pid = out.id; try { localStorage.setItem('dw_mk_pipe', pid); } catch {} } toast(p ? 'Guardado' : 'Pipeline creado'); lista(); } catch (x) { toast(x.message, false); }
+          if ([...stages.flatMap((x) => x.autos), ...fin.ganado, ...fin.perdido].some((a) => (a.tipo === 'tarea' && !String(a.texto || '').trim()) || (a.tipo === 'plantilla' && !a.plantilla))) return toast('Hay un disparador sin terminar: escribe la tarea o elige la plantilla', false);
+          const body = { name: f.name.value, stages: stages.map(({ k, n }) => ({ k, n })), autos: { ...Object.fromEntries(stages.filter((x) => x.k).map((x) => [x.k, x.autos])), ...fin }, autos_nuevas: Object.fromEntries(stages.map((x, i) => [i, x]).filter(([, x]) => !x.k && x.autos.length).map(([i, x]) => [i, x.autos])) };
+          try { const out = await api(p ? `${B}/pipelines/${p.id}` : `${B}/pipelines`, { method: p ? 'PATCH' : 'POST', body }); if (!p) { pid = out.id; try { localStorage.setItem('dw_mk_pipe', pid); } catch {} } toast(p ? 'Guardado' : 'Pipeline creado'); lista(); } catch (x) { toast(x.message, false); }
         };
       }
       g.addEventListener('click', async (e) => {
         const ed = e.target.closest('[data-ed]'), rm = e.target.closest('[data-rm]');
-        if (ed) editor(ps.find((p) => String(p.id) === ed.dataset.ed) || null);
+        if (ed) editor(ps.find((p) => String(p.id) === ed.dataset.ed) || null).catch((x) => toast(x.message, false));
         if (rm) { const p = ps.find((x) => String(x.id) === rm.dataset.rm); if (!(await confirm(`¿Borrar el pipeline «${p.name}»?`))) return; try { await api(`${B}/pipelines/${p.id}`, { method: 'DELETE' }); toast('Borrado'); lista(); } catch (x) { toast(x.message, false); } }
       });
       lista();
@@ -364,6 +535,7 @@ DW.ready.then((me) => {
 
     $('[data-new]', el)?.addEventListener('click', () => ficha(null));
     $('[data-pipes]', el)?.addEventListener('click', gestionar);
+    $('[data-inf]', el).addEventListener('click', informe);
     $('[data-pipe]', el).onchange = (e) => { pid = Number(e.target.value); try { localStorage.setItem('dw_mk_pipe', pid); } catch {} pintar(); };
     $('[data-per]', el).onchange = pintar; $('[data-q]', el).oninput = pintar;
     el.addEventListener('click', (e) => { const c = e.target.closest('.dw-kcard'); if (c) ficha(rows.find((r) => String(r.id) === c.dataset.id)); });

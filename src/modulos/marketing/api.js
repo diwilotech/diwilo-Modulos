@@ -1,6 +1,8 @@
 // Marketing (Marketing Hub de Diwilo, por negocio). Ver: todo el equipo; borrar: propietario y administrador.
 //   CRUD   /api/marketing/{contacts|deals|campaigns|spend|tasks|automations|lists|list_items|tools}
 //   GET    /api/marketing/pipelines                     pipelines con sus etapas · POST { name, stages } · PATCH/DELETE /:id (propietario o administrador)
+//   GET    /api/marketing/pipelines/:id/informe?from=&to=  conversión entre etapas, días por etapa y motivos de pérdida
+//   /api/marketing/difusiones                           GET lista · POST crear { nombre, canal, bandeja_id, plantilla|asunto+mensaje, segmento } · POST /vista · POST /:id/enviar (por tandas) · DELETE
 //   GET    /api/marketing/seguimientos                  oportunidades abiertas con su próximo paso (vencidas primero)
 //   GET    /api/marketing/summary?from=&to=             leads, embudo, campañas (gasto, costo por lead, ROI, clics), tareas
 //   GET    /api/marketing/resumen                       widget del dashboard
@@ -21,6 +23,7 @@ import { audit } from '../../lib/audit.js';
 import { readFeed } from './web.js';
 import { orgUsa } from '../../lib/contexto.js';
 import { CARD_ENTITY, cardRoutes } from './tarjetas.js';
+import { llamar } from '../../lib/interno.js';
 
 const MOD = 'marketing';
 const B = '/api/marketing';
@@ -51,7 +54,7 @@ export const CIERRES = ['ganado', 'perdido'];
 const ETAPAS_BASE = [{ k: 'nuevo', n: 'Nuevo' }, { k: 'calificado', n: 'Calificado' }, { k: 'propuesta', n: 'Propuesta' }, { k: 'negociacion', n: 'Negociación' }];
 const leerEtapas = (txt) => { try { const v = JSON.parse(txt).filter((x) => x?.k && x?.n).map((x) => ({ k: String(x.k), n: String(x.n) })); if (v.length) return v; } catch {} return ETAPAS_BASE; };
 export async function pipelinesDe(env, biz) {
-  const leer = () => all(env, 'SELECT id, name, stages FROM mk_pipelines WHERE business_id = ? ORDER BY position, id', biz);
+  const leer = () => all(env, 'SELECT id, name, stages, autos FROM mk_pipelines WHERE business_id = ? ORDER BY position, id', biz);
   let rows = await leer();
   if (!rows.length) {
     const t = now();
@@ -59,7 +62,7 @@ export async function pipelinesDe(env, biz) {
       .bind(biz, 'Embudo comercial', JSON.stringify(ETAPAS_BASE), t, t, biz).run();
     rows = await leer();
   }
-  return rows.map((r, i) => ({ id: r.id, name: r.name, principal: i === 0, stages: leerEtapas(r.stages) }));
+  return rows.map((r, i) => ({ id: r.id, name: r.name, principal: i === 0, stages: leerEtapas(r.stages), autos: leerAutos(r.autos) }));
 }
 // Etapas que llegan del formulario o de la IA: [{k?, n}] o ['Nombre'] o ['clave=Nombre nuevo']. Una etapa que ya existía conserva su clave
 // (así sus oportunidades no se mueven); las nuevas reciben una clave a partir del nombre.
@@ -121,7 +124,8 @@ async function onNewContact(env, biz, contact) {
     if (a.action === 'crear_oportunidad') {
       const t = now(), etapa = (await pipelinesDe(env, biz))[0].stages[0].k;
       await env.DB.prepare('INSERT INTO mk_deals (business_id, title, contact_id, campaign_id, value, stage, stage_at, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)')
-        .bind(biz, fill(stepsOf(a, 'Oportunidad: {nombre}')[0].t, vars).slice(0, 300), contact.id, contact.campaign_id || null, etapa, t, t, t).run();
+        .bind(biz, fill(stepsOf(a, 'Oportunidad: {nombre}')[0].t, vars).slice(0, 300), contact.id, contact.campaign_id || null, etapa, t, t, t).run()
+        .then((res) => alEntrar(env, biz, { id: res.meta.last_row_id, title: fill(stepsOf(a, 'Oportunidad: {nombre}')[0].t, vars).slice(0, 300), contact_id: contact.id, stage: etapa, pipeline_id: null }, null));
     } else await addSteps(env, a, 'Contactar a {nombre}', vars, { contact_id: contact.id }, `c${contact.id}`);
     await bump(env, a);
   }
@@ -257,6 +261,196 @@ export async function checkList(c, listId) {
   return { lista: list.name, revisados: out.length, sitios: out };
 }
 
+/* ---------------- disparadores por etapa ---------------- */
+// Qué pasa cuando una oportunidad ENTRA a una etapa (mk_pipelines.autos = { etapa: [acciones] }):
+//   tarea        crea una tarea a N días ({nombre}, {oportunidad}, {etapa})
+//   seguimiento  deja el próximo paso de la oportunidad a N días
+//   plantilla    envía una plantilla aprobada de WhatsApp al contacto (por Mensajes; si falla queda una tarea avisando)
+function limpiarAutos(v, claves) {
+  const out = {};
+  if (!v || typeof v !== 'object') return out;
+  for (const k of claves) {
+    const lista = (Array.isArray(v[k]) ? v[k] : []).slice(0, 5).map((a) => {
+      const dias = Math.max(0, Math.min(365, Math.round(Number(a?.dias) || 0)));
+      if (a?.tipo === 'tarea' && String(a.texto || '').trim()) return { tipo: 'tarea', texto: String(a.texto).trim().slice(0, 200), dias };
+      if (a?.tipo === 'seguimiento') return { tipo: 'seguimiento', dias, nota: String(a.nota || '').trim().slice(0, 100) };
+      if (a?.tipo === 'plantilla' && Number(a.bandeja_id) > 0 && a.plantilla && a.idioma) return { tipo: 'plantilla', bandeja_id: Number(a.bandeja_id), plantilla: String(a.plantilla).slice(0, 100), idioma: String(a.idioma).slice(0, 12), variables: (Array.isArray(a.variables) ? a.variables : []).slice(0, 10).map((x) => String(x ?? '').slice(0, 300)) };
+      return null;
+    }).filter(Boolean);
+    if (lista.length) out[k] = lista;
+  }
+  return out;
+}
+function autosDe(b, antes, stages) {
+  const crudos = { ...(b.autos && typeof b.autos === 'object' ? b.autos : antes) };
+  for (const [i, v] of Object.entries(b.autos_nuevas && typeof b.autos_nuevas === 'object' ? b.autos_nuevas : {})) if (stages[Number(i)]) crudos[stages[Number(i)].k] = v;
+  return limpiarAutos(crudos, [...stages.map((e) => e.k), ...CIERRES]);
+}
+const leerAutos = (txt) => { try { const v = JSON.parse(txt); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } };
+const NOMBRE_CIERRE = { ganado: 'Ganado', perdido: 'Perdido' };
+// Guarda el paso por la etapa (para el informe de conversión) y corre sus disparadores. `c` solo llega cuando lo mueve una persona o la IA.
+async function alEntrar(env, biz, deal, de, c = null, conFecha = false) {
+  await env.DB.prepare('INSERT INTO mk_deal_moves (business_id, deal_id, de, a, ts) VALUES (?, ?, ?, ?, ?)').bind(biz, deal.id, de || null, deal.stage, now()).run();
+  const ps = await pipelinesDe(env, biz), p = ps.find((x) => x.id === deal.pipeline_id) || ps[0], autos = p.autos[deal.stage] || [];
+  if (!autos.length) return;
+  const k = deal.contact_id ? await one(env, 'SELECT id, name FROM mk_contacts WHERE id = ? AND business_id = ?', deal.contact_id, biz) : null;
+  const vars = { nombre: k?.name || 'el cliente', oportunidad: deal.title || '', etapa: p.stages.find((e) => e.k === deal.stage)?.n || NOMBRE_CIERRE[deal.stage] || deal.stage };
+  const liga = { contact_id: k?.id || null, deal_id: deal.id };
+  for (const [i, a] of autos.entries()) {
+    try {
+      if (a.tipo === 'tarea') await addTask(env, biz, fill(a.texto, vars), { due: addDays(today(), a.dias), ...liga, source: `etapa:${deal.id}:${deal.stage}:${i}` });
+      else if (a.tipo === 'seguimiento') { if (!conFecha) await env.DB.prepare('UPDATE mk_deals SET next_date = ?, next_time = NULL, next_note = ? WHERE id = ? AND business_id = ?').bind(addDays(today(), a.dias), a.nota || null, deal.id, biz).run(); }
+      else if (a.tipo === 'plantilla') {
+        if (!k) throw new Error('la oportunidad no tiene contacto');
+        if (!c) throw new Error('solo se envía cuando una persona o la IA mueve la oportunidad');
+        const n = (c.auditLog ||= []).length;
+        const out = await llamar(c, 'POST', '/api/whatsapp/plantillas/enviar', { body: { bandeja_id: a.bandeja_id, plantilla: a.plantilla, idioma: a.idioma, variables: a.variables, contactos: [k.id] } });
+        c.auditLog.length = n;
+        if (!out.enviados) throw new Error(out.fallidos?.[0]?.error || 'no se envió');
+        await audit(c, `Disparador de etapa: envió la plantilla «${a.plantilla}» a ${vars.nombre}`, { modulo: MOD });
+      }
+    } catch (e) {
+      console.error('disparador de etapa', a.tipo, e.message);
+      if (a.tipo === 'plantilla') await addTask(env, biz, `No se envió el WhatsApp «${a.plantilla}» a ${vars.nombre}: ${e.message}`, { ...liga, source: `etapa:${deal.id}:${deal.stage}:${i}:error` }).catch(() => {});
+    }
+  }
+}
+
+/* ---------------- informe del pipeline ---------------- */
+// Conversión entre etapas (cuántas llegaron a cada una y qué parte avanzó), días promedio en cada etapa, dónde se pierden y por qué.
+// Una ganada cuenta como que pasó por todas; lo que no tiene historial (oportunidades de antes) cuenta hasta la etapa donde está.
+export async function informePipeline(c, id, fromP, toP) {
+  const p = (await pipelinesDe(c.env, c.businessId)).find((x) => x.id === id);
+  if (!p) throw new HttpError(404, 'No encontrado');
+  const w = (t) => (p.principal ? `(${t}pipeline_id = ? OR ${t}pipeline_id IS NULL)` : `${t}pipeline_id = ?`);
+  const desde = DATE.test(fromP || '') ? fromP : null, hasta = DATE.test(toP || '') ? toP : null;
+  const fromMs = desde ? Date.parse(desde + 'T05:00:00Z') : 0, toMs = hasta ? Date.parse(hasta + 'T05:00:00Z') + 86400000 : now() + 1;
+  const deals = await all(c.env, `SELECT id, value, stage, lost_reason, created_at, closed_at FROM mk_deals WHERE business_id = ? AND ${w('')} AND created_at >= ? AND created_at < ? LIMIT 5000`, c.businessId, p.id, fromMs, toMs);
+  const moves = deals.length ? await all(c.env, `SELECT m.deal_id, m.de, m.a, m.ts FROM mk_deal_moves m JOIN mk_deals d ON d.id = m.deal_id AND d.business_id = m.business_id
+    WHERE m.business_id = ? AND ${w('d.')} AND d.created_at >= ? AND d.created_at < ? ORDER BY m.deal_id, m.ts, m.id`, c.businessId, p.id, fromMs, toMs) : [];
+  const por = new Map();
+  for (const m of moves) (por.get(m.deal_id) || por.set(m.deal_id, []).get(m.deal_id)).push(m);
+  const idx = (k) => p.stages.findIndex((e) => e.k === k);
+  const E = p.stages.map((e) => ({ etapa: e.n, clave: e.k, llegaron: 0, abiertas: 0, valor_abierto: 0, perdidas_aqui: 0, ms: 0, pasos: 0 }));
+  const gan = { n: 0, valor: 0 }, per = { n: 0, valor: 0 }, motivos = new Map();
+  let ciclo = 0;
+  for (const d of deals) {
+    const ms = por.get(d.id) || [];
+    let max = Math.max(0, ...ms.flatMap((m) => [idx(m.de), idx(m.a)]));
+    if (d.stage === 'ganado') { max = E.length - 1; gan.n++; gan.valor += d.value; ciclo += Math.max(0, (d.closed_at || d.created_at) - d.created_at); }
+    else if (d.stage === 'perdido') {
+      per.n++; per.valor += d.value;
+      const ult = [...ms].reverse().find((m) => m.a === 'perdido'), i = ult ? Math.max(0, idx(ult.de)) : max;
+      max = Math.max(max, i); E[i].perdidas_aqui++;
+      const mo = (d.lost_reason || '').trim() || 'Sin motivo', x = motivos.get(mo) || { motivo: mo, n: 0, valor: 0 };
+      x.n++; x.valor += d.value; motivos.set(mo, x);
+    } else { const i = Math.max(0, idx(d.stage)); max = Math.max(max, i); E[i].abiertas++; E[i].valor_abierto += d.value; }
+    for (let i = 0; i <= max; i++) E[i].llegaron++;
+    for (let j = 0; j < ms.length - 1; j++) { const i = idx(ms[j].a); if (i >= 0) { E[i].ms += ms[j + 1].ts - ms[j].ts; E[i].pasos++; } }
+  }
+  return { pipeline: { id: p.id, nombre: p.name }, desde, hasta, total: deals.length,
+    etapas: E.map((e, i) => { const sig = i < E.length - 1 ? E[i + 1].llegaron : gan.n; return { etapa: e.etapa, clave: e.clave, llegaron: e.llegaron, avanzan_pct: e.llegaron ? Math.round((sig / e.llegaron) * 100) : null, dias_promedio: e.pasos ? Math.round((e.ms / e.pasos / 86400000) * 10) / 10 : null, abiertas: e.abiertas, valor_abierto: e.valor_abierto, perdidas_aqui: e.perdidas_aqui }; }),
+    ganadas: gan, perdidas: per, tasa_cierre: gan.n + per.n ? Math.round((gan.n / (gan.n + per.n)) * 100) : null, ciclo_dias: gan.n ? Math.round((ciclo / gan.n / 86400000) * 10) / 10 : null,
+    motivos: [...motivos.values()].sort((a, b) => b.n - a.n) };
+}
+
+/* ---------------- difusiones ---------------- */
+// Un mensaje a un segmento de contactos: plantilla aprobada de WhatsApp o correo, por las bandejas de Mensajes (mismas reglas: quien pidió
+// no recibir más mensajes no lo recibe). Se envía por tandas cortas que pide la pantalla; si se cierra, se retoma donde iba.
+const TANDA = 8, MAX_DIFUSION = 2000;
+async function segmentoContactos(c, seg, canal) {
+  seg = seg && typeof seg === 'object' ? seg : {};
+  const w = ['k.business_id = ?', canal === 'correo' ? "k.email IS NOT NULL AND k.email <> ''" : "k.phone IS NOT NULL AND k.phone <> ''"], a = [c.businessId];
+  if (STAGES_CONTACT.includes(seg.stage)) { w.push('k.stage = ?'); a.push(seg.stage); } else w.push("k.stage <> 'perdido'");
+  if (seg.source) { w.push('k.source = ?'); a.push(String(seg.source).slice(0, 300)); }
+  if (seg.tag) { w.push("(',' || REPLACE(LOWER(COALESCE(k.tags, '')), ' ', '') || ',') LIKE ?"); a.push(`%,${String(seg.tag).toLowerCase().replace(/\s/g, '').slice(0, 60)},%`); }
+  if (Number(seg.campaign_id) > 0) { w.push('k.campaign_id = ?'); a.push(Number(seg.campaign_id)); }
+  if (Number(seg.sin_contacto_dias) > 0) { w.push("COALESCE(k.last_contact_at, '') < ?"); a.push(addDays(today(), -Number(seg.sin_contacto_dias))); }
+  if (seg.etapa || Number(seg.pipeline_id) > 0) {
+    const d = ['d.business_id = k.business_id', 'd.contact_id = k.id'];
+    if (Number(seg.pipeline_id) > 0) { const p = (await pipelinesDe(c.env, c.businessId)).find((x) => x.id === Number(seg.pipeline_id)); if (!p) throw new HttpError(400, 'Ese pipeline no existe'); d.push(p.principal ? '(d.pipeline_id = ? OR d.pipeline_id IS NULL)' : 'd.pipeline_id = ?'); a.push(p.id); }
+    if (seg.etapa) { d.push('d.stage = ?'); a.push(String(seg.etapa).slice(0, 60)); } else d.push("d.stage NOT IN ('ganado', 'perdido')");
+    w.push(`EXISTS (SELECT 1 FROM mk_deals d WHERE ${d.join(' AND ')})`);
+  }
+  const rows = await all(c.env, `SELECT k.id, k.name, k.phone, k.email FROM mk_contacts k WHERE ${w.join(' AND ')} ORDER BY k.id LIMIT ${MAX_DIFUSION + 1}`, ...a);
+  const vistos = new Set();
+  return rows.filter((k) => { const llave = canal === 'correo' ? k.email.toLowerCase() : k.phone.replace(/\D/g, ''); if (!llave || vistos.has(llave)) return false; vistos.add(llave); return true; });
+}
+function difusionRoutes(r) {
+  const una = async (c) => { const d = await one(c.env, 'SELECT * FROM mk_difusiones WHERE id = ? AND business_id = ?', Number(c.params.id), c.businessId); if (!d) throw new HttpError(404, 'No encontrado'); return d; };
+  const lista = (txt) => { try { const v = JSON.parse(txt); return Array.isArray(v) ? v : []; } catch { return []; } };
+  r.get(`${B}/difusiones/opciones`, `tenant:${MOD}`, async (c) => {
+    const [src, tags] = await Promise.all([all(c.env, "SELECT DISTINCT source k FROM mk_contacts WHERE business_id = ? AND source IS NOT NULL AND source <> '' ORDER BY source LIMIT 60", c.businessId), all(c.env, "SELECT tags FROM mk_contacts WHERE business_id = ? AND tags IS NOT NULL AND tags <> '' LIMIT 2000", c.businessId)]);
+    return json({ origenes: src.map((x) => x.k), etiquetas: [...new Set(tags.flatMap((x) => x.tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)))].sort().slice(0, 80), maximo: MAX_DIFUSION });
+  });
+  r.post(`${B}/difusiones/vista`, `tenant:${MOD}`, async (c) => {
+    const b = await readJson(c.req), rows = await segmentoContactos(c, b.segmento, b.canal === 'correo' ? 'correo' : 'whatsapp');
+    return json({ total: Math.min(rows.length, MAX_DIFUSION), hay_mas: rows.length > MAX_DIFUSION, muestra: rows.slice(0, 6).map((k) => k.name) });
+  });
+  r.get(`${B}/difusiones`, `tenant:${MOD}`, async (c) => json({ rows: (await all(c.env, 'SELECT id, nombre, canal, bandeja_id, plantilla, asunto, estado, total, enviados, fallidos, creado_por, created_at, updated_at FROM mk_difusiones WHERE business_id = ? ORDER BY id DESC LIMIT 100', c.businessId)).map((d) => ({ ...d, pendientes: Math.max(0, d.total - d.enviados - d.fallidos) })) }));
+  r.get(`${B}/difusiones/:id`, `tenant:${MOD}`, async (c) => {
+    const d = await una(c);
+    const fallidos = await all(c.env, "SELECT nombre, error FROM mk_difusion_dest WHERE business_id = ? AND difusion_id = ? AND estado = 'fallido' ORDER BY id LIMIT 100", c.businessId, d.id);
+    return json({ ...d, variables: lista(d.variables), segmento: leerAutos(d.segmento), pendientes: Math.max(0, d.total - d.enviados - d.fallidos), lista_fallidos: fallidos });
+  });
+  r.post(`${B}/difusiones`, `manager:${MOD}`, async (c) => {
+    const b = await readJson(c.req), canal = b.canal === 'correo' ? 'correo' : 'whatsapp', nombre = String(b.nombre || '').trim().slice(0, 100);
+    if (!nombre) throw new HttpError(400, 'Ponle un nombre a la difusión');
+    if (!(Number(b.bandeja_id) > 0)) throw new HttpError(400, canal === 'correo' ? 'Elige la bandeja de correo' : 'Elige la bandeja de WhatsApp');
+    const plantilla = String(b.plantilla || '').slice(0, 100), idioma = String(b.idioma || '').slice(0, 12), asunto = String(b.asunto || '').trim().slice(0, 200), mensaje = String(b.mensaje || '').trim().slice(0, 8000);
+    if (canal === 'whatsapp' && (!plantilla || !idioma)) throw new HttpError(400, 'Elige la plantilla de WhatsApp (debe estar aprobada por Meta)');
+    if (canal === 'correo' && (!asunto || !mensaje)) throw new HttpError(400, 'Escribe el asunto y el mensaje');
+    const ban = await one(c.env, 'SELECT canal, activo FROM wa_bandejas WHERE id = ? AND business_id = ?', Number(b.bandeja_id), c.businessId).catch(() => null);
+    if (!ban || ban.canal !== canal || ban.activo === 0) throw new HttpError(400, `Esa bandeja de ${canal === 'correo' ? 'correo' : 'WhatsApp'} no existe o está apagada (se conectan en Mensajes)`);
+    const dest = (await segmentoContactos(c, b.segmento, canal)).slice(0, MAX_DIFUSION);
+    if (!dest.length) throw new HttpError(400, canal === 'correo' ? 'Ningún contacto de ese segmento tiene correo' : 'Ningún contacto de ese segmento tiene teléfono');
+    const t = now(), vars = (Array.isArray(b.variables) ? b.variables : []).slice(0, 20).map((v) => String(v ?? '').slice(0, 500));
+    const res = await c.env.DB.prepare('INSERT INTO mk_difusiones (business_id, nombre, canal, bandeja_id, plantilla, idioma, variables, asunto, mensaje, segmento, total, creado_por, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(c.businessId, nombre, canal, Number(b.bandeja_id), plantilla || null, idioma || null, JSON.stringify(vars), asunto || null, mensaje || null, JSON.stringify(b.segmento && typeof b.segmento === 'object' ? b.segmento : {}).slice(0, 2000), dest.length, c.session?.name || c.session?.email || null, t, t).run();
+    const id = res.meta.last_row_id, ins = c.env.DB.prepare('INSERT INTO mk_difusion_dest (business_id, difusion_id, contact_id, nombre) VALUES (?, ?, ?, ?)');
+    for (let i = 0; i < dest.length; i += 50) await c.env.DB.batch(dest.slice(i, i + 50).map((k) => ins.bind(c.businessId, id, k.id, k.name)));
+    await audit(c, `Creó la difusión «${nombre}» para ${dest.length} ${dest.length === 1 ? 'contacto' : 'contactos'} (${canal === 'correo' ? 'correo' : 'WhatsApp'})`, { modulo: MOD });
+    return json({ id, total: dest.length }, 201);
+  });
+  // Envía la siguiente tanda. Un error general (bandeja sin clave, plantilla que ya no existe, Mensajes apagado) detiene el envío sin marcar a nadie.
+  r.post(`${B}/difusiones/:id/enviar`, `manager:${MOD}`, async (c) => {
+    const d = await una(c), t = now();
+    const pend = await all(c.env, "SELECT id, contact_id, nombre FROM mk_difusion_dest WHERE business_id = ? AND difusion_id = ? AND estado = 'pendiente' ORDER BY id LIMIT ?", c.businessId, d.id, TANDA);
+    const n0 = (c.auditLog ||= []).length;
+    let ok = 0, mal = 0;
+    for (const x of pend) {
+      let out;
+      try {
+        out = await llamar(c, 'POST', d.canal === 'correo' ? '/api/whatsapp/correo/enviar' : '/api/whatsapp/plantillas/enviar', { body: d.canal === 'correo' ? { bandeja_id: d.bandeja_id, asunto: d.asunto, mensaje: d.mensaje, contactos: [x.contact_id] } : { bandeja_id: d.bandeja_id, plantilla: d.plantilla, idioma: d.idioma, variables: lista(d.variables), contactos: [x.contact_id] } });
+      } catch (e) {
+        c.auditLog.length = n0;
+        // «elige al menos un contacto» = este contacto ya no tiene teléfono o correo: falla solo él
+        if (!/al menos un contacto/i.test(e.message)) { await cerrar(); throw new HttpError(e.status && e.status < 500 ? 400 : 502, `El envío se detuvo: ${e.message}`); }
+        out = { enviados: 0, fallidos: [{ error: d.canal === 'correo' ? 'Ya no tiene correo' : 'Ya no tiene teléfono' }] };
+      }
+      const bien = out.enviados > 0;
+      await c.env.DB.prepare('UPDATE mk_difusion_dest SET estado = ?, error = ?, ts = ? WHERE id = ?').bind(bien ? 'enviado' : 'fallido', bien ? null : String(out.fallidos?.[0]?.error || 'No se envió').slice(0, 300), t, x.id).run();
+      if (bien) { ok++; await c.env.DB.prepare('UPDATE mk_contacts SET last_contact_at = ? WHERE id = ? AND business_id = ?').bind(today(), x.contact_id, c.businessId).run(); } else mal++;
+    }
+    c.auditLog.length = n0;
+    async function cerrar() {
+      const n = await one(c.env, "SELECT COALESCE(SUM(estado = 'enviado'), 0) e, COALESCE(SUM(estado = 'fallido'), 0) f, COALESCE(SUM(estado = 'pendiente'), 0) p FROM mk_difusion_dest WHERE business_id = ? AND difusion_id = ?", c.businessId, d.id);
+      const estado = n.p ? (n.e + n.f ? 'enviando' : 'pendiente') : 'terminada';
+      await c.env.DB.prepare('UPDATE mk_difusiones SET enviados = ?, fallidos = ?, estado = ?, updated_at = ? WHERE id = ?').bind(n.e, n.f, estado, t, d.id).run();
+      return { enviados: n.e, fallidos: n.f, pendientes: n.p, estado };
+    }
+    const fin = await cerrar();
+    if (fin.estado === 'terminada' && pend.length) await audit(c, `Envió la difusión «${d.nombre}»: ${fin.enviados} ${fin.enviados === 1 ? 'enviado' : 'enviados'}${fin.fallidos ? `, ${fin.fallidos} con error` : ''}`, { modulo: MOD });
+    return json({ ...fin, total: d.total, tanda: { enviados: ok, fallidos: mal } });
+  });
+  r.delete(`${B}/difusiones/:id`, `manager:${MOD}`, async (c) => {
+    const d = await una(c);
+    await c.env.DB.batch([c.env.DB.prepare('DELETE FROM mk_difusion_dest WHERE business_id = ? AND difusion_id = ?').bind(c.businessId, d.id), c.env.DB.prepare('DELETE FROM mk_difusiones WHERE id = ? AND business_id = ?').bind(d.id, c.businessId)]);
+    await audit(c, `Borró la difusión «${d.nombre}»`, { modulo: MOD });
+    return json({ ok: true });
+  });
+}
+
 /* ---------------- entidades ---------------- */
 // Ficha 360 de un contacto: todo lo que hay con esa persona o empresa (oportunidades, tareas, chats, cotizaciones y cobros) y su historia en orden
 const org0 = (c) => c.businessId;
@@ -292,10 +486,13 @@ export const ENTITIES = {
     refs: { campaign_id: 'mk_campaigns' },
     async afterCreate(c, id, row) { if (row.stage === 'lead' || !row.stage) await onNewContact(c.env, c.businessId, { id, ...row }); } },
   deals: { table: 'mk_deals', label: 'la oportunidad', title: 'title', search: ['title', 'notes'], order: 'updated_at DESC',
-    fields: { title: 'text!', contact_id: 'int', campaign_id: 'int', pipeline_id: 'int', value: 'money', stage: 'text', expected_close: 'date', next_date: 'date', next_time: 'text', next_note: 'text', notes: 'long' },
+    fields: { title: 'text!', contact_id: 'int', campaign_id: 'int', pipeline_id: 'int', value: 'money', stage: 'text', expected_close: 'date', next_date: 'date', next_time: 'text', next_note: 'text', lost_reason: 'text', notes: 'long' },
     refs: { contact_id: 'mk_contacts', campaign_id: 'mk_campaigns', pipeline_id: 'mk_pipelines' },
     beforeCreate: (c, row) => prepararOportunidad(c, row, null),
-    beforeUpdate: (c, row, before) => prepararOportunidad(c, row, before) },
+    beforeUpdate: (c, row, before) => prepararOportunidad(c, row, before),
+    afterCreate: (c, id, row) => alEntrar(c.env, c.businessId, { id, ...row }, null, c, !!row.next_date),
+    afterUpdate: (c, id, row, before) => (row.stage_at ? alEntrar(c.env, c.businessId, { ...before, ...row, id }, before.stage, c, !!row.next_date && row.next_date !== before.next_date) : null),
+    async afterDelete(c, before) { await c.env.DB.prepare('DELETE FROM mk_deal_moves WHERE business_id = ? AND deal_id = ?').bind(c.businessId, before.id).run(); } },
   campaigns: { table: 'mk_campaigns', label: 'la campaña', title: 'name', search: ['name', 'utm_campaign'], order: "CASE status WHEN 'activa' THEN 0 WHEN 'pausada' THEN 1 ELSE 2 END, start_date DESC",
     fields: { name: 'text!', channel: ['meta_ads', 'google_ads', 'whatsapp', 'correo', 'organico', 'otro'], status: ['activa', 'pausada', 'terminada'], start_date: 'date', end_date: 'date', budget: 'money', goal_leads: 'int', utm_campaign: 'text', notes: 'long' },
     async beforeCreate(c, row) { row.utm_campaign = await uniqueUtm(c, row.utm_campaign || row.name); },
@@ -423,22 +620,24 @@ export function routes(r) {
     const b = await readJson(c.req), ps = await pipelinesDe(c.env, c.businessId), name = String(b.name || b.nombre || '').trim().slice(0, 60);
     if (!name) throw new HttpError(400, 'Ponle un nombre al pipeline');
     if (ps.length >= 10) throw new HttpError(400, 'Máximo 10 pipelines');
-    const stages = armarEtapas(b.stages || b.etapas || ETAPAS_BASE), t = now();
-    const res = await c.env.DB.prepare('INSERT INTO mk_pipelines (business_id, name, stages, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').bind(c.businessId, name, JSON.stringify(stages), ps.length, t, t).run();
+    const stages = armarEtapas(b.stages || b.etapas || ETAPAS_BASE), t = now(), autos = autosDe(b, {}, stages);
+    const res = await c.env.DB.prepare('INSERT INTO mk_pipelines (business_id, name, stages, autos, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(c.businessId, name, JSON.stringify(stages), JSON.stringify(autos), ps.length, t, t).run();
     await audit(c, `Creó el pipeline «${name}» (${stages.length} etapas)`, { modulo: MOD });
-    return json({ id: res.meta.last_row_id, name, stages }, 201);
+    return json({ id: res.meta.last_row_id, name, stages, autos }, 201);
   });
   r.patch(`${B}/pipelines/:id`, `manager:${MOD}`, async (c) => {
     const b = await readJson(c.req), p = (await pipelinesDe(c.env, c.businessId)).find((x) => x.id === Number(c.params.id));
     if (!p) throw new HttpError(404, 'No encontrado');
     const name = String(b.name ?? b.nombre ?? p.name).trim().slice(0, 60) || p.name, lista = b.stages || b.etapas, stages = lista ? armarEtapas(lista, p.stages) : p.stages, t = now();
-    await c.env.DB.prepare('UPDATE mk_pipelines SET name = ?, stages = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(name, JSON.stringify(stages), t, p.id, c.businessId).run();
+    // Los disparadores llegan por la clave de la etapa; los de una etapa nueva (aún sin clave) llegan por su posición: autos_nuevas = { "<posición>": [...] }
+    const autos = autosDe(b, p.autos, stages);
+    await c.env.DB.prepare('UPDATE mk_pipelines SET name = ?, stages = ?, autos = ?, updated_at = ? WHERE id = ? AND business_id = ?').bind(name, JSON.stringify(stages), JSON.stringify(autos), t, p.id, c.businessId).run();
     // Las oportunidades de una etapa que se quitó pasan a la primera (no se pierden)
     for (const e of p.stages.filter((x) => !stages.some((y) => y.k === x.k))) {
       await c.env.DB.prepare(`UPDATE mk_deals SET stage = ?, stage_at = ?, updated_at = ? WHERE business_id = ? AND stage = ? AND (pipeline_id = ?${p.principal ? ' OR pipeline_id IS NULL' : ''})`).bind(stages[0].k, t, t, c.businessId, e.k, p.id).run();
     }
     await audit(c, `Editó el pipeline «${name}»`, { modulo: MOD });
-    return json({ ok: true, id: p.id, name, stages });
+    return json({ ok: true, id: p.id, name, stages, autos });
   });
   r.delete(`${B}/pipelines/:id`, `manager:${MOD}`, async (c) => {
     const p = (await pipelinesDe(c.env, c.businessId)).find((x) => x.id === Number(c.params.id));
@@ -450,6 +649,8 @@ export function routes(r) {
     await audit(c, `Borró el pipeline «${p.name}»`, { modulo: MOD });
     return json({ ok: true });
   });
+  r.get(`${B}/pipelines/:id/informe`, `tenant:${MOD}`, async (c) => json(await informePipeline(c, Number(c.params.id), c.url.searchParams.get('from'), c.url.searchParams.get('to'))));
+  difusionRoutes(r);
   // Seguimiento: las oportunidades abiertas con su próximo paso, primero las vencidas y luego las que llevan más tiempo quietas
   r.get(`${B}/seguimientos`, `tenant:${MOD}`, async (c) => {
     const ps = await pipelinesDe(c.env, c.businessId), hoy = today(), t = now();
