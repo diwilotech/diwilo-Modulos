@@ -8,11 +8,13 @@
 //   POST  /api/ai/asistente { mensajes, conversacion? }      asistente del negocio (consulta y propone) · POST /asistente/aprobar { herramienta, args }
 //   GET   /api/ai/proactivo                   «lo de hoy»: avisos del negocio con la pregunta para atender cada uno (sin gastar IA; proactivo.js)
 //   GET   /api/ai/uso                         consumo de IA (hoy y últimos 30 días) y tope diario
+//   POST  /api/ai/generar { instrucciones, pedido, max?, fuente? }   texto generado para las apps (encuestas, borradores…) por el motor de IA
 //   GET|POST /api/ai/claves · DELETE /:id     claves de la API pública del negocio (/v1/…)
 // Públicos (en el dominio de cada app): /chat/<slug> (chat.js) y /v1/… (publica.js).
 import { json, readJson, HttpError } from '../../lib/http.js';
 import { crud, all, one, now } from '../../lib/crud.js';
 import { audit } from '../../lib/audit.js';
+import { llamarIA } from '../../lib/ia.js';
 import { motor, motorActivo, PROVEEDORES, hayProveedor, plataformaIA, olvidarPlataforma, ordenIA, modeloDe, viaClaude, clavesDe, cifrarClave, usoDelDia, TOPE_DIA, dayCo, ajustesDe, AJUSTES_BASE, costoUsd, neuronas, NEURONAS_GRATIS } from '../../lib/ia.js';
 import { REG, ejecutarHerramienta } from '../../lib/registro.js';
 import { ctxDeOrg } from '../../lib/contexto.js';
@@ -207,6 +209,16 @@ export function routes(r) {
       await guardarTurno(c.env, { org: c.businessId, id: b.conversacion, userId: c.session?.user_id, pregunta: String(pregunta || '').slice(0, 2000), respuesta: res.respuesta, pasos: res.pasos });
     }
     return json({ respuesta: res.respuesta, pasos: res.pasos, siguientes: res.siguientes || [] });
+  });
+  // Generar con IA desde las apps (p. ej. CD Rotaract crea encuestas): pasa por el motor (proveedor elegido, tope diario y consumo del negocio).
+  r.post(`${B}/generar`, `tenant:${MOD}`, async (c) => {
+    if (c.readOnly) throw new HttpError(403, 'La suscripción está vencida: solo lectura');
+    const b = await readJson(c.req), pedido = String(b.pedido || '').trim().slice(0, 4000);
+    if (!pedido) throw new HttpError(400, 'Escribe qué quieres generar');
+    const system = String(b.instrucciones || 'Eres un asistente útil. Responde en español.').slice(0, 8000);
+    const texto = await llamarIA(c.env, c.businessId, system, [{ role: 'user', content: pedido }],
+      { fuente: String(b.fuente || 'generar').replace(/[^\w-]/g, '').slice(0, 40) || 'generar', maxTokens: Math.min(4000, Math.max(100, Number(b.max) || 1500)), temperature: 0.4 });
+    return json({ texto });
   });
   // «Lo de hoy»: lo que necesita atención, con la pregunta para que la IA lo atienda. No llama al modelo.
   r.get(`${B}/proactivo`, `tenant:${MOD}`, async (c) => json(await proactivo(c)));

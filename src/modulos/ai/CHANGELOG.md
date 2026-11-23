@@ -1,5 +1,8 @@
 # IA (`ai`) — cambios
 
+## 1.13.0 — Generar con IA para las apps
+- `POST /api/ai/generar { instrucciones, pedido, max?, fuente? }` → `{ texto }`: las apps piden un texto (p. ej. CD Rotaract genera encuestas) por el mismo motor (`llamarIA`): proveedor de la plataforma, tope diario y consumo del negocio. Admite el modo `[prueba]` / `[[GUION]]`.
+
 ## 1.12.0 — IA proactiva
 - «Lo de hoy» (`GET /api/ai/proactivo`, `proactivo.js`, sin gastar IA): junta las alertas que cada módulo empujó al Inicio, los pendientes de los módulos propios de la app (`ctx.propias.pendientes()`, opcional) y las propuestas de los agentes que esperan aprobación. Cada aviso lleva la `pregunta` para que la IA lo atienda.
 - Botón «IA Diwilo» (`/m/iafab.js`): contador de lo urgente, un aviso corto una vez al día y, al abrir, la IA empieza por los pendientes: tocar uno le pide que lo atienda (o abre su módulo). `window.DwIA.avisos()` y `.refrescar()`.
