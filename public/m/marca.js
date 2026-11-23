@@ -456,11 +456,20 @@ DW.ready.then((me) => {
     V.esqueleto(h, 2);
     const [g, lg, ks] = await Promise.all([api(B).catch(() => null), api(`${B}/logos`).catch(() => ({ rows: [] })), api(`${MK}/cards`).catch(() => ({ rows: [] }))]);
     if (!g) { h.innerHTML = '<p class="text-danger">No se pudo leer la marca.</p>'; return; }
-    const m = g.marca || {}, tarjetas = ks.rows || [], logos = lg.rows || [];
+    const m = g.marca || {}, tarjetas = ks.rows || [], logos = lg.logos || lg.rows || [];
     const pasos = [['Logo', !!(g.negocio?.logo || logos.length), 'Súbelo en «Logos»'], ['Lema o descripción', !!(m.lema || m.descripcion), 'Cuéntalo en «Identidad»'], ['Tono de voz', !!m.tono, 'Elígelo en «Identidad»'], ['Tema de color', !!m.tema_app, 'Escógelo en «Color y letra»'], ['Plantillas de mensajes', (g.plantillas?.rows?.length || g.plantillas?.length || 0) > 0, 'Créalas para tus mensajes'], ['Tarjeta de presentación', tarjetas.length > 0, 'Crea una en «Tarjetas»']];
     const hechos = pasos.filter((p) => p[1]).length, vistas = tarjetas.reduce((t, x) => t + (x.views || 0), 0);
-    h.innerHTML = '<div data-k></div><div class="dv-g"><div data-a></div><div data-b></div></div>';
-    V.kpis($('[data-k]', h), [{ titulo: 'Marca completa', valor: `${Math.round((hechos / pasos.length) * 100)}%`, icono: 'bi-palette', tono: hechos === pasos.length ? 'ok' : 'aviso', detalle: `${hechos} de ${pasos.length} pasos` }, { titulo: 'Tarjetas', valor: String(tarjetas.length), icono: 'bi-person-vcard' }, { titulo: 'Vistas de tarjetas', valor: vistas.toLocaleString('es-CO'), icono: 'bi-eye' }, { titulo: 'Logos', valor: String(logos.length), icono: 'bi-image' }]);
+    // Arriba, la marca tal cual: el logo completo (horizontal), el logo de la app, el nombre, el lema y la descripción
+    const por = Object.fromEntries(logos.map((l) => [l.tipo, l.data_url])), appLogo = me.settings?.logo || g.negocio?.logo || null;
+    const completo = por.horizontal || por.letras || por.vertical || null, nombre = g.negocio?.nombre || me.business?.name || '';
+    h.innerHTML = `<div class="dw-card mb-3"><div class="row g-3 align-items-center">
+        <div class="col-md-6"><div class="rounded-3 border d-grid" style="place-items:center;min-height:150px;padding:16px;background:#fff">${completo ? `<img src="${esc(completo)}" alt="Logo de ${esc(nombre)}" style="max-width:100%;max-height:130px;object-fit:contain">` : '<span class="small text-body-secondary">Aún no hay logo completo: súbelo en «Identidad»</span>'}</div>
+          <div class="small text-body-secondary mt-1">Logo completo</div></div>
+        <div class="col-md-6"><div class="d-flex gap-3 align-items-center">${appLogo ? `<img src="${esc(appLogo)}" alt="Logo de la app" style="width:84px;height:84px;object-fit:contain;border-radius:18px;flex:none;border:1px solid var(--bs-border-color)">` : '<span class="d-grid border rounded-4 text-body-secondary" style="width:84px;height:84px;place-items:center;flex:none"><i class="bi bi-image"></i></span>'}
+          <div class="min-w-0"><div class="fw-bold fs-5">${esc(nombre)}</div>${m.lema ? `<div class="fst-italic text-body-secondary">${esc(m.lema)}</div>` : ''}<div class="small text-body-secondary mt-1">Logo de la app</div></div></div>
+          <p class="mb-0 mt-3">${m.descripcion ? esc(m.descripcion) : '<span class="text-body-secondary">Aún no tiene descripción: escríbela en «Identidad».</span>'}</p></div></div></div>
+      <div class="dv-g"><div data-a></div><div data-b></div></div>`;
+    void vistas;
     $('[data-a]', h).innerHTML = V.tarjeta('Qué le falta a tu marca', `<div class="mb-2" data-av></div>${pasos.map((p) => `<div class="d-flex gap-2 align-items-center py-1 small border-bottom"><i class="bi ${p[1] ? 'bi-check-circle-fill text-success' : 'bi-circle text-body-secondary'}"></i><span class="flex-grow-1">${esc(p[0])}</span>${p[1] ? '' : `<span class="text-body-secondary">${esc(p[2])}</span>`}</div>`).join('')}`);
     V.avance($('[data-av]', h), { valor: hechos, total: pasos.length, titulo: 'Avance', fmt: (v) => String(v) });
     $('[data-b]', h).innerHTML = V.tarjeta('Tarjetas más vistas', '<div data-in></div>', { sub: 'Visitas a cada tarjeta pública' });

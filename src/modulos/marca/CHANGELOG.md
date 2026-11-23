@@ -1,5 +1,9 @@
 # Marca e IA — cambios
 
+## 2.6.0 · 2026-11-23 — Resumen con la marca a la vista
+- «Resumen» ya no abre con tarjetas de estadísticas: muestra el logo completo, el logo de la app, el nombre, el lema y la descripción. Siguen «Qué le falta a tu marca» y «Tarjetas más vistas».
+- Arreglo: el resumen no contaba los logos subidos (leía `rows` en vez de `logos`).
+
 ## 2.5.0 · 2026-11-24 — Colores de Rotary
 - Temas «Rotaract (arándano)» y «Rotary (azul real)», solo para las apps que los listan (`apps` en TEMAS; hoy CD Rotaract).
 - Tipografía «Open Sans (como Rotary)», sustituta libre de Frutiger.
