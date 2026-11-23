@@ -14,6 +14,9 @@ export const TEMAS = {
   verde: { nombre: 'Verde', ui: '#15803d', card: ['#0f9f6e', '#6ee7b7', '16,185,129'] },
   turquesa: { nombre: 'Turquesa', ui: '#0f766e', card: ['#0d9488', '#5eead4', '20,184,166'] },
   grafito: { nombre: 'Grafito', ui: '#374151', card: ['#64748b', '#cbd5e1', '100,116,139'] },
+  // Colores de marca de Rotary: solo los ofrecen las apps que los listan en `apps`
+  rotaract: { nombre: 'Rotaract (arándano)', ui: '#d41367', card: ['#d41367', '#f49ac1', '212,19,103'], apps: ['cdrotaract'] },
+  rotary: { nombre: 'Rotary (azul real)', ui: '#17458f', card: ['#17458f', '#8fb3e8', '23,69,143'], apps: ['cdrotaract'] },
 };
 
 // Tipografías (lista cerrada: se leen bien y cargan rápido). google = parámetro family de Google Fonts.
@@ -24,6 +27,7 @@ export const FUENTES = {
   nunito: { nombre: 'Nunito', familia: "Nunito, system-ui, sans-serif", google: 'Nunito:wght@400;600;700' },
   lora: { nombre: 'Lora (con serifa)', familia: "Lora, Georgia, serif", google: 'Lora:wght@400;500;600' },
   space: { nombre: 'Space Grotesk', familia: "'Space Grotesk', system-ui, sans-serif", google: 'Space+Grotesk:wght@400;500;600' },
+  opensans: { nombre: 'Open Sans (como Rotary)', familia: "'Open Sans', Arial, sans-serif", google: 'Open+Sans:wght@400;600;700' },
 };
 
 // Tonos de conversación: `regla` es lo que se le pide a la IA; `ejemplo` lo ve el negocio en la vista previa.

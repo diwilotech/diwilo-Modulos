@@ -1,5 +1,9 @@
 # Marca e IA — cambios
 
+## 2.5.0 · 2026-11-24 — Colores de Rotary
+- Temas «Rotaract (arándano)» y «Rotary (azul real)», solo para las apps que los listan (`apps` en TEMAS; hoy CD Rotaract).
+- Tipografía «Open Sans (como Rotary)», sustituta libre de Frutiger.
+
 ## 2.4.0 — Resumen de la marca
 - Pestaña «Resumen»: qué tan completa está la marca (logo, lema, tono, color, plantillas, tarjeta) y las tarjetas más vistas.
 

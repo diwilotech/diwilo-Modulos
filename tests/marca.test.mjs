@@ -7,7 +7,7 @@ export default async function ({ check, diwilo, newBusiness, newMember, mcp, APP
   // Marca por defecto: color de la app, Inter y tono cercano
   const g = (await A.app(M)).data;
   check('Marca: por defecto sigue el color de la app, Inter y tono cercano', g.marca?.color === 'app' && g.marca.tipografia === 'inter' && g.marca.tono === 'cercano' && !!g.marca.tema_app, JSON.stringify(g.marca));
-  check('Marca: ofrece 9 temas, 6 tipografías y 5 tonos', g.opciones?.temas.length === 9 && g.opciones.fuentes.length === 6 && g.opciones.tonos.length === 5);
+  check('Marca: ofrece 9 temas (los de Rotary solo a su app), 7 tipografías y 5 tonos', g.opciones?.temas.length === 9 && g.opciones.fuentes.length === 7 && g.opciones.tonos.length === 5);
 
   // El color «de mi app» sigue a Apariencia
   await A.app('/api/settings/apariencia', { method: 'PUT', body: { tema: 'verde', modo: 'light' } });

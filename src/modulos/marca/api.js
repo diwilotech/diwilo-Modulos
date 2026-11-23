@@ -87,7 +87,7 @@ export function routes(r) {
       marca: { ...marca, tema_nombre: TEMAS[marca.tema_app].nombre },
       negocio: { nombre: c.ctx?.business?.name || null, logo: c.ctx?.business?.logo || null },
       opciones: {
-        temas: Object.entries(TEMAS).map(([id, t]) => ({ id, nombre: t.nombre, color: t.ui, card: t.card[0], paleta: paleta(t.ui) })),
+        temas: Object.entries(TEMAS).filter(([, t]) => !t.apps || t.apps.includes(c.ctx?.app)).map(([id, t]) => ({ id, nombre: t.nombre, color: t.ui, card: t.card[0], paleta: paleta(t.ui) })),
         fuentes: Object.entries(FUENTES).map(([id, f]) => ({ id, nombre: f.nombre, familia: f.familia, google: f.google })),
         fondos: Object.entries(FONDOS).map(([id, nombre]) => ({ id, nombre })),
         tonos: Object.entries(TONOS).map(([id, t]) => ({ id, nombre: t.nombre, ejemplo: t.ejemplo })),
