@@ -450,31 +450,34 @@ DW.ready.then((me) => {
     if (editarId) { const c = rows.find((x) => x.id === editarId); if (c) editar(c); }
   }
 
-  /* ---------- Resumen: qué tan completa está la marca y cómo rinden las tarjetas ---------- */
+  /* ---------- Resumen: la marca a la vista (logo de la app, logo horizontal, lema y descripción), sin estadísticas ---------- */
   async function resumen(h) {
-    await (new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); })); const V = window.DwViz; if (!V) return;
-    V.esqueleto(h, 2);
-    const [g, lg, ks] = await Promise.all([api(B).catch(() => null), api(`${B}/logos`).catch(() => ({ rows: [] })), api(`${MK}/cards`).catch(() => ({ rows: [] }))]);
+    h.innerHTML = '<p class="text-body-secondary">Cargando…</p>';
+    const g = await api(B).catch(() => null), lg = await api(`${B}/logos`).catch(() => ({ logos: [] }));
     if (!g) { h.innerHTML = '<p class="text-danger">No se pudo leer la marca.</p>'; return; }
-    const m = g.marca || {}, tarjetas = ks.rows || [], logos = lg.logos || lg.rows || [];
-    const pasos = [['Logo', !!(g.negocio?.logo || logos.length), 'Súbelo en «Logos»'], ['Lema o descripción', !!(m.lema || m.descripcion), 'Cuéntalo en «Identidad»'], ['Tono de voz', !!m.tono, 'Elígelo en «Identidad»'], ['Tema de color', !!m.tema_app, 'Escógelo en «Color y letra»'], ['Plantillas de mensajes', (g.plantillas?.rows?.length || g.plantillas?.length || 0) > 0, 'Créalas para tus mensajes'], ['Tarjeta de presentación', tarjetas.length > 0, 'Crea una en «Tarjetas»']];
-    const hechos = pasos.filter((p) => p[1]).length, vistas = tarjetas.reduce((t, x) => t + (x.views || 0), 0);
-    // Arriba, la marca tal cual: el logo completo (horizontal), el logo de la app, el nombre, el lema y la descripción
-    const por = Object.fromEntries(logos.map((l) => [l.tipo, l.data_url])), appLogo = me.settings?.logo || g.negocio?.logo || null;
-    const completo = por.horizontal || por.letras || por.vertical || null, nombre = g.negocio?.nombre || me.business?.name || '';
-    h.innerHTML = `<div class="dw-card mb-3"><div class="row g-3 align-items-center">
-        <div class="col-md-6"><div class="rounded-3 border d-grid" style="place-items:center;min-height:150px;padding:16px;background:#fff">${completo ? `<img src="${esc(completo)}" alt="Logo de ${esc(nombre)}" style="max-width:100%;max-height:130px;object-fit:contain">` : '<span class="small text-body-secondary">Aún no hay logo completo: súbelo en «Identidad»</span>'}</div>
-          <div class="small text-body-secondary mt-1">Logo completo</div></div>
-        <div class="col-md-6"><div class="d-flex gap-3 align-items-center">${appLogo ? `<img src="${esc(appLogo)}" alt="Logo de la app" style="width:84px;height:84px;object-fit:contain;border-radius:18px;flex:none;border:1px solid var(--bs-border-color)">` : '<span class="d-grid border rounded-4 text-body-secondary" style="width:84px;height:84px;place-items:center;flex:none"><i class="bi bi-image"></i></span>'}
-          <div class="min-w-0"><div class="fw-bold fs-5">${esc(nombre)}</div>${m.lema ? `<div class="fst-italic text-body-secondary">${esc(m.lema)}</div>` : ''}<div class="small text-body-secondary mt-1">Logo de la app</div></div></div>
-          <p class="mb-0 mt-3">${m.descripcion ? esc(m.descripcion) : '<span class="text-body-secondary">Aún no tiene descripción: escríbela en «Identidad».</span>'}</p></div></div></div>
-      <div class="dv-g"><div data-a></div><div data-b></div></div>`;
-    void vistas;
-    $('[data-a]', h).innerHTML = V.tarjeta('Qué le falta a tu marca', `<div class="mb-2" data-av></div>${pasos.map((p) => `<div class="d-flex gap-2 align-items-center py-1 small border-bottom"><i class="bi ${p[1] ? 'bi-check-circle-fill text-success' : 'bi-circle text-body-secondary'}"></i><span class="flex-grow-1">${esc(p[0])}</span>${p[1] ? '' : `<span class="text-body-secondary">${esc(p[2])}</span>`}</div>`).join('')}`);
-    V.avance($('[data-av]', h), { valor: hechos, total: pasos.length, titulo: 'Avance', fmt: (v) => String(v) });
-    $('[data-b]', h).innerHTML = V.tarjeta('Tarjetas más vistas', '<div data-in></div>', { sub: 'Visitas a cada tarjeta pública' });
-    if (!tarjetas.length) V.vacio($('[data-in]', h), { icono: 'bi-person-vcard', titulo: 'Aún no tienes tarjetas', texto: 'Una tarjeta digital con tu QR es lo primero que ve un cliente.' });
-    else V.ranking($('[data-in]', h), [...tarjetas].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 6).map((x) => ({ nombre: x.name || x.slug, valor: x.views || 0, detalle: x.predeterminada ? 'principal' : '' })), { fmt: (v) => `${v.toLocaleString('es-CO')} vistas` });
+    const m = g.marca || {}, logos = lg.logos || lg.rows || [], temas = g.opciones?.temas || [];
+    const P = (temas.find((t) => t.id === m.color_efectivo) || temas.find((t) => t.id === me.settings?.tema) || temas[0] || {}).paleta || { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 700: '#4338ca', 800: '#3730a3' };
+    const por = Object.fromEntries(logos.map((l) => [l.tipo, l.data_url])), appLogo = me.settings?.logo || g.negocio?.logo || por.app || null;
+    const horiz = por.horizontal || por.letras || null, nombre = g.negocio?.nombre || me.business?.name || '';
+    const falta = [[!appLogo, 'Logo de la app'], [!horiz, 'Logo horizontal'], [!m.descripcion, 'Descripción']].filter((x) => x[0]).map((x) => x[1]);
+    const ini = nombre.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+    h.innerHTML = `<div class="rounded-4 overflow-hidden border shadow-sm mb-3" style="background:var(--bs-body-bg)">
+        <div style="height:150px;background:radial-gradient(circle at 15% 20%,${P[400] || P[500]} 0,transparent 45%),linear-gradient(135deg,${P[600] || P[500]},${P[900] || P[800]});position:relative">
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(45deg,rgba(255,255,255,.05) 0 2px,transparent 2px 14px)"></div></div>
+        <div class="px-4 pb-4" style="margin-top:-56px;position:relative">
+          <div class="d-flex flex-wrap align-items-end gap-3">
+            ${appLogo ? `<img src="${esc(appLogo)}" alt="Logo de la app" style="width:112px;height:112px;object-fit:contain;border-radius:26px;background:#fff;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.18);border:4px solid var(--bs-body-bg)">`
+              : `<span class="d-grid text-white fw-bold" style="width:112px;height:112px;place-items:center;border-radius:26px;font-size:2.4rem;background:linear-gradient(135deg,${P[500]},${P[800]});box-shadow:0 8px 24px rgba(0,0,0,.18);border:4px solid var(--bs-body-bg)">${esc(ini)}</span>`}
+            <div class="pb-1 min-w-0"><div class="fw-bold fs-3 lh-sm">${esc(nombre)}</div>${m.lema ? `<div class="fst-italic text-body-secondary">“${esc(m.lema)}”</div>` : ''}</div>
+          </div>
+          <div class="row g-4 mt-1 align-items-stretch">
+            <div class="col-lg-7"><div class="small text-uppercase fw-semibold mb-2" style="letter-spacing:.08em;color:${P[600] || P[500]}">Quiénes somos</div>
+              ${m.descripcion ? `<p class="mb-0" style="font-size:1.08rem;line-height:1.65;white-space:pre-line">${esc(m.descripcion)}</p>` : '<p class="text-body-secondary mb-0">Aún no tiene descripción: escríbela en «Identidad».</p>'}</div>
+            <div class="col-lg-5"><div class="small text-uppercase fw-semibold mb-2" style="letter-spacing:.08em;color:${P[600] || P[500]}">Logo horizontal</div>
+              <div class="rounded-4 d-grid h-100" style="place-items:center;min-height:130px;padding:20px;background:#fff;border:1px solid ${P[100] || '#eee'}">${horiz ? `<img src="${esc(horiz)}" alt="Logo de ${esc(nombre)}" style="max-width:100%;max-height:110px;object-fit:contain">` : '<span class="small text-body-secondary text-center"><i class="bi bi-image d-block fs-3 mb-1"></i>Súbelo en «Identidad»</span>'}</div></div>
+          </div>
+          ${falta.length && CAN ? `<div class="d-flex flex-wrap gap-2 align-items-center mt-4 small"><span class="text-body-secondary">Para completarla falta:</span>${falta.map((f) => `<span class="badge rounded-pill fw-normal" style="background:${P[50] || '#f3f4f6'};color:${P[800] || '#333'}">${esc(f)}</span>`).join('')}</div>` : ''}
+        </div></div>`;
   }
 
   /* ---------- Pantalla ---------- */

@@ -1,5 +1,8 @@
 # Marca e IA — cambios
 
+## 2.7.0 · 2026-11-24 — Resumen como portada de la marca
+- «Resumen» sin estadísticas ni números: portada con el color de la marca, el logo de la app, el nombre, el lema, la descripción («Quiénes somos») y el logo horizontal. Si falta alguno, se avisa con etiquetas suaves.
+
 ## 2.6.0 · 2026-11-23 — Resumen con la marca a la vista
 - «Resumen» ya no abre con tarjetas de estadísticas: muestra el logo completo, el logo de la app, el nombre, el lema y la descripción. Siguen «Qué le falta a tu marca» y «Tarjetas más vistas».
 - Arreglo: el resumen no contaba los logos subidos (leía `rows` en vez de `logos`).
