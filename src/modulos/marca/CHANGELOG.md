@@ -1,5 +1,8 @@
 # Marca e IA — cambios
 
+## 2.7.1 · 2026-11-24 — Vuelven las listas del resumen
+- Debajo de la portada regresan «Qué le falta a tu marca» (con su avance) y «Tarjetas más vistas».
+
 ## 2.7.0 · 2026-11-24 — Resumen como portada de la marca
 - «Resumen» sin estadísticas ni números: portada con el color de la marca, el logo de la app, el nombre, el lema, la descripción («Quiénes somos») y el logo horizontal. Si falta alguno, se avisa con etiquetas suaves.
 
