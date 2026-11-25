@@ -5,6 +5,13 @@ DW.ready.then((me) => {
   const C = window.App.Crud, { money, num, day, chip } = C;
   // Cabecera del módulo: el agente (ícono y nombre), las estadísticas en líneas pequeñas y el chat; si el componente no carga, tarjetas como antes
   const cabeceraAgente = async (el, modulo, tiles) => { if (!window.DwAgenteMod) await new Promise((ok) => { const s = document.createElement('script'); s.src = (location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/') + 'agentemod.js'; s.onload = s.onerror = ok; document.head.appendChild(s); }); return window.DwAgenteMod ? window.DwAgenteMod.montar(el, { modulo, stats: tiles }) : C.kpis(el, tiles); };
+  // Secciones de arriba: píldoras con ícono y palabra (las mismas en todos los módulos y apps, como los botones del Club)
+  function segBtn(el, items, onPick, initial) {
+    if (!document.getElementById('dw-pill-css')) document.head.insertAdjacentHTML('beforeend', '<style id="dw-pill-css">.dw-segb.dw-pill{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:0 0 2px;list-style:none}.dw-segb.dw-pill .btn{flex:none;display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;border:1px solid var(--bs-border-color);background:transparent;color:inherit;font-size:.9rem;font-weight:500;white-space:nowrap}.dw-segb.dw-pill .btn:hover{background:var(--bs-tertiary-bg)}.dw-segb.dw-pill .btn.active{background:var(--dw-p);border-color:var(--dw-p);color:#fff}@media(max-width:767.98px){.dw-segb.dw-pill{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dw-segb.dw-pill::-webkit-scrollbar{display:none}}</style>');
+    el.className = 'dw-segb dw-pill'; el.hidden = false;
+    el.innerHTML = items.map(([k, l, ic]) => `<button type="button" class="btn ${k === initial ? 'active' : ''}" data-k="${k}">${ic ? `<i class="bi ${ic}"></i>` : ''}${esc(l)}</button>`).join('');
+    el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
+  }
   const B = '/api/nomina', RO = me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const hoy = C.todayCo(), mesHoy = hoy.slice(0, 7);
@@ -69,7 +76,7 @@ DW.ready.then((me) => {
   let KINDS = {};
 
   const seg = $('[data-seg]');
-  C.seg(seg, VIEWS, (k) => { view = k; render(); }, view);
+  segBtn(seg, VIEWS, (k) => { view = k; render(); }, view);
   function render() {
     history.replaceState(null, '', `#${view}`);
     $('[data-acciones]').innerHTML = '';

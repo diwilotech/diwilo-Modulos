@@ -9,7 +9,7 @@ DW.ready.then((me) => {
   const PROY = { propuesta: ['soon', 'Propuesta'], activo: ['ok', 'Activo'], terminado: ['free', 'Terminado'], cancelado: ['bad', 'Cancelado'] };
   const COT = { borrador: ['free', 'Borrador'], enviada: ['soon', 'Enviada'], aprobada: ['ok', 'Aprobada'], rechazada: ['bad', 'Rechazada'] };
   const COB = { pendiente: ['soon', 'Sin pagar'], vencida: ['bad', 'Vencida'], pagada: ['ok', 'Pagada'], anulada: ['free', 'Anulada'] };
-  const VIEWS = [['tablero', 'Tablero'], ['embudo', 'Embudo'], ['proyectos', 'Proyectos'], ['cotizaciones', 'Cotizaciones'], ['cobros', 'Cuentas de cobro']];
+  const VIEWS = [['tablero', 'Tablero', 'bi-speedometer2'], ['embudo', 'Embudo', 'bi-funnel'], ['proyectos', 'Proyectos', 'bi-kanban'], ['cotizaciones', 'Cotizaciones', 'bi-file-earmark-text'], ['cobros', 'Cuentas de cobro', 'bi-receipt']];
   let view = (location.hash || '#tablero').slice(1);
   if (!VIEWS.some(([k]) => k === view)) view = 'tablero';
   const pdf = (url) => window.open(url, '_blank', 'noopener');
@@ -422,11 +422,14 @@ DW.ready.then((me) => {
     root.innerHTML = '';
     ({ tablero, embudo, proyectos, cotizaciones, cobros })[view](root);
   }
-  const seg = $('[data-seg]');
-  seg.className = 'dw-segb'; seg.hidden = false;
-  if (!document.getElementById('dw-segb-css')) document.head.insertAdjacentHTML('beforeend', '<style id="dw-segb-css">.dw-segb{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px;padding:0;list-style:none}.dw-segb .btn{flex:none;white-space:nowrap}</style>');
-  seg.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
-  seg.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; $$('.btn', seg).forEach((x) => x.classList.toggle('active', x === b)); render(); };
+  // Secciones de arriba: píldoras con ícono y palabra (las mismas en todos los módulos y apps, como los botones del Club)
+  function segBtn(el, items, onPick, initial) {
+    if (!document.getElementById('dw-pill-css')) document.head.insertAdjacentHTML('beforeend', '<style id="dw-pill-css">.dw-segb.dw-pill{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:0 0 2px;list-style:none}.dw-segb.dw-pill .btn{flex:none;display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;border:1px solid var(--bs-border-color);background:transparent;color:inherit;font-size:.9rem;font-weight:500;white-space:nowrap}.dw-segb.dw-pill .btn:hover{background:var(--bs-tertiary-bg)}.dw-segb.dw-pill .btn.active{background:var(--dw-p);border-color:var(--dw-p);color:#fff}@media(max-width:767.98px){.dw-segb.dw-pill{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dw-segb.dw-pill::-webkit-scrollbar{display:none}}</style>');
+    el.className = 'dw-segb dw-pill'; el.hidden = false;
+    el.innerHTML = items.map(([k, l, ic]) => `<button type="button" class="btn ${k === initial ? 'active' : ''}" data-k="${k}">${ic ? `<i class="bi ${ic}"></i>` : ''}${esc(l)}</button>`).join('');
+    el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
+  }
+  segBtn($('[data-seg]'), VIEWS, (k) => { view = k; location.hash = view; render(); }, view);
   const kit = new Promise((ok) => { if (window.DwViz) return ok(); const j = document.createElement('script'); j.src = `${location.pathname.startsWith('/admin/m/') ? '/admin/m/' : '/m/'}dwviz.js`; j.onload = j.onerror = () => ok(); document.head.appendChild(j); });
   Promise.all([cabecera(), kit]).then(render);
 });

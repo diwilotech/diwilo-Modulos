@@ -7,7 +7,7 @@ DW.ready.then((me) => {
   const B = '/api/whatsapp', CAN = me.canManage && !me.business.readOnly, RO = !!me.business.readOnly;
   const $ = (s, el = document) => el.querySelector(s);
   const CAN_ = { whatsapp: { n: 'WhatsApp', i: 'bi-whatsapp', c: '#25d366' }, instagram: { n: 'Instagram', i: 'bi-instagram', c: '#e4405f' }, messenger: { n: 'Messenger', i: 'bi-messenger', c: '#0a7cff' }, webhook: { n: 'Web / Webhook', i: 'bi-globe2', c: '#7c3aed' }, correo: { n: 'Correo', i: 'bi-envelope', c: '#f59e0b' } };
-  const VIEWS = [['tablero', 'Tablero'], ['chats', 'Chats'], ['etapas', 'Embudo'], ['todos', 'Todos los mensajes'], ['plantillas', 'Plantillas'], ['bandejas', 'Bandejas'], ['archivos', 'Archivos'], ['agentes', 'Agentes de IA'], ['google', 'Google'], ...(CAN ? [['admin', 'Administrador']] : [])];
+  const VIEWS = [['tablero', 'Tablero', 'bi-speedometer2'], ['chats', 'Chats', 'bi-chat-dots'], ['etapas', 'Embudo', 'bi-funnel'], ['todos', 'Todos los mensajes', 'bi-inboxes'], ['plantillas', 'Plantillas', 'bi-file-earmark-text'], ['bandejas', 'Bandejas', 'bi-mailbox'], ['archivos', 'Archivos', 'bi-folder2'], ['agentes', 'Agentes de IA', 'bi-robot'], ['google', 'Google', 'bi-google'], ...(CAN ? [['admin', 'Administrador', 'bi-shield-lock']] : [])];
   let view = (location.hash || '#tablero').slice(1), timers = [], abrirId = null;
   if (!VIEWS.some(([k]) => k === view)) view = 'tablero';
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast('Copiado'); } catch { prompt('Copia el texto:', t); } };
@@ -54,11 +54,14 @@ DW.ready.then((me) => {
 @media (max-width:767px){.wa-box{grid-template-columns:1fr;height:calc(100dvh - 160px)}.wa-box.abierto{height:calc(100dvh - 76px)}.wa-box .wa-chat{display:none}.wa-box.abierto .wa-list{display:none}.wa-box.abierto .wa-chat{display:flex}.wa-back{display:inline-block}.wa-m{max-width:90%}}
 </style>`);
 
-  function nav() {
-    const el = $('[data-seg]'); el.className = 'd-flex flex-wrap gap-2 list-unstyled mb-3'; el.hidden = false;
-    el.innerHTML = VIEWS.map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline-secondary ${k === view ? 'active' : ''}" data-k="${k}">${esc(l)}</button>`).join('');
-    el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; view = b.dataset.k; location.hash = view; nav(); render(); };
+  // Secciones de arriba: píldoras con ícono y palabra (las mismas en todos los módulos y apps, como los botones del Club)
+  function segBtn(el, items, onPick, initial) {
+    if (!document.getElementById('dw-pill-css')) document.head.insertAdjacentHTML('beforeend', '<style id="dw-pill-css">.dw-segb.dw-pill{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:0 0 2px;list-style:none}.dw-segb.dw-pill .btn{flex:none;display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;border:1px solid var(--bs-border-color);background:transparent;color:inherit;font-size:.9rem;font-weight:500;white-space:nowrap}.dw-segb.dw-pill .btn:hover{background:var(--bs-tertiary-bg)}.dw-segb.dw-pill .btn.active{background:var(--dw-p);border-color:var(--dw-p);color:#fff}@media(max-width:767.98px){.dw-segb.dw-pill{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dw-segb.dw-pill::-webkit-scrollbar{display:none}}</style>');
+    el.className = 'dw-segb dw-pill'; el.hidden = false;
+    el.innerHTML = items.map(([k, l, ic]) => `<button type="button" class="btn ${k === initial ? 'active' : ''}" data-k="${k}">${ic ? `<i class="bi ${ic}"></i>` : ''}${esc(l)}</button>`).join('');
+    el.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; el.querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b)); onPick(b.dataset.k); };
   }
+  function nav() { segBtn($('[data-seg]'), VIEWS, (k) => { view = k; location.hash = view; render(); }, view); }
   function render() { timers.forEach(clearInterval); timers = []; const ph = $('.dw-page-head'); if (ph) ph.hidden = false; const sg0 = $('[data-seg]'); if (sg0) sg0.hidden = false; const old = $('[data-view]'), el = old.cloneNode(false); old.replaceWith(el); ({ tablero: tableroView, chats: chatsView, etapas: etapasView, todos: todosView, plantillas: plantillasView, enviar: enviarView, admin: adminView, archivos: archivosView, google: googleView, bandejas: bandejasView, agentes: agentesView, plantillas: plantillasView })[view](el); }
   const cada = (ms, f) => timers.push(setInterval(() => { if (!document.hidden) f(); }, ms));
 
